@@ -2,20 +2,63 @@
 
 A modern, responsive web application for aviation enthusiasts to track and manage their flight history. Built with React and featuring persistent storage, automatic distance calculations, and beautiful visualizations.
 
-![Flight Tracker](https://img.shields.io/badge/React-18.x-blue) ![Status](https://img.shields.io/badge/status-active-success)
+![Flight Tracker](https://img.shields.io/badge/React-18.x-blue) ![Status](https://img.shields.io/badge/status-active-success) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
+
+**Supported Platforms:** macOS, Windows, Linux
 
 ## 📋 Table of Contents
 
 - [Features](#features)
 - [Demo](#demo)
 - [Prerequisites](#prerequisites)
+  - [macOS Installation](#installing-prerequisites-on-macos)
+  - [Windows Installation](#installing-prerequisites-on-windows)
+  - [Linux Installation](#installing-prerequisites-on-linux)
 - [Installation](#installation)
+  - [Quick Start](#quick-start-macoslinux)
 - [Usage Guide](#usage-guide)
 - [Technical Details](#technical-details)
 - [Airport Codes](#airport-codes)
 - [Storage & Data](#storage--data)
 - [Troubleshooting](#troubleshooting)
+  - [macOS-Specific Issues](#macos-specific-issues)
+- [Building for Production](#building-for-production)
 - [Contributing](#contributing)
+
+## 🚀 macOS Quick Start Guide
+
+For macOS users who want to get started immediately:
+
+```bash
+# 1. Install Homebrew (if not already installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Install Node.js
+brew install node
+
+# 3. Verify installation
+node --version && npm --version
+
+# 4. Create the React app
+npx create-react-app flight-tracker
+cd flight-tracker
+
+# 5. Install dependencies
+npm install lucide-react
+
+# 6. Replace src/App.js with the flight-tracker.jsx content
+# (Copy the flight-tracker.jsx file content into src/App.js)
+
+# 7. Start the application
+npm start
+```
+
+Your default browser will open automatically at `http://localhost:3000`
+
+**Troubleshooting on macOS:**
+- If you get permission errors, run: `sudo chown -R $(whoami) ~/.npm-global`
+- If port 3000 is in use: `lsof -ti:3000 | xargs kill -9`
+- To use a different port: `PORT=3001 npm start`
 
 ## ✨ Features
 
@@ -56,13 +99,129 @@ Before you begin, ensure you have the following installed:
 - **npm** (v6.0.0 or higher) or **yarn** (v1.22.0 or higher)
 - A modern web browser (Chrome, Firefox, Safari, or Edge)
 
+### Installing Prerequisites on macOS
+
+If you don't have Node.js installed on your Mac, here are the recommended methods:
+
+#### Option 1: Using Homebrew (Recommended)
+
+1. **Install Homebrew** (if not already installed):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. **Install Node.js**:
+   ```bash
+   brew install node
+   ```
+
+3. **Verify installation**:
+   ```bash
+   node --version
+   npm --version
+   ```
+
+#### Option 2: Using Official Installer
+
+1. Visit [nodejs.org](https://nodejs.org/)
+2. Download the macOS installer (.pkg file)
+3. Run the installer and follow the prompts
+4. Verify installation in Terminal:
+   ```bash
+   node --version
+   npm --version
+   ```
+
+#### Option 3: Using NVM (Node Version Manager)
+
+For developers managing multiple Node versions:
+
+1. **Install NVM**:
+   ```bash
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+   ```
+
+2. **Restart Terminal**, then install Node:
+   ```bash
+   nvm install node
+   nvm use node
+   ```
+
+3. **Verify installation**:
+   ```bash
+   node --version
+   npm --version
+   ```
+
+### Installing Prerequisites on Windows
+
+#### Using Node.js Installer
+
+1. Visit [nodejs.org](https://nodejs.org/)
+2. Download the Windows installer (.msi file)
+3. Run the installer and follow the prompts
+4. Verify installation in Command Prompt:
+   ```cmd
+   node --version
+   npm --version
+   ```
+
+#### Using Chocolatey
+
+If you have Chocolatey installed:
+```cmd
+choco install nodejs
+```
+
+### Installing Prerequisites on Linux
+
+#### Ubuntu/Debian
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+#### Fedora/CentOS
+
+```bash
+curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+sudo yum install -y nodejs
+```
+
 ## 🚀 Installation
+
+### Quick Start (macOS/Linux)
+
+Open Terminal and run:
+
+```bash
+# Create project directory
+npx create-react-app flight-tracker
+cd flight-tracker
+
+# Install dependencies
+npm install lucide-react
+
+# The flight-tracker.jsx file should be renamed to App.js
+# and placed in the src/ directory
+
+# Start the application
+npm start
+```
 
 ### Step 1: Set Up Your Project
 
 Create a new React application using Create React App:
 
+**On macOS/Linux:**
 ```bash
+npx create-react-app flight-tracker
+cd flight-tracker
+```
+
+**On Windows:**
+```cmd
 npx create-react-app flight-tracker
 cd flight-tracker
 ```
@@ -71,7 +230,13 @@ cd flight-tracker
 
 Install the required dependencies:
 
+**On macOS/Linux:**
 ```bash
+npm install lucide-react
+```
+
+**On Windows:**
+```cmd
 npm install lucide-react
 ```
 
@@ -81,14 +246,30 @@ npm install lucide-react
 
 ### Step 3: Add the Flight Tracker Component
 
-Replace the contents of `src/App.js` with the `flight-tracker.jsx` file:
+**On macOS:**
 
+Using Terminal:
 ```bash
-# Copy the flight-tracker.jsx content to src/App.js
+# Navigate to the src directory
+cd src
+
+# If you have the flight-tracker.jsx file in Downloads:
+cp ~/Downloads/flight-tracker.jsx ./App.js
+
+# Or create App.js and paste the content
+nano App.js  # or use: code App.js (for VS Code)
 ```
 
-Or manually:
-1. Open `src/App.js`
+**On Windows:**
+
+Using Command Prompt:
+```cmd
+cd src
+copy %USERPROFILE%\Downloads\flight-tracker.jsx App.js
+```
+
+**Manual Method (All Platforms):**
+1. Open `src/App.js` in your favorite text editor
 2. Delete all existing content
 3. Copy the entire contents of `flight-tracker.jsx`
 4. Paste into `src/App.js`
@@ -117,11 +298,23 @@ body {
 
 Launch the application:
 
+**On macOS/Linux:**
 ```bash
 npm start
 ```
 
+**On Windows:**
+```cmd
+npm start
+```
+
 The application will automatically open in your browser at `http://localhost:3000`
+
+**Note:** If the browser doesn't open automatically:
+- Manually navigate to `http://localhost:3000`
+- Or press `Ctrl+C` to stop the server, then run `npm start` again
+
+**macOS Tip:** You can also use `open http://localhost:3000` to manually open the browser.
 
 ## 📖 Usage Guide
 
@@ -349,6 +542,70 @@ To restore your flight data:
 
 ## 🐛 Troubleshooting
 
+### macOS-Specific Issues
+
+#### Port 3000 Already in Use
+
+**Problem:** Error message "Something is already running on port 3000"
+
+**Solutions:**
+```bash
+# Find and kill the process using port 3000
+lsof -ti:3000 | xargs kill -9
+
+# Or use a different port
+PORT=3001 npm start
+```
+
+#### Permission Denied Errors
+
+**Problem:** Getting "EACCES" or permission errors
+
+**Solutions:**
+```bash
+# Fix npm permissions (recommended method)
+mkdir ~/.npm-global
+npm config set prefix '~/.npm-global'
+
+# Add to your PATH (add this line to ~/.zshrc or ~/.bash_profile)
+export PATH=~/.npm-global/bin:$PATH
+
+# Reload shell configuration
+source ~/.zshrc  # or source ~/.bash_profile
+```
+
+#### Command Not Found: npm or node
+
+**Problem:** Terminal doesn't recognize node or npm commands
+
+**Solutions:**
+```bash
+# Check if Node.js is installed
+which node
+which npm
+
+# If not found, reinstall using Homebrew
+brew install node
+
+# Or add Node to your PATH
+echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+#### Module Not Found After Install
+
+**Problem:** React or dependencies not found after installation
+
+**Solutions:**
+```bash
+# Clear npm cache and reinstall
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+```
+
+### General Issues
+
 ### "Invalid airport codes" Error
 
 **Problem:** Getting an error when adding a flight.
@@ -413,7 +670,13 @@ yarn start
 
 To create an optimized production build:
 
+**On macOS/Linux:**
 ```bash
+npm run build
+```
+
+**On Windows:**
+```cmd
 npm run build
 ```
 
@@ -422,30 +685,72 @@ This creates a `build` folder with static files ready for deployment.
 ### Deployment Options
 
 **Vercel** (Recommended)
+
+macOS/Linux:
 ```bash
 npm install -g vercel
 vercel
 ```
 
+Windows:
+```cmd
+npm install -g vercel
+vercel
+```
+
 **Netlify**
+
+All platforms:
 ```bash
 npm run build
 # Drag and drop the 'build' folder to netlify.com
 ```
 
 **GitHub Pages**
+
+macOS/Linux:
 ```bash
 npm install --save-dev gh-pages
 
 # Add to package.json:
-"homepage": "https://yourusername.github.io/flight-tracker",
-"scripts": {
-  "predeploy": "npm run build",
-  "deploy": "gh-pages -d build"
-}
+# "homepage": "https://yourusername.github.io/flight-tracker",
+# "scripts": {
+#   "predeploy": "npm run build",
+#   "deploy": "gh-pages -d build"
+# }
 
 # Deploy
 npm run deploy
+```
+
+Windows:
+```cmd
+npm install --save-dev gh-pages
+
+REM Add the same configuration to package.json as above
+
+npm run deploy
+```
+
+### macOS-Specific Deployment Notes
+
+**Using macOS Server:**
+```bash
+# Copy build files to web server directory
+sudo cp -r build/* /Library/WebServer/Documents/flight-tracker/
+
+# Start Apache (if not already running)
+sudo apachectl start
+```
+
+**Creating a macOS App (Optional):**
+You can wrap the web app as a native macOS application using Electron:
+```bash
+npm install --save-dev electron electron-builder
+
+# Add electron configuration to package.json
+# Then build:
+npm run electron-build
 ```
 
 ## 🔮 Future Enhancements
