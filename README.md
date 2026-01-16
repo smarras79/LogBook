@@ -1,318 +1,502 @@
-# Implicit Finite Difference Heat Equation Solver on GPU
+# ✈️ Flight Tracker
 
-A high-performance CUDA implementation of implicit finite difference methods for solving the Fourier heat equation on GPUs.
+A modern, responsive web application for aviation enthusiasts to track and manage their flight history. Built with React and featuring persistent storage, automatic distance calculations, and beautiful visualizations.
 
-## Overview
+![Flight Tracker](https://img.shields.io/badge/React-18.x-blue) ![Status](https://img.shields.io/badge/status-active-success)
 
-This repository contains GPU-accelerated solvers for the heat equation:
+## 📋 Table of Contents
 
-```
-∂u/∂t = α∇²u
-```
+- [Features](#features)
+- [Demo](#demo)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage Guide](#usage-guide)
+- [Technical Details](#technical-details)
+- [Airport Codes](#airport-codes)
+- [Storage & Data](#storage--data)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 
-where:
-- `u(x,y,t)` is the temperature field
-- `α` is the thermal diffusivity
-- `∇²` is the Laplacian operator
+## ✨ Features
 
-## Files Included
+### Core Functionality
+- **Flight Logging** - Add, edit, and delete flight records
+- **Automatic Distance Calculation** - Uses Haversine formula for accurate great-circle distances
+- **Dual Unit Display** - Shows distances in both miles and kilometers
+- **Service Class Tracking** - Track Economy, Premium Economy, Business, and First Class flights
+- **Date Management** - Record and sort flights by date
 
-1. **heat_equation_implicit_gpu.cu** - 1D implicit solver using backward Euler method
-2. **heat_equation_2d_adi_gpu.cu** - 2D solver using Alternating Direction Implicit (ADI) method
-3. **visualize.py** - Python visualization script for plotting results
+### Statistics & Insights
+- **Total Flights Counter** - Track your total number of flights
+- **Miles Flown Calculator** - Real-time calculation of total distance traveled
+- **Earth Circumference Metric** - See how many times you've flown around the Earth (24,901 miles)
+- **Visual Dashboard** - Clean statistics cards with key metrics
 
-## Mathematical Methods
+### User Experience
+- **Modern UI/UX** - Clean, minimalist design inspired by contemporary SaaS applications
+- **Persistent Storage** - All data automatically saved and preserved across sessions
+- **Responsive Design** - Works seamlessly on desktop, tablet, and mobile devices
+- **Smooth Animations** - Polished transitions and micro-interactions
+- **Airport Reference** - Built-in database of 35+ major international airports
 
-### 1D Implicit Scheme (Backward Euler)
+## 🎥 Demo
 
-The backward Euler method discretizes the heat equation as:
+The application features:
+- A clean header with "Add Flight" button
+- Three statistics cards showing Total Flights, Miles Flown, and Times Around Earth
+- A list of flight cards with route visualization
+- Modal form for adding/editing flights
+- Airport codes reference section
 
-```
-(u_i^{n+1} - u_i^n) / Δt = α(u_{i+1}^{n+1} - 2u_i^{n+1} + u_{i-1}^{n+1}) / Δx²
-```
+## 📦 Prerequisites
 
-Rearranging with r = αΔt/Δx²:
+Before you begin, ensure you have the following installed:
 
-```
--r·u_{i-1}^{n+1} + (1 + 2r)·u_i^{n+1} - r·u_{i+1}^{n+1} = u_i^n
-```
+- **Node.js** (v14.0.0 or higher)
+- **npm** (v6.0.0 or higher) or **yarn** (v1.22.0 or higher)
+- A modern web browser (Chrome, Firefox, Safari, or Edge)
 
-This forms a **tridiagonal system** Au = b at each timestep, which is:
-- **Unconditionally stable** (no CFL restriction)
-- Requires solving a linear system at each timestep
-- More expensive per timestep but allows larger timesteps
+## 🚀 Installation
 
-### 2D ADI Method (Alternating Direction Implicit)
+### Step 1: Set Up Your Project
 
-The ADI method splits the 2D problem into two 1D problems:
-
-**X-sweep** (implicit in x, explicit in y):
-```
-(1 + r_x)u*_{i,j} - 0.5r_x(u*_{i+1,j} + u*_{i-1,j}) = u^n_{i,j} + 0.5r_y(u^n_{i,j+1} - 2u^n_{i,j} + u^n_{i,j-1})
-```
-
-**Y-sweep** (implicit in y, explicit in x):
-```
-(1 + r_y)u^{n+1}_{i,j} - 0.5r_y(u^{n+1}_{i,j+1} + u^{n+1}_{i,j-1}) = u*_{i,j} + 0.5r_x(u*_{i+1,j} - 2u*_{i,j} + u*_{i-1,j})
-```
-
-Properties:
-- Second-order accurate in both space and time
-- Unconditionally stable
-- Each sweep solves independent tridiagonal systems (highly parallelizable!)
-- More efficient than fully implicit 2D schemes
-
-## GPU Implementation Details
-
-### Parallel Tridiagonal Solvers
-
-The tridiagonal systems are solved using:
-
-1. **Jacobi Iteration** (primary method)
-   - Fully parallel on GPU
-   - Each equation can be updated independently
-   - Converges for diagonally dominant matrices (which we have!)
-   - Simple implementation: `x_i^{k+1} = (b_i - a_i·x_{i-1}^k - c_i·x_{i+1}^k) / b_i`
-
-2. **Thomas Algorithm** (sequential fallback)
-   - Classic direct solver
-   - Not ideal for GPUs due to sequential dependency
-   - Included for reference
-
-### Memory Organization
-
-- **Row-major storage**: `u[j*nx + i]` for 2D arrays
-- **Coalesced memory access**: Threads access consecutive memory locations
-- **Shared memory**: Could be used for optimization (future enhancement)
-
-### Kernel Design
-
-- **2D kernels**: Use 16×16 thread blocks for 2D problems
-- **Boundary handling**: Separate kernel for boundary conditions
-- **Transpose operations**: Required for y-direction solve in ADI
-
-## Compilation and Execution
-
-### Requirements
-
-- NVIDIA GPU with CUDA support (Compute Capability 3.0+)
-- CUDA Toolkit (tested with CUDA 11.0+)
-- GCC/G++ compiler
-- Python 3 with numpy and matplotlib (for visualization)
-
-### Compile
+Create a new React application using Create React App:
 
 ```bash
-# 1D solver
-nvcc -o heat_implicit heat_equation_implicit_gpu.cu -O3
-
-# 2D solver
-nvcc -o heat_2d_implicit heat_equation_2d_adi_gpu.cu -O3
+npx create-react-app flight-tracker
+cd flight-tracker
 ```
 
-### Run
+### Step 2: Install Dependencies
+
+Install the required dependencies:
 
 ```bash
-# Run 1D solver
-./heat_implicit
-
-# Run 2D solver
-./heat_2d_implicit
-
-# Visualize results
-python3 visualize.py 1d    # For 1D solution
-python3 visualize.py 2d    # For 2D solution
+npm install lucide-react
 ```
 
-## Performance Characteristics
+**Dependencies:**
+- `react` - Core React library (included with Create React App)
+- `lucide-react` - Icon library for UI elements
 
-### Stability
+### Step 3: Add the Flight Tracker Component
 
-Both methods are **unconditionally stable**, meaning:
-- No CFL condition: Δt ≤ CΔx²
-- Can use much larger timesteps than explicit methods
-- Stability guaranteed for any timestep size
+Replace the contents of `src/App.js` with the `flight-tracker.jsx` file:
 
-### Accuracy
-
-- **Temporal accuracy**: O(Δt) for backward Euler, O(Δt²) for ADI
-- **Spatial accuracy**: O(Δx²) for both methods
-
-### Speedup
-
-Compared to CPU implementations:
-- **1D solver**: 10-50× speedup (depends on problem size)
-- **2D solver**: 50-200× speedup (more parallelism available)
-
-Optimal performance at:
-- Grid sizes: 256-2048 points per dimension
-- Thread blocks: 16×16 for 2D, 256 for 1D
-
-## Parameters
-
-Edit these in the source code:
-
-### 1D Solver
-```c
-#define N 1024          // Grid points
-#define NT 1000         // Time steps
-#define L 1.0           // Domain length
-#define ALPHA 0.01      // Thermal diffusivity
-#define T_FINAL 1.0     // Final time
+```bash
+# Copy the flight-tracker.jsx content to src/App.js
 ```
 
-### 2D Solver
-```c
-#define NX 256          // Grid points in x
-#define NY 256          // Grid points in y
-#define NT 500          // Time steps
-#define L 1.0           // Domain size
-#define ALPHA 0.01      // Thermal diffusivity
-#define T_FINAL 0.5     // Final time
+Or manually:
+1. Open `src/App.js`
+2. Delete all existing content
+3. Copy the entire contents of `flight-tracker.jsx`
+4. Paste into `src/App.js`
+5. Save the file
+
+### Step 4: Update Index Files (Optional)
+
+For a cleaner setup, update `src/index.css` with minimal styling:
+
+```css
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
 ```
 
-## Initial and Boundary Conditions
+### Step 5: Start the Development Server
 
-### Initial Condition
-- **1D**: Gaussian pulse centered at x = 0.5
-- **2D**: Gaussian blob centered at (0.5, 0.5)
+Launch the application:
 
-### Boundary Conditions
-- **Type**: Dirichlet (fixed temperature)
-- **Value**: u = 0 on all boundaries
-
-## Output Files
-
-- **solution.dat**: 1D solution (x, u values)
-- **solution_2d.dat**: 2D solution (x, y, u values)
-- **heat_1d_solution.png**: 1D visualization
-- **heat_2d_solution.png**: 2D visualization (contour, heatmap, 3D surface)
-
-## Verification
-
-To verify correctness:
-
-1. **Check conservation**: Total "heat" should decrease monotonically
-2. **Check symmetry**: For symmetric ICs, solution should remain symmetric
-3. **Check steady state**: For long times, should approach zero (homogeneous BCs)
-4. **Compare with explicit**: Run short simulations and compare with explicit FD
-
-## Possible Extensions
-
-### Performance Optimizations
-- Use cuSPARSE for tridiagonal solve
-- Implement cyclic reduction for better parallel efficiency
-- Use shared memory for frequently accessed data
-- Multi-GPU support for very large problems
-
-### Physical Extensions
-- Non-constant thermal diffusivity α(x,y)
-- Non-homogeneous boundary conditions
-- Heat sources/sinks
-- 3D solver
-- Different geometries (cylindrical, spherical)
-
-### Numerical Extensions
-- Higher-order schemes (Crank-Nicolson)
-- Adaptive time stepping
-- Multigrid methods
-- Preconditioned iterative solvers (CG, BiCGSTAB)
-
-## Mathematical Background
-
-### Why Implicit Methods?
-
-**Explicit methods** (like FTCS):
-- ✅ Simple to implement
-- ✅ Cheap per timestep
-- ❌ Stability constraint: Δt ≤ CΔx²
-- ❌ Tiny timesteps for fine grids
-
-**Implicit methods**:
-- ✅ Unconditionally stable
-- ✅ Large timesteps possible
-- ❌ Require solving linear systems
-- ❌ More complex implementation
-
-### Stability Analysis
-
-For backward Euler, the amplification factor is:
-
-```
-G = 1 / (1 + 4r·sin²(kΔx/2))
+```bash
+npm start
 ```
 
-Since |G| < 1 for all k and r > 0, the method is **unconditionally stable**.
+The application will automatically open in your browser at `http://localhost:3000`
 
-### ADI Method Derivation
+## 📖 Usage Guide
 
-Starting from the 2D heat equation:
+### Adding a Flight
 
+1. Click the **"Add Flight"** button in the top-right corner
+2. Fill in the required information:
+   - **Origin Airport** - Enter the 3-letter IATA code (e.g., JFK)
+   - **Destination Airport** - Enter the 3-letter IATA code (e.g., LAX)
+   - **Flight Date** - Select the date you flew
+   - **Class of Service** - Choose from Economy, Premium Economy, Business, or First
+3. Click **"Add Flight"** to save
+
+The application will automatically:
+- Calculate the distance between airports using the Haversine formula
+- Display the distance in both miles and kilometers
+- Update your total statistics
+- Sort the flight into chronological order
+
+### Editing a Flight
+
+1. Locate the flight card you want to edit
+2. Click the **pencil icon** (Edit button) on the right side
+3. Modify any fields in the modal form
+4. Click **"Update Flight"** to save changes
+
+### Deleting a Flight
+
+1. Locate the flight card you want to delete
+2. Click the **trash icon** (Delete button) on the right side
+3. The flight will be immediately removed and statistics updated
+
+### Understanding Your Statistics
+
+**Total Flights**
+- Shows the total number of flights you've logged
+- Updates automatically as you add or remove flights
+
+**Miles Flown**
+- Displays total distance traveled in miles
+- Shows converted value in kilometers below
+- Calculated using great-circle distance (shortest path on Earth's surface)
+
+**Times Around Earth**
+- Shows how many Earth circumferences you've completed
+- Based on Earth's circumference of 24,901 miles
+- Fun metric to visualize your travel distance
+
+### Viewing Flight Details
+
+Each flight card displays:
+- **Route** - Origin and destination airports with city names
+- **Distance** - Miles and kilometers traveled
+- **Service Class** - The cabin class you flew
+- **Date** - When the flight occurred
+- **Visual Route** - Simple arrow diagram showing direction
+
+## 🔧 Technical Details
+
+### Technology Stack
+
+- **Frontend Framework:** React 18.x
+- **Styling:** Custom CSS with Tailwind-inspired utility classes
+- **Icons:** Lucide React
+- **Storage:** Browser's localStorage API (via window.storage wrapper)
+- **Font:** Inter (Google Fonts)
+
+### Distance Calculation
+
+The application uses the **Haversine formula** to calculate great-circle distances between airports:
+
+```javascript
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 3958.8; // Earth's radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
 ```
-∂u/∂t = α(∂²u/∂x² + ∂²u/∂y²)
+
+This formula calculates the shortest distance over the Earth's surface, accounting for its spherical shape.
+
+### Data Structure
+
+Each flight is stored as an object with the following structure:
+
+```javascript
+{
+  id: 1234567890,                    // Unique timestamp ID
+  origin: "JFK",                      // Origin airport code
+  destination: "LAX",                 // Destination airport code
+  date: "2024-01-15",                // Flight date (ISO format)
+  serviceClass: "Economy",           // Service class
+  distanceMiles: 2475,               // Calculated distance in miles
+  distanceKm: 3983,                  // Calculated distance in kilometers
+  originAirport: {                   // Origin airport details
+    name: "John F. Kennedy International",
+    city: "New York",
+    lat: 40.6413,
+    lon: -73.7781
+  },
+  destAirport: {                     // Destination airport details
+    name: "Los Angeles International",
+    city: "Los Angeles",
+    lat: 33.9416,
+    lon: -118.4085
+  },
+  timestamp: 1234567890              // Creation timestamp
+}
 ```
 
-ADI splits one timestep into two half-steps:
+## ✈️ Airport Codes
 
-**Half-step 1**: Implicit in x, explicit in y
-**Half-step 2**: Implicit in y, explicit in x (using intermediate solution)
+The application includes 35 major international airports. Use these 3-letter IATA codes when logging flights:
 
-Each half-step advances time by Δt/2, but we combine them to get full timestep advancement.
+### North America
+- **JFK** - New York, John F. Kennedy International
+- **LAX** - Los Angeles International
+- **ORD** - Chicago, O'Hare International
+- **SFO** - San Francisco International
+- **MIA** - Miami International
+- **ATL** - Atlanta, Hartsfield-Jackson
+- **DEN** - Denver International
+- **SEA** - Seattle-Tacoma International
+- **BOS** - Boston Logan International
+- **IAD** - Washington Dulles International
+- **MCO** - Orlando International
+- **LAS** - Las Vegas McCarran International
+- **PHX** - Phoenix Sky Harbor International
+- **YYZ** - Toronto Pearson International
+- **YVR** - Vancouver International
 
-## Troubleshooting
+### Europe
+- **LHR** - London Heathrow
+- **CDG** - Paris, Charles de Gaulle
+- **FRA** - Frankfurt Airport
+- **AMS** - Amsterdam Schiphol
+- **MAD** - Madrid Barajas
+- **FCO** - Rome Fiumicino
+- **IST** - Istanbul Airport
 
-### Common Issues
+### Asia & Middle East
+- **DXB** - Dubai International
+- **HND** - Tokyo Haneda
+- **SIN** - Singapore Changi
+- **ICN** - Seoul Incheon
+- **PEK** - Beijing Capital
+- **PVG** - Shanghai Pudong
+- **HKG** - Hong Kong International
+- **BKK** - Bangkok Suvarnabhumi
+- **DEL** - Delhi, Indira Gandhi
+- **DOH** - Doha, Hamad International
 
-1. **"Out of memory"**
-   - Reduce grid size (NX, NY, N)
-   - Check GPU memory: `nvidia-smi`
+### Other Regions
+- **SYD** - Sydney, Kingsford Smith
+- **MEL** - Melbourne Airport
+- **GRU** - São Paulo Guarulhos
+- **EZE** - Buenos Aires Ezeiza
 
-2. **Slow convergence**
-   - Increase Jacobi iterations (max_iter)
-   - Reduce timestep (increase NT)
-   - Check stability parameter r
+### Adding Custom Airports
 
-3. **Incorrect results**
-   - Verify boundary conditions
-   - Check initial conditions
-   - Ensure r is not too large
+To add more airports, edit the `airports` object in the source code:
 
-4. **Compilation errors**
-   - Ensure CUDA toolkit is in PATH
-   - Check GPU compute capability
-   - Verify CUDA version compatibility
+```javascript
+const airports = {
+  'ABC': { 
+    name: 'Airport Full Name', 
+    city: 'City Name', 
+    lat: 12.3456,    // Latitude
+    lon: -78.9012    // Longitude
+  },
+  // ... add more airports
+};
+```
 
-## References
+## 💾 Storage & Data
 
-1. **Peaceman & Rachford** (1955) - Original ADI paper
-2. **Smith, G.D.** (1985) - "Numerical Solution of Partial Differential Equations"
-3. **NVIDIA CUDA C Programming Guide** - GPU programming best practices
-4. **LeVeque, R.J.** (2007) - "Finite Difference Methods for ODEs and PDEs"
+### How Data is Stored
 
-## Performance Benchmarks
+- **Storage Method:** Browser's localStorage via window.storage API
+- **Storage Key:** `flights-data`
+- **Data Format:** JSON string containing array of flight objects
+- **Automatic Saving:** All changes are immediately persisted
 
-Typical performance on NVIDIA RTX 3080:
+### Data Persistence
 
-| Problem Size | Method | Time (ms) | Points/sec |
-|-------------|--------|-----------|------------|
-| 1024        | 1D     | 15        | 68M        |
-| 256×256     | 2D ADI | 45        | 1.5G       |
-| 512×512     | 2D ADI | 180       | 1.5G       |
-| 1024×1024   | 2D ADI | 720       | 1.5G       |
+✅ Your data will persist:
+- Between page refreshes
+- After closing and reopening the browser
+- Across browser sessions
 
-## License
+❌ Your data will be lost if:
+- You clear browser cache/storage
+- You use browser's "Clear Data" function
+- You switch to a different browser
+- You use Incognito/Private browsing mode
 
-This code is provided for educational and research purposes.
+### Exporting Your Data
 
-## Author
+To backup your flight data:
 
-Created as a demonstration of GPU-accelerated numerical PDE solvers.
+1. Open browser Developer Tools (F12)
+2. Go to the "Console" tab
+3. Run this command:
+   ```javascript
+   copy(localStorage.getItem('flights-data'))
+   ```
+4. Paste the copied data into a text file and save it
 
-## Contributing
+### Importing Data
 
-Suggestions for improvements:
-- Better parallel tridiagonal solvers
-- 3D implementation
-- Multi-GPU support
-- More sophisticated preconditioners
-- Adaptive mesh refinement
+To restore your flight data:
+
+1. Open browser Developer Tools (F12)
+2. Go to the "Console" tab
+3. Run this command (replace `YOUR_DATA_HERE` with your backup):
+   ```javascript
+   localStorage.setItem('flights-data', 'YOUR_DATA_HERE')
+   ```
+4. Refresh the page
+
+## 🐛 Troubleshooting
+
+### "Invalid airport codes" Error
+
+**Problem:** Getting an error when adding a flight.
+
+**Solutions:**
+- Ensure you're using supported 3-letter airport codes (see Airport Codes section)
+- Check that codes are exactly 3 letters
+- Verify codes match the provided airport list
+- Codes are case-insensitive (JFK = jfk = Jfk)
+
+### Flights Not Saving
+
+**Problem:** Flights disappear after refresh.
+
+**Solutions:**
+- Check if browser's localStorage is enabled
+- Verify you're not in Incognito/Private browsing mode
+- Check browser storage settings allow localStorage
+- Try a different browser
+- Check browser console (F12) for error messages
+
+### Distance Calculation Seems Wrong
+
+**Problem:** Distance doesn't match expected value.
+
+**Explanation:**
+- The app calculates **great-circle distance** (shortest path over Earth's surface)
+- This differs from actual flight paths (which avoid restricted airspace, follow jet streams, etc.)
+- Great-circle distance is the theoretical minimum, actual flights are typically 5-15% longer
+
+### UI Not Displaying Correctly
+
+**Problem:** Layout is broken or elements overlap.
+
+**Solutions:**
+- Clear browser cache (Ctrl+F5 or Cmd+Shift+R)
+- Ensure you're using a modern browser (Chrome 90+, Firefox 88+, Safari 14+)
+- Check browser zoom level (should be 100%)
+- Try a different browser
+- Verify all CSS is loading (check Network tab in DevTools)
+
+### Application Won't Start
+
+**Problem:** `npm start` fails or shows errors.
+
+**Solutions:**
+```bash
+# Delete node_modules and reinstall
+rm -rf node_modules package-lock.json
+npm install
+
+# Clear npm cache
+npm cache clean --force
+
+# Try using yarn instead
+npm install -g yarn
+yarn install
+yarn start
+```
+
+## 🏗️ Building for Production
+
+To create an optimized production build:
+
+```bash
+npm run build
+```
+
+This creates a `build` folder with static files ready for deployment.
+
+### Deployment Options
+
+**Vercel** (Recommended)
+```bash
+npm install -g vercel
+vercel
+```
+
+**Netlify**
+```bash
+npm run build
+# Drag and drop the 'build' folder to netlify.com
+```
+
+**GitHub Pages**
+```bash
+npm install --save-dev gh-pages
+
+# Add to package.json:
+"homepage": "https://yourusername.github.io/flight-tracker",
+"scripts": {
+  "predeploy": "npm run build",
+  "deploy": "gh-pages -d build"
+}
+
+# Deploy
+npm run deploy
+```
+
+## 🔮 Future Enhancements
+
+Potential features for future versions:
+
+- [ ] Visual map integration (Google Maps / Mapbox)
+- [ ] Export to CSV/Excel
+- [ ] Flight statistics charts and graphs
+- [ ] Airline tracking
+- [ ] Flight number logging
+- [ ] Aircraft type tracking
+- [ ] Seat number/preferences
+- [ ] Multi-user support with authentication
+- [ ] Cloud sync across devices
+- [ ] Mobile app versions
+- [ ] Photo uploads for each flight
+- [ ] Airport lounges visited
+- [ ] Loyalty program integration
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Report Bugs** - Open an issue describing the problem
+2. **Suggest Features** - Share ideas for improvements
+3. **Add Airports** - Submit pull requests with additional airport codes
+4. **Improve Documentation** - Help make instructions clearer
+5. **Fix Issues** - Submit pull requests with bug fixes
+
+## 📄 License
+
+This project is open source and available under the MIT License.
+
+## 📞 Support
+
+If you encounter issues or have questions:
+
+1. Check the [Troubleshooting](#troubleshooting) section
+2. Review the [Usage Guide](#usage-guide)
+3. Search existing issues on GitHub
+4. Open a new issue with detailed information
+
+## 🙏 Acknowledgments
+
+- Icons by [Lucide](https://lucide.dev/)
+- Airport coordinate data from various public sources
+- Inspired by aviation tracking applications
+
+---
+
+**Happy Flying! ✈️**
+
+*Built with ❤️ for aviation enthusiasts*
