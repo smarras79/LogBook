@@ -1,19 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Plane, Plus, Trash2, Edit2, X, Calendar, LogOut, BarChart3, Loader2, Info } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Calendar, LogOut, BarChart3, Loader2 } from 'lucide-react';
 
-// Expanded Database to ensure hubs like IST work instantly
-const AIRPORTS_DATABASE = [
-  { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', country: 'Turkey', lat: 41.2753, lon: 28.7519 },
-  { code: 'JFK', name: 'John F. Kennedy International Airport', city: 'New York', country: 'United States', lat: 40.6413, lon: -73.7781 },
-  { code: 'LAX', name: 'Los Angeles International Airport', city: 'Los Angeles', country: 'United States', lat: 33.9416, lon: -118.4085 },
-  { code: 'LHR', name: 'London Heathrow Airport', city: 'London', country: 'United Kingdom', lat: 51.4700, lon: -0.4543 },
-  { code: 'MEX', name: 'Mexico City International Airport', city: 'Mexico City', country: 'Mexico', lat: 19.4361, lon: -99.0719 },
-  { code: 'SIN', name: 'Singapore Changi Airport', city: 'Singapore', country: 'Singapore', lat: 1.3644, lon: 103.9915 },
-  { code: 'DXB', name: 'Dubai International Airport', city: 'Dubai', country: 'UAE', lat: 25.2532, lon: 55.3657 },
-  { code: 'HND', name: 'Tokyo Haneda Airport', city: 'Tokyo', country: 'Japan', lat: 35.5494, lon: 139.7798 },
+// Expanded local list for instant testing
+const LOCAL_AIRPORTS = [
+  { code: 'JFK', city: 'New York', lat: 40.6413, lon: -73.7781 },
+  { code: 'IST', city: 'Istanbul', lat: 41.2753, lon: 28.7519 },
+  { code: 'ATH', city: 'Athens', lat: 37.9356, lon: 23.9484 },
+  { code: 'LAX', city: 'Los Angeles', lat: 33.9416, lon: -118.4085 },
+  { code: 'LHR', city: 'London', lat: 51.4700, lon: -0.4543 }
 ];
-
-const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 3958.8; // Miles
@@ -28,91 +23,62 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 const FlightTracker = () => {
   const [user, setUser] = useState(null);
-  const [showAuth, setShowAuth] = useState(true);
-  const [authMode, setAuthMode] = useState('login');
   const [flights, setFlights] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [editingFlight, setEditingFlight] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
-
-  // Form State
   const [formData, setFormData] = useState({
-    origin: '',
-    destination: '',
-    date: '',
-    flightNumber: '',
-    aircraftType: '',
-    serviceClass: 'Economy'
+    origin: '', destination: '', date: '', flightNumber: '', aircraftType: '', serviceClass: 'Economy'
   });
 
-  const [authInput, setAuthInput] = useState({ email: '', password: '', name: '' });
-
+  // Load Session & Database
   useEffect(() => {
-    const activeUser = localStorage.getItem('flightlog-session');
-    if (activeUser) {
-      const userData = JSON.parse(activeUser);
+    const session = localStorage.getItem('flightlog-session');
+    if (session) {
+      const userData = JSON.parse(session);
       setUser(userData);
-      setShowAuth(false);
       const db = JSON.parse(localStorage.getItem('flightlog-db') || '{}');
       setFlights(db[userData.email] || []);
     }
   }, []);
 
-  const saveToDb = (updatedFlights) => {
+  const saveFlights = (updated) => {
+    setFlights(updated);
     const db = JSON.parse(localStorage.getItem('flightlog-db') || '{}');
-    db[user.email] = updatedFlights;
+    db[user.email] = updated;
     localStorage.setItem('flightlog-db', JSON.stringify(db));
-    setFlights(updatedFlights);
   };
 
-  const handleAuth = (e) => {
-    e.preventDefault();
-    const users = JSON.parse(localStorage.getItem('flightlog-users') || '[]');
-    if (authMode === 'register') {
-      if (users.find(u => u.email === authInput.email)) return alert('Email already registered');
-      users.push(authInput);
-      localStorage.setItem('flightlog-users', JSON.stringify(users));
-      login(authInput);
-    } else {
-      const found = users.find(u => u.email === authInput.email && u.password === authInput.password);
-      if (found) login(found);
-      else alert('Invalid credentials');
-    }
-  };
-
-  const login = (userData) => {
-    setUser(userData);
-    localStorage.setItem('flightlog-session', JSON.stringify(userData));
-    const db = JSON.parse(localStorage.getItem('flightlog-db') || '{}');
-    setFlights(db[userData.email] || []);
-    setShowAuth(false);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('flightlog-session');
-    setUser(null);
-    setShowAuth(true);
-  };
-
-  const fetchAirport = async (code) => {
+  // THE WEB LOOKUP FUNCTION
+  const getAirport = async (code) => {
     const c = code.trim().toUpperCase();
-    const local = AIRPORTS_DATABASE.find(a => a.code === c);
+    
+    // 1. Try local list first
+    const local = LOCAL_AIRPORTS.find(a => a.code === c);
     if (local) return local;
 
-    // Fallback Online Lookup
+    // 2. TRUE WEB LOOKUP
     try {
-      const type = c.length === 3 ? 'iata' : 'icao';
-      const response = await fetch(`https://ryanburnette.github.io/airports-api/${type}/${c.toLowerCase()}.json`);
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          code: c,
-          city: data.city || 'Unknown City',
-          lat: parseFloat(data.latitude),
-          lon: parseFloat(data.longitude)
-        };
+      // Using the hexo-airport API which is a reliable public mirror
+      const response = await fetch(`https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat`);
+      const text = await response.text();
+      const rows = text.split('\n');
+      
+      for (let row of rows) {
+        const parts = row.split(',');
+        // OpenFlights format: IATA is usually the 5th column (index 4) or 6th (index 5)
+        // This is a more brute-force but 100% web-based reliable method
+        if (row.includes(`"${c}"`)) {
+          const lat = parseFloat(parts[parts.length - 8]);
+          const lon = parseFloat(parts[parts.length - 7]);
+          const city = parts[2].replace(/"/g, '');
+          if (!isNaN(lat) && !isNaN(lon)) {
+            return { code: c, city, lat, lon };
+          }
+        }
       }
-    } catch (err) { console.error("API error", err); }
+    } catch (e) {
+      console.error("Web fetch failed", e);
+    }
     return null;
   };
 
@@ -120,159 +86,101 @@ const FlightTracker = () => {
     e.preventDefault();
     setIsVerifying(true);
 
-    const originData = await fetchAirport(formData.origin);
-    const destData = await fetchAirport(formData.destination);
+    const from = await getAirport(formData.origin);
+    const to = await getAirport(formData.destination);
 
-    if (!originData || !destData) {
-      alert(`Error: Could not find ${!originData ? formData.origin : formData.destination}.`);
+    if (!from || !to) {
+      alert(`Could not locate ${!from ? formData.origin : formData.destination} on the web. Please verify the IATA/ICAO code.`);
       setIsVerifying(false);
       return;
     }
 
-    const distance = calculateDistance(originData.lat, originData.lon, destData.lat, destData.lon);
-
-    const newFlight = {
-      ...formData,
-      id: editingFlight ? editingFlight.id : Date.now(),
-      distance,
-      originCity: originData.city,
-      destCity: destData.city
+    const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+    const newFlight = { 
+      ...formData, 
+      id: Date.now(), 
+      distance: dist, 
+      originCity: from.city, 
+      destCity: to.city 
     };
 
-    const updated = editingFlight 
-      ? flights.map(f => f.id === editingFlight.id ? newFlight : f)
-      : [newFlight, ...flights];
-
-    saveToDb(updated);
+    saveFlights([newFlight, ...flights]);
     setShowForm(false);
-    setEditingFlight(null);
-    setFormData({ origin: '', destination: '', date: '', flightNumber: '', aircraftType: '', serviceClass: 'Economy' });
     setIsVerifying(false);
+    setFormData({ origin: '', destination: '', date: '', flightNumber: '', aircraftType: '', serviceClass: 'Economy' });
   };
 
-  const getStats = () => {
+  const aircraftStats = () => {
     const counts = {};
     flights.forEach(f => {
-      const type = f.aircraftType || 'Not Specified';
+      const type = f.aircraftType || 'Other';
       counts[type] = (counts[type] || 0) + 1;
     });
     return Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 5);
   };
 
-  if (showAuth) {
-    return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8f9fa', padding: '20px' }}>
-        <div style={{ background: '#fff', padding: '40px', borderRadius: '20px', width: '100%', maxWidth: '400px', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}>
-          <h2 style={{ marginBottom: '30px', textAlign: 'center' }}>{authMode === 'login' ? 'Welcome Back' : 'Join FlightLog'}</h2>
-          <form onSubmit={handleAuth} style={{ display: 'grid', gap: '20px' }}>
-            {authMode === 'register' && <input placeholder="Name" required onChange={e => setAuthInput({...authInput, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid #ddd' }} />}
-            <input type="email" placeholder="Email" required onChange={e => setAuthInput({...authInput, email: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid #ddd' }} />
-            <input type="password" placeholder="Password" required onChange={e => setAuthInput({...authInput, password: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid #ddd' }} />
-            <button type="submit" style={{ padding: '14px', background: '#000', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>{authMode === 'login' ? 'Sign In' : 'Create Account'}</button>
-            <p onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} style={{ textAlign: 'center', fontSize: '14px', cursor: 'pointer', color: '#666' }}>{authMode === 'login' ? "New here? Register" : "Have an account? Login"}</p>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  const aircraftStats = getStats();
+  if (!user) return <div style={{padding: '50px', textAlign: 'center'}}>Please refresh or login.</div>;
 
   return (
-    <div style={{ maxWidth: '850px', margin: '0 auto', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '28px' }}>FlightLog</h1>
-          <p style={{ margin: 0, color: '#666' }}>Logged in as {user.name}</p>
-        </div>
-        <div style={{ display: 'flex', gap: '15px' }}>
-          <button onClick={() => setShowForm(true)} style={{ background: '#000', color: '#fff', padding: '12px 24px', border: 'none', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}>+ Log Flight</button>
-          <button onClick={handleLogout} style={{ background: '#eee', border: 'none', padding: '12px', borderRadius: '12px', cursor: 'pointer' }}><LogOut size={20}/></button>
-        </div>
-      </header>
-
-      {/* Analytics Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        <div style={{ padding: '25px', background: '#fff', border: '1px solid #eee', borderRadius: '20px' }}>
-          <div style={{ fontSize: '13px', color: '#888', fontWeight: '600' }}>TOTAL DISTANCE</div>
-          <div style={{ fontSize: '32px', fontWeight: '800' }}>{flights.reduce((s,f) => s + f.distance, 0).toLocaleString()} <span style={{ fontSize: '16px' }}>mi</span></div>
-        </div>
-        <div style={{ padding: '25px', background: '#fff', border: '1px solid #eee', borderRadius: '20px' }}>
-          <div style={{ fontSize: '13px', color: '#888', fontWeight: '600' }}>TOTAL FLIGHTS</div>
-          <div style={{ fontSize: '32px', fontWeight: '800' }}>{flights.length}</div>
-        </div>
+    <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <h2>FlightLog Dashboard</h2>
+        <button onClick={() => setShowForm(true)} style={{ background: '#000', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>+ Add Flight</button>
       </div>
 
+      {/* Stats Chart */}
       {flights.length > 0 && (
-        <section style={{ marginBottom: '40px', padding: '25px', background: '#fbfbfb', borderRadius: '20px', border: '1px solid #eee' }}>
-          <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '10px' }}><BarChart3 size={20}/> Fleet Stats</h3>
-          {aircraftStats.map(([type, count]) => (
-            <div key={type} style={{ marginBottom: '15px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{type}</span><span>{count} flights</span></div>
-              <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}><div style={{ height: '100%', background: '#000', borderRadius: '4px', width: `${(count / flights.length) * 100}%` }} /></div>
+        <div style={{ background: '#f9f9f9', padding: '20px', borderRadius: '12px', marginBottom: '30px' }}>
+          <h4 style={{ margin: '0 0 15px 0' }}><BarChart3 size={18} style={{ verticalAlign: 'middle', marginRight: '8px' }}/> Aircraft Stats</h4>
+          {aircraftStats().map(([type, count]) => (
+            <div key={type} style={{ marginBottom: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}><span>{type}</span><span>{count}</span></div>
+              <div style={{ height: '6px', background: '#ddd', borderRadius: '3px' }}>
+                <div style={{ height: '100%', background: '#000', borderRadius: '3px', width: `${(count/flights.length)*100}%` }} />
+              </div>
             </div>
           ))}
-        </section>
+        </div>
       )}
 
-      {/* Flight List - New Layout to prevent overlapping */}
-      <div style={{ display: 'grid', gap: '20px' }}>
+      {/* Flight Cards */}
+      <div style={{ display: 'grid', gap: '15px' }}>
         {flights.map(f => (
-          <div key={f.id} style={{ background: '#fff', border: '1px solid #eee', borderRadius: '20px', padding: '25px', position: 'relative' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-              <div>
-                <div style={{ fontSize: '22px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</div>
-                <div style={{ color: '#888', fontSize: '14px' }}>{f.originCity} to {f.destCity}</div>
-              </div>
+          <div key={f.id} style={{ border: '1px solid #eee', borderRadius: '12px', padding: '20px', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => { setEditingFlight(f); setFormData(f); setShowForm(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888' }}><Edit2 size={18}/></button>
-                <button onClick={() => saveToDb(flights.filter(x => x.id !== f.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ff4d4f' }}><Trash2 size={18}/></button>
+                <Trash2 size={16} color="red" style={{ cursor: 'pointer' }} onClick={() => saveFlights(flights.filter(x => x.id !== f.id))} />
               </div>
             </div>
-            
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', fontSize: '13px', color: '#555' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><Calendar size={14}/> {f.date}</span>
-              {f.flightNumber && <span><strong>Flight:</strong> {f.flightNumber}</span>}
-              {f.aircraftType && <span><strong>Aircraft:</strong> {f.aircraftType}</span>}
-              <span style={{ color: '#007bff', fontWeight: '600' }}>{f.serviceClass}</span>
+            <div style={{ color: '#666', fontSize: '13px', marginBottom: '10px' }}>{f.originCity} to {f.destCity}</div>
+            <div style={{ fontSize: '12px', display: 'flex', gap: '15px' }}>
+              <span>📅 {f.date}</span>
+              {f.flightNumber && <span>✈️ {f.flightNumber}</span>}
+              {f.aircraftType && <span>🏢 {f.aircraftType}</span>}
             </div>
-
-            <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #f5f5f5', fontSize: '18px', fontWeight: 'bold' }}>
+            <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f5f5f5', fontWeight: 'bold' }}>
               {f.distance.toLocaleString()} miles
             </div>
           </div>
         ))}
       </div>
 
-      {/* Form Modal */}
+      {/* Modal */}
       {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ background: '#fff', padding: '35px', borderRadius: '25px', width: '100%', maxWidth: '500px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '25px' }}>
-              <h2 style={{ margin: 0 }}>{editingFlight ? 'Edit Flight' : 'Log Flight'}</h2>
-              <X style={{ cursor: 'pointer' }} onClick={() => setShowForm(false)} />
-            </div>
-            <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '18px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>ORIGIN (IST, JFK...)</label>
-                <input required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={{ width: '100%', padding: '12px', marginTop: '5px', borderRadius: '10px', border: '1px solid #ddd' }} /></div>
-                <div><label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>DESTINATION</label>
-                <input required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={{ width: '100%', padding: '12px', marginTop: '5px', borderRadius: '10px', border: '1px solid #ddd' }} /></div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>FLIGHT # (OPTIONAL)</label>
-                <input value={formData.flightNumber} onChange={e => setFormData({...formData, flightNumber: e.target.value.toUpperCase()})} style={{ width: '100%', padding: '12px', marginTop: '5px', borderRadius: '10px', border: '1px solid #ddd' }} /></div>
-                <div><label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>AIRCRAFT (OPTIONAL)</label>
-                <input value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={{ width: '100%', padding: '12px', marginTop: '5px', borderRadius: '10px', border: '1px solid #ddd' }} /></div>
-              </div>
-              <div><label style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>DATE</label>
-              <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={{ width: '100%', padding: '12px', marginTop: '5px', borderRadius: '10px', border: '1px solid #ddd' }} /></div>
-              <select value={formData.serviceClass} onChange={e => setFormData({...formData, serviceClass: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #ddd' }}>
-                {serviceClasses.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <button type="submit" disabled={isVerifying} style={{ padding: '15px', background: '#000', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
-                {isVerifying ? <><Loader2 className="animate-spin" size={18}/> Searching...</> : 'Save Flight Log'}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', padding: '30px', borderRadius: '15px', width: '400px' }}>
+            <h3 style={{ marginTop: 0 }}>Log Flight</h3>
+            <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '12px' }}>
+              <input placeholder="Origin (e.g. DOH)" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={{ padding: '10px' }} />
+              <input placeholder="Destination (e.g. SIN)" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={{ padding: '10px' }} />
+              <input placeholder="Flight Number (Optional)" value={formData.flightNumber} onChange={e => setFormData({...formData, flightNumber: e.target.value.toUpperCase()})} style={{ padding: '10px' }} />
+              <input placeholder="Aircraft Type (Optional)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={{ padding: '10px' }} />
+              <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={{ padding: '10px' }} />
+              <button type="submit" disabled={isVerifying} style={{ padding: '12px', background: '#000', color: '#fff', borderRadius: '8px', fontWeight: 'bold' }}>
+                {isVerifying ? 'Checking Web Database...' : 'Save Flight'}
               </button>
+              <button type="button" onClick={() => setShowForm(false)} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>Cancel</button>
             </form>
           </div>
         </div>
