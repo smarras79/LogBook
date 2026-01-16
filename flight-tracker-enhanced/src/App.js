@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, 
-  LogOut, Globe, BarChart3, Trophy, Loader2, Mail, Check 
+  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle 
 } from 'lucide-react';
 
 // --- CONFIGURATION (YOU MUST FILL THIS) ---
@@ -14,12 +14,13 @@ const AIRPORTS_DATABASE = [
   { code: 'JFK', name: 'John F. Kennedy Intl', city: 'New York', lat: 40.6413, lon: -73.7781 },
   { code: 'LHR', name: 'London Heathrow', city: 'London', lat: 51.4700, lon: -0.4543 },
   { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', lat: 41.2753, lon: 28.7519 },
-  // ... (Your other airports)
+  { code: 'SFO', name: 'San Francisco Intl', city: 'San Francisco', lat: 37.6188, lon: -122.3749 },
+  { code: 'DXB', name: 'Dubai Intl', city: 'Dubai', lat: 25.2532, lon: 55.3657 },
 ];
 
 const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
-// ... (Keep calculateDistance, fetchAirportData, formatDate helpers from previous code) ...
+// --- UTILS ---
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 3958.8;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -37,23 +38,36 @@ const formatDate = (dateString) => {
   return `${month}-${day}-${year}`;
 };
 
+// Helper to decode Base64 strings from Gmail
+const decodeEmailBody = (payload) => {
+  let body = '';
+  if (payload.parts) {
+    payload.parts.forEach(part => {
+      if (part.mimeType === 'text/plain' && part.body.data) {
+        body += atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+      }
+    });
+  } else if (payload.body.data) {
+    body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+  }
+  return body;
+};
+
 const FlightTracker = () => {
   const [user, setUser] = useState(null);
   const [flights, setFlights] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [showImport, setShowImport] = useState(false); // New Import Modal
+  const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [suggestedFlights, setSuggestedFlights] = useState([]);
   const [gapiInited, setGapiInited] = useState(false);
   const [tokenClient, setTokenClient] = useState(null);
-
   const [editingFlight, setEditingFlight] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [formData, setFormData] = useState({
     origin: '', destination: '', date: '', aircraftType: '', serviceClass: 'Economy'
   });
 
-  // 1. Initialize Google API on Load
   useEffect(() => {
     const session = localStorage.getItem('user-profile');
     if (session) {
@@ -61,15 +75,11 @@ const FlightTracker = () => {
       setFlights(JSON.parse(localStorage.getItem('flights-data') || '[]'));
     }
 
-    // Load Google Scripts dynamically
     const script1 = document.createElement('script');
     script1.src = "https://apis.google.com/js/api.js";
     script1.onload = () => {
       window.gapi.load('client', async () => {
-        await window.gapi.client.init({
-          apiKey: GOOGLE_API_KEY,
-          discoveryDocs: DISCOVERY_DOCS,
-        });
+        await window.gapi.client.init({ apiKey: GOOGLE_API_KEY, discoveryDocs: DISCOVERY_DOCS });
         setGapiInited(true);
       });
     };
@@ -81,146 +91,181 @@ const FlightTracker = () => {
       const client = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: SCOPES,
-        callback: '', // defined later
+        callback: '',
       });
       setTokenClient(client);
     };
     document.body.appendChild(script2);
   }, []);
 
-  // 2. Flight Parsing Logic (The "Brain")
-  const parseEmailForFlight = (message) => {
+  // --- DEEP SCAN LOGIC ---
+  const extractFlightInfo = (message) => {
     const headers = message.payload.headers;
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
     const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
-    const snippet = message.snippet;
+    
+    // 1. Get the full text content to search in depth
+    const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
 
-    // Pattern Matching for IATA codes (e.g., "JFK to LHR", "JFK-LHR", "JFK -> LHR")
-    const routeRegex = /\b([A-Z]{3})\s*(?:to|-|->|–)\s*([A-Z]{3})\b/i;
-    const match = subject.match(routeRegex) || snippet.match(routeRegex);
+    // 2. Strong Filters: Must contain specific "Ticket" keywords to trigger a deep scan
+    const isTicket = /ticket number|booking ref|confirmation code|eticket|itinerary/i.test(fullText);
+    if (!isTicket) return null;
 
-    // Date Parsing
+    // 3. Smart Route Detection (Looks for "Depart: JFK" or "From: JFK")
+    // Regex explanation: Look for "From/Depart" followed by some text, then a 3-letter ALL CAPS code in parentheses or alone
+    const originRegex = /(?:from|depart|departure|origin)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
+    const destRegex = /(?:to|arrive|arrival|destination)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
+    
+    // Fallback: simple dash pattern (JFK-LHR)
+    const simpleRouteRegex = /\b([A-Z]{3})\s*(?:to|-|->|–)\s*([A-Z]{3})\b/i;
+
+    let origin = '', destination = '';
+
+    const simpleMatch = fullText.match(simpleRouteRegex);
+    if (simpleMatch) {
+      origin = simpleMatch[1];
+      destination = simpleMatch[2];
+    } else {
+      // Try context-aware search
+      const originMatch = fullText.match(originRegex);
+      const destMatch = fullText.match(destRegex);
+      if (originMatch) origin = originMatch[1];
+      if (destMatch) destination = destMatch[1];
+    }
+
+    // 4. Flight Number Extraction
+    const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/; 
+    const numMatch = fullText.match(flightNumRegex);
+    let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
+
+    if (!origin || !destination) return null; // Only return if we found a route
+
+    // 5. Date Normalization
     const flightDate = new Date(dateHeader);
     const formattedDate = flightDate.toISOString().split('T')[0];
 
-    if (match) {
-      return {
-        id: message.id, // Use email ID as temp ID
-        origin: match[1].toUpperCase(),
-        destination: match[2].toUpperCase(),
-        date: formattedDate,
-        aircraftType: 'Unknown',
-        serviceClass: 'Economy',
-        source: 'Gmail Import',
-        snippet: snippet.substring(0, 100) + "..."
-      };
-    }
-    return null;
+    return {
+      id: message.id,
+      origin: origin.toUpperCase(),
+      destination: destination.toUpperCase(),
+      date: formattedDate,
+      flightNumber: flightNum,
+      aircraftType: 'Unknown',
+      serviceClass: 'Economy',
+      snippet: message.snippet.substring(0, 80) + "..."
+    };
   };
 
-  // 3. Connect & Fetch
   const handleGmailImport = () => {
     setImporting(true);
     tokenClient.callback = async (resp) => {
+      // FIX: Handle error gracefully instead of throwing [Object object]
       if (resp.error) {
+        console.error("Auth Error:", resp);
+        alert("Authorization failed. Please check the console for details.");
         setImporting(false);
-        throw (resp);
+        return;
       }
       
       try {
-        // Search query: looking for confirmation emails
+        // Query looks for "ticket number" explicitly now
         const response = await window.gapi.client.gmail.users.messages.list({
           'userId': 'me',
-          'q': 'subject:(flight confirmation) OR subject:(eticket) OR subject:(itinerary) after:2010/01/01',
+          'q': 'subject:(flight OR confirmation OR ticket) AND ("ticket number" OR "booking reference" OR "eticket")',
           'maxResults': 15
         });
 
         const messages = response.result.messages || [];
         const suggestions = [];
 
-        // Fetch details for each email found
         for (let msg of messages) {
-          const details = await window.gapi.client.gmail.users.messages.get({
-            'userId': 'me',
-            'id': msg.id
+          // Fetch full format to get the body
+          const details = await window.gapi.client.gmail.users.messages.get({ 
+            'userId': 'me', 
+            'id': msg.id,
+            'format': 'full' 
           });
-          const flight = parseEmailForFlight(details.result);
-          if (flight) suggestions.push(flight);
+          const flight = extractFlightInfo(details.result);
+          
+          if (flight) {
+            // Avoid duplicates in the suggestion list
+            if (!suggestions.find(s => s.id === flight.id)) {
+              suggestions.push(flight);
+            }
+          }
         }
         
         setSuggestedFlights(suggestions);
         setShowImport(true);
       } catch (err) {
-        console.error("Gmail Import Error", err);
-        alert("Could not import flights. Check console for details.");
+        console.error("Gmail Import Error:", err);
+        alert("An error occurred while scanning emails.");
       } finally {
         setImporting(false);
       }
     };
-
-    if (window.gapi.client.getToken() === null) {
-      tokenClient.requestAccessToken({prompt: 'consent'});
-    } else {
-      tokenClient.requestAccessToken({prompt: ''});
-    }
+    
+    if (window.gapi.client.getToken() === null) tokenClient.requestAccessToken({prompt: 'consent'});
+    else tokenClient.requestAccessToken({prompt: ''});
   };
 
-  // 4. Save Imported Flight
   const confirmImport = async (flight) => {
-    // We treat this like a form submission to fetch coords
-    const from = await fetchAirportData(flight.origin);
-    const to = await fetchAirportData(flight.destination);
+    // Basic validation prompt if data looks weird
+    let finalOrigin = flight.origin;
+    let finalDest = flight.destination;
+
+    if (finalOrigin === finalDest) {
+       alert("Origin and Destination cannot be the same.");
+       return;
+    }
+
+    const from = await fetchAirportData(finalOrigin);
+    const to = await fetchAirportData(finalDest);
 
     if (from && to) {
       const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
       const newFlight = { 
         ...flight, 
-        id: Date.now(), // New ID
+        id: Date.now(),
+        origin: finalOrigin,
+        destination: finalDest,
         distance: dist, 
         originCity: from.city, 
         destCity: to.city 
       };
       
-      // Add to main list
       const updated = [newFlight, ...flights];
       setFlights(updated);
       localStorage.setItem('flights-data', JSON.stringify(updated));
-      
-      // Remove from suggestions
       setSuggestedFlights(prev => prev.filter(f => f.id !== flight.id));
     } else {
-      alert("Found codes " + flight.origin + "/" + flight.destination + " but couldn't verify them. Please add manually.");
+      alert(`Could not verify airports ${finalOrigin} or ${finalDest}. Please check the codes.`);
     }
   };
 
-  // ... (Rest of saveFlights, handleSubmit, stats logic remains the same) ...
-  const saveFlights = (updated) => {
-    setFlights(updated);
-    localStorage.setItem('flights-data', JSON.stringify(updated));
-  };
-  
+  // --- STANDARD FLIGHT LOGIC (Same as before) ---
   const fetchAirportData = async (code) => {
-      const cleanCode = code.trim().toUpperCase();
-      const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
-      if (local) return local;
-  
-      try {
-        const response = await fetch(`https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat`);
-        const text = await response.text();
-        const rows = text.split('\n');
-        for (let row of rows) {
-          if (row.includes(`"${cleanCode}"`)) {
-            const parts = row.split(',');
-            return {
-              code: cleanCode,
-              city: parts[2].replace(/"/g, ''),
-              lat: parseFloat(parts[parts.length - 8]),
-              lon: parseFloat(parts[parts.length - 7])
-            };
-          }
+    const cleanCode = code.trim().toUpperCase();
+    const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
+    if (local) return local;
+
+    try {
+      const response = await fetch(`https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat`);
+      const text = await response.text();
+      const rows = text.split('\n');
+      for (let row of rows) {
+        if (row.includes(`"${cleanCode}"`)) {
+          const parts = row.split(',');
+          return {
+            code: cleanCode,
+            city: parts[2].replace(/"/g, ''),
+            lat: parseFloat(parts[parts.length - 8]),
+            lon: parseFloat(parts[parts.length - 7])
+          };
         }
-      } catch (e) { console.error(e); }
-      return null;
+      }
+    } catch (e) { console.error(e); }
+    return null;
   };
 
   const handleEdit = (flight) => {
@@ -248,7 +293,6 @@ const FlightTracker = () => {
       }
   
       const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-      
       const flightRecord = { 
         ...formData, 
         id: editingFlight ? editingFlight.id : Date.now(), 
@@ -266,6 +310,11 @@ const FlightTracker = () => {
       setEditingFlight(null);
       setIsVerifying(false);
       setFormData({ origin: '', destination: '', date: '', aircraftType: '', serviceClass: 'Economy' });
+  };
+  
+  const saveFlights = (updated) => {
+    setFlights(updated);
+    localStorage.setItem('flights-data', JSON.stringify(updated));
   };
   
   const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
@@ -302,23 +351,30 @@ const FlightTracker = () => {
         <div style={modalOverlay}>
           <div style={{...modalContent, maxWidth: '600px'}}>
             <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-              <h2>Found {suggestedFlights.length} Flights</h2>
+              <h2>Flights Found ({suggestedFlights.length})</h2>
               <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
             </div>
             
             {suggestedFlights.length === 0 ? (
-              <p>No flights found in recent emails. Try searching for specific keywords.</p>
+              <div style={{textAlign:'center', padding:'20px', color:'#666'}}>
+                <AlertCircle size={30} style={{marginBottom:'10px'}}/>
+                <p>No new flight emails found.</p>
+                <p style={{fontSize:'12px'}}>We looked for "ticket number" or "booking ref".</p>
+              </div>
             ) : (
               <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                 {suggestedFlights.map(f => (
                   <div key={f.id} style={{padding:'15px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div>
-                      <div style={{fontWeight:'bold'}}>{f.origin} → {f.destination}</div>
+                    <div style={{flex: 1, marginRight:'15px'}}>
+                      <div style={{fontWeight:'bold', display:'flex', alignItems:'center', gap:'8px'}}>
+                        {f.origin} → {f.destination}
+                        <span style={{fontSize:'11px', background:'#eee', padding:'2px 6px', borderRadius:'4px'}}>{f.flightNumber || 'No #'}</span>
+                      </div>
                       <div style={{fontSize:'12px', color:'#666'}}>{formatDate(f.date)}</div>
-                      <div style={{fontSize:'10px', color:'#999', marginTop:'4px'}}>{f.snippet}</div>
+                      <div style={{fontSize:'10px', color:'#999', marginTop:'4px', fontStyle:'italic'}}>"{f.snippet}"</div>
                     </div>
-                    <button onClick={() => confirmImport(f)} style={{background: '#00C851', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor:'pointer'}}>
-                      <Check size={16} /> Add
+                    <button onClick={() => confirmImport(f)} style={{background: '#00C851', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}>
+                      <Check size={14} /> Add
                     </button>
                   </div>
                 ))}
@@ -328,54 +384,54 @@ const FlightTracker = () => {
         </div>
       )}
 
-      {/* Normal Stats & List (Existing Code) */}
       {/* Stats Dashboard */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-              <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
-              <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
-              <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
-            </div>
-      
-            {/* Top Aircraft Chart */}
-            {flights.length > 0 && (
-              <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px', marginBottom: '40px' }}>
-                <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
-                {topAircraft.map(([type, count]) => (
-                  <div key={type} style={{ marginBottom: '15px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{type}</span><span>{count} flights</span></div>
-                    <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                      <div style={{ height: '100%', background: '#000', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-      
-            {/* Flight List */}
-            <div style={{ display: 'grid', gap: '20px' }}>
-              {sortedFlights.map(f => (
-                <div key={f.id} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</span>
-                    <div style={{display: 'flex', gap: '10px'}}>
-                      <Edit2 size={18} style={{ cursor: 'pointer' }} onClick={() => handleEdit(f)} />
-                      <Trash2 size={18} color="red" style={{ cursor: 'pointer' }} onClick={() => saveFlights(flights.filter(x => x.id !== f.id))} />
-                    </div>
-                  </div>
-                  <div style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>{f.originCity} to {f.destCity}</div>
-                  <div style={{ display: 'flex', gap: '20px', fontSize: '12px', color: '#888' }}>
-                    <span>{formatDate(f.date)}</span>
-                    <span>✈️ {f.aircraftType || 'N/A'}</span>
-                    <span style={{color:'#007bff', fontWeight:'bold'}}>{f.serviceClass}</span>
-                  </div>
-                  <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #f5f5f5', fontSize: '18px', fontWeight: 'bold' }}>
-                    {f.distance?.toLocaleString()} miles
-                  </div>
-                </div>
-              ))}
-            </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
+        <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
+        <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
+      </div>
 
-      {/* Manual Add Form (Existing Modal) */}
+      {/* Top Aircraft Chart */}
+      {flights.length > 0 && (
+        <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px', marginBottom: '40px' }}>
+          <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
+          {topAircraft.map(([type, count]) => (
+            <div key={type} style={{ marginBottom: '15px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{type}</span><span>{count} flights</span></div>
+              <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                <div style={{ height: '100%', background: '#000', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Flight List */}
+      <div style={{ display: 'grid', gap: '20px' }}>
+        {sortedFlights.map(f => (
+          <div key={f.id} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</span>
+              <div style={{display: 'flex', gap: '10px'}}>
+                <Edit2 size={18} style={{ cursor: 'pointer' }} onClick={() => handleEdit(f)} />
+                <Trash2 size={18} color="red" style={{ cursor: 'pointer' }} onClick={() => saveFlights(flights.filter(x => x.id !== f.id))} />
+              </div>
+            </div>
+            <div style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>{f.originCity} to {f.destCity}</div>
+            <div style={{ display: 'flex', gap: '20px', fontSize: '12px', color: '#888' }}>
+              <span>{formatDate(f.date)}</span>
+              {f.flightNumber && <span>✈️ {f.flightNumber}</span>}
+              <span>🏢 {f.aircraftType || 'N/A'}</span>
+              <span style={{color:'#007bff', fontWeight:'bold'}}>{f.serviceClass}</span>
+            </div>
+            <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #f5f5f5', fontSize: '18px', fontWeight: 'bold' }}>
+              {f.distance?.toLocaleString()} miles
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Modal Form */}
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalContent}>
@@ -384,9 +440,9 @@ const FlightTracker = () => {
               <X style={{ cursor: 'pointer' }} onClick={() => setShowForm(false)} />
             </div>
             <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
-              <input placeholder="Origin (e.g. IST)" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={inputStyle} />
-              <input placeholder="Destination (e.g. ATH)" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
-              <input placeholder="Aircraft Type (e.g. A350)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
+              <input placeholder="Origin" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={inputStyle} />
+              <input placeholder="Destination" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
+              <input placeholder="Aircraft Type" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
               <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 <label style={{ fontSize: '12px', color: '#666' }}>CLASS OF SERVICE</label>
