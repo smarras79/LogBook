@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, 
-  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Sun 
+  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Sun, Map, Trees, Mountain 
 } from 'lucide-react';
 
-// --- CONFIGURATION (YOU MUST FILL THIS) ---
+// --- CONFIGURATION ---
 const GOOGLE_CLIENT_ID = "870884007039-9got7ia77t611u2fugedlq6j7kftf51p.apps.googleusercontent.com"; 
 const GOOGLE_API_KEY = "AIzaSyDYzKON-9m0NYBIVZEXD434wDrmqMpyeQQ"; 
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"];
@@ -21,38 +21,61 @@ const AIRPORTS_DATABASE = [
   { code: 'HND', name: 'Tokyo Haneda', city: 'Tokyo', lat: 35.5494, lon: 139.7798 },
   { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', lat: 49.0097, lon: 2.5479 },
   { code: 'LAX', name: 'Los Angeles Intl', city: 'Los Angeles', lat: 33.9416, lon: -118.4085 },
+  { code: 'GRU', name: 'São Paulo/Guarulhos', city: 'São Paulo', lat: -23.4356, lon: -46.4731 },
 ];
 
 const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
-// --- STATS CONFIGURATION ---
-const DESERTS = [
-  { name: "Sahara", lat: 23.4162, lon: 25.6628, radius: 1000 },
-  { name: "Arabian", lat: 18.2753, lon: 42.3667, radius: 600 },
-  { name: "Gobi", lat: 42.5900, lon: 103.4300, radius: 500 },
-  { name: "Kalahari", lat: -22.5609, lon: 21.0822, radius: 400 },
-  { name: "Mojave", lat: 35.4167, lon: -115.5333, radius: 200 },
-  { name: "Australian Outback", lat: -25.2744, lon: 133.7751, radius: 800 },
-  { name: "Atacama", lat: -23.8634, lon: -69.1328, radius: 300 },
+// --- REFINED GEO DATABASE ---
+const GEO_FEATURES = [
+  // Oceans (Moved centers further from land and adjusted radii)
+  { name: "North Atlantic Ocean", type: "ocean", lat: 42.0, lon: -40.0, radius: 1500 }, // Moved East
+  { name: "South Atlantic Ocean", type: "ocean", lat: -15.0, lon: -15.0, radius: 1800 },
+  { name: "North Pacific Ocean", type: "ocean", lat: 35.0, lon: -170.0, radius: 2500 }, // Moved West
+  { name: "South Pacific Ocean", type: "ocean", lat: -25.0, lon: -130.0, radius: 2500 },
+  { name: "Indian Ocean", type: "ocean", lat: -15.0, lon: 80.0, radius: 2200 },
+  { name: "Arctic Ocean", type: "ocean", lat: 85.0, lon: 0.0, radius: 1200 },
+  
+  // Deserts
+  { name: "Sahara Desert", type: "desert", lat: 23.4162, lon: 25.6628, radius: 1000 },
+  { name: "Arabian Desert", type: "desert", lat: 18.2753, lon: 42.3667, radius: 600 },
+  { name: "Gobi Desert", type: "desert", lat: 42.5900, lon: 103.4300, radius: 500 },
+  { name: "Kalahari Desert", type: "desert", lat: -22.5609, lon: 21.0822, radius: 400 },
+  { name: "Australian Outback", type: "desert", lat: -25.2744, lon: 133.7751, radius: 800 },
+  
+  // Forests & Nature
+  { name: "Amazon Rainforest", type: "forest", lat: -3.4653, lon: -62.2159, radius: 1200 },
+  { name: "Congo Rainforest", type: "forest", lat: -1.0000, lon: 22.0000, radius: 600 },
+  { name: "Taiga (Siberia)", type: "forest", lat: 60.0000, lon: 100.0000, radius: 2000 },
+  { name: "Black Forest", type: "forest", lat: 48.0000, lon: 8.2000, radius: 50 },
+  
+  // National Parks & Landmarks (Expanded for US Routes)
+  { name: "Yellowstone NP", type: "park", lat: 44.4280, lon: -110.5885, radius: 80 },
+  { name: "Rocky Mountain NP", type: "park", lat: 40.3428, lon: -105.6836, radius: 60 },
+  { name: "Grand Canyon", type: "park", lat: 36.1069, lon: -112.1129, radius: 60 },
+  { name: "Zion NP", type: "park", lat: 37.2982, lon: -113.0263, radius: 40 },
+  { name: "Yosemite NP", type: "park", lat: 37.8651, lon: -119.5383, radius: 50 },
+  { name: "Great Smoky Mtn NP", type: "park", lat: 35.6131, lon: -83.5532, radius: 50 },
+  { name: "Banff NP", type: "park", lat: 51.4968, lon: -115.9281, radius: 60 },
+  { name: "Great Lakes", type: "water", lat: 45.0000, lon: -85.0000, radius: 300 },
+  { name: "The Alps", type: "mountain", lat: 46.8182, lon: 8.2275, radius: 150 },
+  { name: "Himalayas", type: "mountain", lat: 27.9878, lon: 86.9250, radius: 400 },
 ];
 
-// Average capacity * 82% load factor
 const getPassengerEstimate = (aircraftType) => {
   const type = (aircraftType || "").toUpperCase();
-  let capacity = 150; // Default (A320/737 size)
-
+  let capacity = 150;
   if (type.includes("380")) capacity = 500;
   else if (type.includes("747")) capacity = 416;
   else if (type.includes("777") || type.includes("350")) capacity = 350;
   else if (type.includes("787") || type.includes("330")) capacity = 250;
   else if (type.includes("767")) capacity = 220;
   else if (type.includes("CRJ") || type.includes("ERJ") || type.includes("EMB")) capacity = 70;
-
   return Math.round(capacity * 0.82);
 };
 
-// --- UTILS ---
 const toRad = (val) => val * Math.PI / 180;
+const toDeg = (val) => val * 180 / Math.PI;
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 3958.8; // Miles
@@ -65,28 +88,54 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return Math.round(R * c);
 };
 
-// Interpolate points along the Great Circle path to check for deserts
-const checkDeserts = (origin, dest) => {
-  if (!origin || !dest) return 0;
+// --- NEW GREAT CIRCLE MATH ---
+// Calculates an intermediate point at fraction 'f' (0..1) between two lat/lons
+const getIntermediatePoint = (lat1, lon1, lat2, lon2, f) => {
+  const phi1 = toRad(lat1);
+  const lam1 = toRad(lon1);
+  const phi2 = toRad(lat2);
+  const lam2 = toRad(lon2);
+
+  // Angular distance (delta)
+  const d = 2 * Math.asin(Math.sqrt(
+    Math.pow(Math.sin((phi2 - phi1) / 2), 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.pow(Math.sin((lam2 - lam1) / 2), 2)
+  ));
+
+  if (d === 0) return { lat: lat1, lon: lon1 };
+
+  const A = Math.sin((1 - f) * d) / Math.sin(d);
+  const B = Math.sin(f * d) / Math.sin(d);
+
+  const x = A * Math.cos(phi1) * Math.cos(lam1) + B * Math.cos(phi2) * Math.cos(lam2);
+  const y = A * Math.cos(phi1) * Math.sin(lam1) + B * Math.cos(phi2) * Math.sin(lam2);
+  const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+
+  const newLat = Math.atan2(z, Math.sqrt(x * x + y * y));
+  const newLon = Math.atan2(y, x);
+
+  return { lat: toDeg(newLat), lon: toDeg(newLon) };
+};
+
+const analyzeRoute = (origin, dest) => {
+  if (!origin || !dest) return [];
   
-  const steps = 20; // Check 20 points along the flight path
-  const flownOver = new Set();
+  const steps = 30; // More steps for smoother curve
+  const foundFeatures = new Set();
 
   for (let i = 0; i <= steps; i++) {
     const f = i / steps;
-    // Simple linear interpolation for approximation (sufficient for "fun stats" scale)
-    // For high precision, we would use Slerp, but this works for hitting massive targets like the Sahara.
-    const lat = origin.lat + (dest.lat - origin.lat) * f;
-    const lon = origin.lon + (dest.lon - origin.lon) * f;
+    // Use Great Circle Interpolation instead of Linear
+    const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, f);
 
-    DESERTS.forEach(desert => {
-      const dist = calculateDistance(lat, lon, desert.lat, desert.lon);
-      if (dist < desert.radius) {
-        flownOver.add(desert.name);
+    GEO_FEATURES.forEach(feature => {
+      const dist = calculateDistance(point.lat, point.lon, feature.lat, feature.lon);
+      if (dist < feature.radius) {
+        foundFeatures.add(feature.name);
       }
     });
   }
-  return flownOver.size;
+  return Array.from(foundFeatures);
 };
 
 const formatDate = (dateString) => {
@@ -154,7 +203,6 @@ const FlightTracker = () => {
     document.body.appendChild(script2);
   }, []);
 
-  // --- GMAIL LOGIC ---
   const extractFlightInfo = (message) => {
     const headers = message.payload.headers;
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
@@ -245,7 +293,6 @@ const FlightTracker = () => {
   const confirmImport = async (flight) => {
     let finalOrigin = flight.origin;
     let finalDest = flight.destination;
-
     if (finalOrigin === finalDest) { alert("Origin and Destination cannot be the same."); return; }
 
     const from = await fetchAirportData(finalOrigin);
@@ -253,7 +300,7 @@ const FlightTracker = () => {
 
     if (from && to) {
       const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-      const deserts = checkDeserts(from, to); // Calculate deserts crossed for this trip
+      const features = analyzeRoute(from, to); 
       
       const newFlight = { 
         ...flight, 
@@ -263,8 +310,7 @@ const FlightTracker = () => {
         distance: dist, 
         originCity: from.city, 
         destCity: to.city,
-        desertsCrossed: deserts,
-        // Estimate passengers upon import
+        featuresCrossed: features, 
         passengerCount: getPassengerEstimate(flight.aircraftType)
       };
       
@@ -277,7 +323,6 @@ const FlightTracker = () => {
     }
   };
 
-  // --- MANUAL ENTRY & HELPERS ---
   const fetchAirportData = async (code) => {
     const cleanCode = code.trim().toUpperCase();
     const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
@@ -315,8 +360,7 @@ const FlightTracker = () => {
     }
 
     const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-    // Recalculate stats for this manual entry
-    const deserts = checkDeserts(from, to);
+    const features = analyzeRoute(from, to); 
     const pax = getPassengerEstimate(formData.aircraftType);
 
     const flightRecord = { 
@@ -325,7 +369,7 @@ const FlightTracker = () => {
       distance: dist, 
       originCity: from.city, 
       destCity: to.city,
-      desertsCrossed: deserts,
+      featuresCrossed: features,
       passengerCount: pax
     };
 
@@ -345,11 +389,19 @@ const FlightTracker = () => {
     localStorage.setItem('flights-data', JSON.stringify(updated));
   };
   
-  // --- STATS CALCULATION ---
   const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
   const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || getPassengerEstimate(f.aircraftType)), 0);
-  const totalDeserts = flights.reduce((sum, f) => sum + (f.desertsCrossed || 0), 0);
   
+  const featureStats = {};
+  flights.forEach(f => {
+    if (f.featuresCrossed) {
+      f.featuresCrossed.forEach(feat => {
+        featureStats[feat] = (featureStats[feat] || 0) + 1;
+      });
+    }
+  });
+  const topFeatures = Object.entries(featureStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
+
   const aircraftStats = flights.reduce((acc, f) => {
       const type = f.aircraftType || 'Other';
       acc[type] = (acc[type] || 0) + 1;
@@ -413,24 +465,41 @@ const FlightTracker = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
         <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
         <div style={statCard}><Users size={20}/><div style={statVal}>{totalPassengers.toLocaleString()}</div><div style={statLbl}>Fellow Travelers</div></div>
-        <div style={statCard}><Sun size={20}/><div style={statVal}>{totalDeserts}</div><div style={statLbl}>Deserts Crossed</div></div>
+        <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(featureStats).length}</div><div style={statLbl}>Landmarks Seen</div></div>
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
       </div>
 
-      {/* Top Aircraft Chart */}
-      {flights.length > 0 && (
-        <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px', marginBottom: '40px' }}>
-          <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
-          {topAircraft.map(([type, count]) => (
-            <div key={type} style={{ marginBottom: '15px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{type}</span><span>{count} flights</span></div>
-              <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                <div style={{ height: '100%', background: '#000', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        {/* Top Aircraft Chart */}
+        {flights.length > 0 && (
+          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
+            {topAircraft.map(([type, count]) => (
+              <div key={type} style={{ marginBottom: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{type}</span><span>{count} flights</span></div>
+                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                  <div style={{ height: '100%', background: '#000', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+        
+        {/* Top Landmarks Chart */}
+        {flights.length > 0 && (
+          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Landmarks</h3>
+            {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks crossed yet.</p> : topFeatures.map(([name, count]) => (
+              <div key={name} style={{ marginBottom: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} times</span></div>
+                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                  <div style={{ height: '100%', background: '#008080', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Flight List */}
       <div style={{ display: 'grid', gap: '20px' }}>
@@ -450,9 +519,23 @@ const FlightTracker = () => {
               <span>🏢 {f.aircraftType || 'N/A'}</span>
               <span>👥 ~{f.passengerCount || getPassengerEstimate(f.aircraftType)} pax</span>
             </div>
-            {f.desertsCrossed > 0 && (
-              <div style={{marginTop:'10px', fontSize:'11px', color:'#d97706', display:'flex', alignItems:'center', gap:'4px'}}>
-                <Sun size={12}/> Crossed {f.desertsCrossed} desert{f.desertsCrossed > 1 ? 's' : ''}
+            {f.featuresCrossed && f.featuresCrossed.length > 0 && (
+              <div style={{marginTop:'12px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
+                {f.featuresCrossed.map(feat => {
+                  let icon = <Globe size={10}/>;
+                  let color = '#555';
+                  let bg = '#eee';
+                  if (feat.includes("Ocean")) { icon = "🌊"; color = "#006994"; bg="#e0f7fa"; }
+                  else if (feat.includes("Desert")) { icon = "☀️"; color = "#d97706"; bg="#fef3c7"; }
+                  else if (feat.includes("Forest")) { icon = "🌲"; color = "#166534"; bg="#dcfce7"; }
+                  else if (feat.includes("NP") || feat.includes("Park") || feat.includes("Canyon")) { icon = "🏞️"; color = "#78350f"; bg="#ffedd5"; }
+                  
+                  return (
+                    <span key={feat} style={{fontSize:'11px', background:bg, color:color, padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
+                      {icon} {feat}
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>
