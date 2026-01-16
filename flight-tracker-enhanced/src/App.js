@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, 
-  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle 
+  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Sun 
 } from 'lucide-react';
 
 // --- CONFIGURATION (YOU MUST FILL THIS) ---
@@ -16,20 +16,77 @@ const AIRPORTS_DATABASE = [
   { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', lat: 41.2753, lon: 28.7519 },
   { code: 'SFO', name: 'San Francisco Intl', city: 'San Francisco', lat: 37.6188, lon: -122.3749 },
   { code: 'DXB', name: 'Dubai Intl', city: 'Dubai', lat: 25.2532, lon: 55.3657 },
+  { code: 'SIN', name: 'Singapore Changi', city: 'Singapore', lat: 1.3644, lon: 103.9915 },
+  { code: 'SYD', name: 'Sydney Kingsford Smith', city: 'Sydney', lat: -33.9399, lon: 151.1753 },
+  { code: 'HND', name: 'Tokyo Haneda', city: 'Tokyo', lat: 35.5494, lon: 139.7798 },
+  { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', lat: 49.0097, lon: 2.5479 },
+  { code: 'LAX', name: 'Los Angeles Intl', city: 'Los Angeles', lat: 33.9416, lon: -118.4085 },
 ];
 
 const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
+// --- STATS CONFIGURATION ---
+const DESERTS = [
+  { name: "Sahara", lat: 23.4162, lon: 25.6628, radius: 1000 },
+  { name: "Arabian", lat: 18.2753, lon: 42.3667, radius: 600 },
+  { name: "Gobi", lat: 42.5900, lon: 103.4300, radius: 500 },
+  { name: "Kalahari", lat: -22.5609, lon: 21.0822, radius: 400 },
+  { name: "Mojave", lat: 35.4167, lon: -115.5333, radius: 200 },
+  { name: "Australian Outback", lat: -25.2744, lon: 133.7751, radius: 800 },
+  { name: "Atacama", lat: -23.8634, lon: -69.1328, radius: 300 },
+];
+
+// Average capacity * 82% load factor
+const getPassengerEstimate = (aircraftType) => {
+  const type = (aircraftType || "").toUpperCase();
+  let capacity = 150; // Default (A320/737 size)
+
+  if (type.includes("380")) capacity = 500;
+  else if (type.includes("747")) capacity = 416;
+  else if (type.includes("777") || type.includes("350")) capacity = 350;
+  else if (type.includes("787") || type.includes("330")) capacity = 250;
+  else if (type.includes("767")) capacity = 220;
+  else if (type.includes("CRJ") || type.includes("ERJ") || type.includes("EMB")) capacity = 70;
+
+  return Math.round(capacity * 0.82);
+};
+
 // --- UTILS ---
+const toRad = (val) => val * Math.PI / 180;
+
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 3958.8;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const R = 3958.8; // Miles
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
+};
+
+// Interpolate points along the Great Circle path to check for deserts
+const checkDeserts = (origin, dest) => {
+  if (!origin || !dest) return 0;
+  
+  const steps = 20; // Check 20 points along the flight path
+  const flownOver = new Set();
+
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    // Simple linear interpolation for approximation (sufficient for "fun stats" scale)
+    // For high precision, we would use Slerp, but this works for hitting massive targets like the Sahara.
+    const lat = origin.lat + (dest.lat - origin.lat) * f;
+    const lon = origin.lon + (dest.lon - origin.lon) * f;
+
+    DESERTS.forEach(desert => {
+      const dist = calculateDistance(lat, lon, desert.lat, desert.lon);
+      if (dist < desert.radius) {
+        flownOver.add(desert.name);
+      }
+    });
+  }
+  return flownOver.size;
 };
 
 const formatDate = (dateString) => {
@@ -38,7 +95,6 @@ const formatDate = (dateString) => {
   return `${month}-${day}-${year}`;
 };
 
-// Helper to decode Base64 strings from Gmail
 const decodeEmailBody = (payload) => {
   let body = '';
   if (payload.parts) {
@@ -98,49 +154,38 @@ const FlightTracker = () => {
     document.body.appendChild(script2);
   }, []);
 
-  // --- DEEP SCAN LOGIC ---
+  // --- GMAIL LOGIC ---
   const extractFlightInfo = (message) => {
     const headers = message.payload.headers;
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
     const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
-    
-    // 1. Get the full text content to search in depth
     const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
 
-    // 2. Strong Filters: Must contain specific "Ticket" keywords to trigger a deep scan
     const isTicket = /ticket number|booking ref|confirmation code|eticket|itinerary/i.test(fullText);
     if (!isTicket) return null;
 
-    // 3. Smart Route Detection (Looks for "Depart: JFK" or "From: JFK")
-    // Regex explanation: Look for "From/Depart" followed by some text, then a 3-letter ALL CAPS code in parentheses or alone
     const originRegex = /(?:from|depart|departure|origin)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
     const destRegex = /(?:to|arrive|arrival|destination)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
-    
-    // Fallback: simple dash pattern (JFK-LHR)
     const simpleRouteRegex = /\b([A-Z]{3})\s*(?:to|-|->|–)\s*([A-Z]{3})\b/i;
 
     let origin = '', destination = '';
-
     const simpleMatch = fullText.match(simpleRouteRegex);
     if (simpleMatch) {
       origin = simpleMatch[1];
       destination = simpleMatch[2];
     } else {
-      // Try context-aware search
       const originMatch = fullText.match(originRegex);
       const destMatch = fullText.match(destRegex);
       if (originMatch) origin = originMatch[1];
       if (destMatch) destination = destMatch[1];
     }
 
-    // 4. Flight Number Extraction
     const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/; 
     const numMatch = fullText.match(flightNumRegex);
     let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
 
-    if (!origin || !destination) return null; // Only return if we found a route
+    if (!origin || !destination) return null;
 
-    // 5. Date Normalization
     const flightDate = new Date(dateHeader);
     const formattedDate = flightDate.toISOString().split('T')[0];
 
@@ -159,16 +204,13 @@ const FlightTracker = () => {
   const handleGmailImport = () => {
     setImporting(true);
     tokenClient.callback = async (resp) => {
-      // FIX: Handle error gracefully instead of throwing [Object object]
       if (resp.error) {
         console.error("Auth Error:", resp);
         alert("Authorization failed. Please check the console for details.");
         setImporting(false);
         return;
       }
-      
       try {
-        // Query looks for "ticket number" explicitly now
         const response = await window.gapi.client.gmail.users.messages.list({
           'userId': 'me',
           'q': 'subject:(flight OR confirmation OR ticket) AND ("ticket number" OR "booking reference" OR "eticket")',
@@ -179,22 +221,14 @@ const FlightTracker = () => {
         const suggestions = [];
 
         for (let msg of messages) {
-          // Fetch full format to get the body
           const details = await window.gapi.client.gmail.users.messages.get({ 
-            'userId': 'me', 
-            'id': msg.id,
-            'format': 'full' 
+            'userId': 'me', 'id': msg.id, 'format': 'full' 
           });
           const flight = extractFlightInfo(details.result);
-          
-          if (flight) {
-            // Avoid duplicates in the suggestion list
-            if (!suggestions.find(s => s.id === flight.id)) {
-              suggestions.push(flight);
-            }
+          if (flight && !suggestions.find(s => s.id === flight.id)) {
+            suggestions.push(flight);
           }
         }
-        
         setSuggestedFlights(suggestions);
         setShowImport(true);
       } catch (err) {
@@ -204,26 +238,23 @@ const FlightTracker = () => {
         setImporting(false);
       }
     };
-    
     if (window.gapi.client.getToken() === null) tokenClient.requestAccessToken({prompt: 'consent'});
     else tokenClient.requestAccessToken({prompt: ''});
   };
 
   const confirmImport = async (flight) => {
-    // Basic validation prompt if data looks weird
     let finalOrigin = flight.origin;
     let finalDest = flight.destination;
 
-    if (finalOrigin === finalDest) {
-       alert("Origin and Destination cannot be the same.");
-       return;
-    }
+    if (finalOrigin === finalDest) { alert("Origin and Destination cannot be the same."); return; }
 
     const from = await fetchAirportData(finalOrigin);
     const to = await fetchAirportData(finalDest);
 
     if (from && to) {
       const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+      const deserts = checkDeserts(from, to); // Calculate deserts crossed for this trip
+      
       const newFlight = { 
         ...flight, 
         id: Date.now(),
@@ -231,7 +262,10 @@ const FlightTracker = () => {
         destination: finalDest,
         distance: dist, 
         originCity: from.city, 
-        destCity: to.city 
+        destCity: to.city,
+        desertsCrossed: deserts,
+        // Estimate passengers upon import
+        passengerCount: getPassengerEstimate(flight.aircraftType)
       };
       
       const updated = [newFlight, ...flights];
@@ -239,11 +273,11 @@ const FlightTracker = () => {
       localStorage.setItem('flights-data', JSON.stringify(updated));
       setSuggestedFlights(prev => prev.filter(f => f.id !== flight.id));
     } else {
-      alert(`Could not verify airports ${finalOrigin} or ${finalDest}. Please check the codes.`);
+      alert(`Could not verify airports ${finalOrigin} or ${finalDest}.`);
     }
   };
 
-  // --- STANDARD FLIGHT LOGIC (Same as before) ---
+  // --- MANUAL ENTRY & HELPERS ---
   const fetchAirportData = async (code) => {
     const cleanCode = code.trim().toUpperCase();
     const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
@@ -268,48 +302,42 @@ const FlightTracker = () => {
     return null;
   };
 
-  const handleEdit = (flight) => {
-      setEditingFlight(flight);
-      setFormData({
-        origin: flight.origin,
-        destination: flight.destination,
-        date: flight.date,
-        aircraftType: flight.aircraftType || '',
-        serviceClass: flight.serviceClass || 'Economy'
-      });
-      setShowForm(true);
-  };
-  
   const handleSubmit = async (e) => {
-      e.preventDefault();
-      setIsVerifying(true);
-      const from = await fetchAirportData(formData.origin);
-      const to = await fetchAirportData(formData.destination);
-  
-      if (!from || !to) {
-        alert(`Error: Could not find ${!from ? formData.origin : formData.destination}`);
-        setIsVerifying(false);
-        return;
-      }
-  
-      const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-      const flightRecord = { 
-        ...formData, 
-        id: editingFlight ? editingFlight.id : Date.now(), 
-        distance: dist, 
-        originCity: from.city, 
-        destCity: to.city 
-      };
-  
-      const updatedFlights = editingFlight 
-        ? flights.map(f => f.id === editingFlight.id ? flightRecord : f)
-        : [flightRecord, ...flights];
-  
-      saveFlights(updatedFlights);
-      setShowForm(false);
-      setEditingFlight(null);
+    e.preventDefault();
+    setIsVerifying(true);
+    const from = await fetchAirportData(formData.origin);
+    const to = await fetchAirportData(formData.destination);
+
+    if (!from || !to) {
+      alert(`Error: Could not find ${!from ? formData.origin : formData.destination}`);
       setIsVerifying(false);
-      setFormData({ origin: '', destination: '', date: '', aircraftType: '', serviceClass: 'Economy' });
+      return;
+    }
+
+    const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+    // Recalculate stats for this manual entry
+    const deserts = checkDeserts(from, to);
+    const pax = getPassengerEstimate(formData.aircraftType);
+
+    const flightRecord = { 
+      ...formData, 
+      id: editingFlight ? editingFlight.id : Date.now(), 
+      distance: dist, 
+      originCity: from.city, 
+      destCity: to.city,
+      desertsCrossed: deserts,
+      passengerCount: pax
+    };
+
+    const updatedFlights = editingFlight 
+      ? flights.map(f => f.id === editingFlight.id ? flightRecord : f)
+      : [flightRecord, ...flights];
+
+    saveFlights(updatedFlights);
+    setShowForm(false);
+    setEditingFlight(null);
+    setIsVerifying(false);
+    setFormData({ origin: '', destination: '', date: '', aircraftType: '', serviceClass: 'Economy' });
   };
   
   const saveFlights = (updated) => {
@@ -317,7 +345,11 @@ const FlightTracker = () => {
     localStorage.setItem('flights-data', JSON.stringify(updated));
   };
   
+  // --- STATS CALCULATION ---
   const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
+  const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || getPassengerEstimate(f.aircraftType)), 0);
+  const totalDeserts = flights.reduce((sum, f) => sum + (f.desertsCrossed || 0), 0);
+  
   const aircraftStats = flights.reduce((acc, f) => {
       const type = f.aircraftType || 'Other';
       acc[type] = (acc[type] || 0) + 1;
@@ -339,7 +371,6 @@ const FlightTracker = () => {
             {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
             {importing ? "Scanning..." : "Sync Gmail"}
           </button>
-          
           <button onClick={() => { setEditingFlight(null); setShowForm(true); }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             + Manual Add
           </button>
@@ -354,24 +385,18 @@ const FlightTracker = () => {
               <h2>Flights Found ({suggestedFlights.length})</h2>
               <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
             </div>
-            
             {suggestedFlights.length === 0 ? (
               <div style={{textAlign:'center', padding:'20px', color:'#666'}}>
                 <AlertCircle size={30} style={{marginBottom:'10px'}}/>
                 <p>No new flight emails found.</p>
-                <p style={{fontSize:'12px'}}>We looked for "ticket number" or "booking ref".</p>
               </div>
             ) : (
               <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                 {suggestedFlights.map(f => (
                   <div key={f.id} style={{padding:'15px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                     <div style={{flex: 1, marginRight:'15px'}}>
-                      <div style={{fontWeight:'bold', display:'flex', alignItems:'center', gap:'8px'}}>
-                        {f.origin} → {f.destination}
-                        <span style={{fontSize:'11px', background:'#eee', padding:'2px 6px', borderRadius:'4px'}}>{f.flightNumber || 'No #'}</span>
-                      </div>
+                      <div style={{fontWeight:'bold'}}>{f.origin} → {f.destination}</div>
                       <div style={{fontSize:'12px', color:'#666'}}>{formatDate(f.date)}</div>
-                      <div style={{fontSize:'10px', color:'#999', marginTop:'4px', fontStyle:'italic'}}>"{f.snippet}"</div>
                     </div>
                     <button onClick={() => confirmImport(f)} style={{background: '#00C851', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}>
                       <Check size={14} /> Add
@@ -387,7 +412,8 @@ const FlightTracker = () => {
       {/* Stats Dashboard */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
         <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
-        <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
+        <div style={statCard}><Users size={20}/><div style={statVal}>{totalPassengers.toLocaleString()}</div><div style={statLbl}>Fellow Travelers</div></div>
+        <div style={statCard}><Sun size={20}/><div style={statVal}>{totalDeserts}</div><div style={statLbl}>Deserts Crossed</div></div>
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
       </div>
 
@@ -413,7 +439,7 @@ const FlightTracker = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
               <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</span>
               <div style={{display: 'flex', gap: '10px'}}>
-                <Edit2 size={18} style={{ cursor: 'pointer' }} onClick={() => handleEdit(f)} />
+                <Edit2 size={18} style={{ cursor: 'pointer' }} onClick={() => { setEditingFlight(f); setShowForm(true); }} />
                 <Trash2 size={18} color="red" style={{ cursor: 'pointer' }} onClick={() => saveFlights(flights.filter(x => x.id !== f.id))} />
               </div>
             </div>
@@ -422,11 +448,13 @@ const FlightTracker = () => {
               <span>{formatDate(f.date)}</span>
               {f.flightNumber && <span>✈️ {f.flightNumber}</span>}
               <span>🏢 {f.aircraftType || 'N/A'}</span>
-              <span style={{color:'#007bff', fontWeight:'bold'}}>{f.serviceClass}</span>
+              <span>👥 ~{f.passengerCount || getPassengerEstimate(f.aircraftType)} pax</span>
             </div>
-            <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #f5f5f5', fontSize: '18px', fontWeight: 'bold' }}>
-              {f.distance?.toLocaleString()} miles
-            </div>
+            {f.desertsCrossed > 0 && (
+              <div style={{marginTop:'10px', fontSize:'11px', color:'#d97706', display:'flex', alignItems:'center', gap:'4px'}}>
+                <Sun size={12}/> Crossed {f.desertsCrossed} desert{f.desertsCrossed > 1 ? 's' : ''}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -442,7 +470,7 @@ const FlightTracker = () => {
             <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
               <input placeholder="Origin" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={inputStyle} />
               <input placeholder="Destination" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
-              <input placeholder="Aircraft Type" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
+              <input placeholder="Aircraft Type (e.g. B777)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
               <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 <label style={{ fontSize: '12px', color: '#666' }}>CLASS OF SERVICE</label>
