@@ -1,8 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, Copy,
-  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain 
+  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
+  LogIn, LogOut, User, Eye, EyeOff
 } from 'lucide-react';
+
+// Firebase imports
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc,
+  onSnapshot 
+} from 'firebase/firestore';
+
+// Firebase configuration - Replace with your own config from Firebase Console
+const firebaseConfig = {
+  apiKey: "AIzaSyBN3khxqaQpC8Ws9EQ7syvnPC_rLasMOL0",
+  authDomain: "flightlog-82a3c.firebaseapp.com",
+  projectId: "flightlog-82a3c",
+  storageBucket: "flightlog-82a3c.appspot.com",
+  messagingSenderId: "959347389178",
+  appId: "1:959347389178:web:f175b4aac3b755b71d8f43"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const googleProvider = new GoogleAuthProvider();
 
 //const GOOGLE_API_KEY = "AIzaSyDYzKON-9m0NYBIVZEXD434wDrmqMpyeQQ";
 const GOOGLE_CLIENT_ID = "870884007039-9got7ia77t611u2fugedlq6j7kftf51p.apps.googleusercontent.com"; 
@@ -300,6 +337,14 @@ const formatDate = (dateString) => {
 
 const FlightTracker = () => {
   const [user, setUser] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [flights, setFlights] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -316,11 +361,49 @@ const FlightTracker = () => {
     origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false
   });
 
+  // Firebase Auth State Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setAuthLoading(true);
+      if (firebaseUser) {
+        setAuthUser(firebaseUser);
+        // Load user's flights from Firestore
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          setFlights(userDoc.data().flights || []);
+        } else {
+          // Create user document if it doesn't exist
+          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString() });
+          setFlights([]);
+        }
+      } else {
+        setAuthUser(null);
+        // Fall back to localStorage for non-authenticated users
+        const localFlights = localStorage.getItem('flights-data');
+        setFlights(localFlights ? JSON.parse(localFlights) : []);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Save flights to Firestore when they change (for authenticated users)
+  useEffect(() => {
+    if (authUser && !authLoading) {
+      const userDocRef = doc(db, 'users', authUser.uid);
+      updateDoc(userDocRef, { flights: flights }).catch(console.error);
+    } else if (!authUser && !authLoading) {
+      // Save to localStorage for non-authenticated users
+      localStorage.setItem('flights-data', JSON.stringify(flights));
+    }
+  }, [flights, authUser, authLoading]);
+
   useEffect(() => {
     const session = localStorage.getItem('user-profile');
     if (session) {
       setUser(JSON.parse(session));
-      setFlights(JSON.parse(localStorage.getItem('flights-data') || '[]'));
     }
 
     // 1. Singleton Script Loading for GAPI
@@ -374,6 +457,88 @@ const FlightTracker = () => {
         geocoder.current = new window.google.maps.Geocoder();
     }
   }, []);
+
+  // --- AUTHENTICATION HANDLERS ---
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          setAuthError('This email is already registered. Try logging in.');
+          break;
+        case 'auth/weak-password':
+          setAuthError('Password should be at least 6 characters.');
+          break;
+        case 'auth/invalid-email':
+          setAuthError('Please enter a valid email address.');
+          break;
+        default:
+          setAuthError(error.message);
+      }
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      switch (error.code) {
+        case 'auth/user-not-found':
+          setAuthError('No account found with this email.');
+          break;
+        case 'auth/wrong-password':
+          setAuthError('Incorrect password.');
+          break;
+        case 'auth/invalid-email':
+          setAuthError('Please enter a valid email address.');
+          break;
+        case 'auth/too-many-requests':
+          setAuthError('Too many failed attempts. Please try again later.');
+          break;
+        default:
+          setAuthError('Invalid email or password.');
+      }
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setAuthError('');
+    try {
+      await signInWithPopup(auth, googleProvider);
+      setShowAuthModal(false);
+    } catch (error) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setAuthError('Google sign-in failed. Please try again.');
+      }
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  const openAuthModal = (mode) => {
+    setAuthMode(mode);
+    setAuthError('');
+    setAuthEmail('');
+    setAuthPassword('');
+    setShowAuthModal(true);
+  };
 
   // --- IMPROVED LANDMARK DETECTION ---
   // Check if a point is within an ocean's bounding box
@@ -883,9 +1048,86 @@ const FlightTracker = () => {
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 20px', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', flexWrap: 'wrap', gap: '15px' }}>
         <h1 style={{ margin: 0 }}>FlightLog</h1>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Auth UI */}
+          {authLoading ? (
+            <Loader2 className="animate-spin" size={20} style={{ color: '#888' }} />
+          ) : authUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                padding: '8px 12px', 
+                background: '#f0fdf4', 
+                borderRadius: '20px',
+                fontSize: '13px',
+                color: '#166534'
+              }}>
+                <User size={16} />
+                <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {authUser.email}
+                </span>
+              </div>
+              <button 
+                onClick={handleLogout}
+                style={{ 
+                  background: 'transparent', 
+                  border: '1px solid #ddd', 
+                  padding: '8px 12px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  color: '#666'
+                }}
+              >
+                <LogOut size={16} /> Sign Out
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={() => openAuthModal('login')}
+                style={{ 
+                  background: 'transparent', 
+                  border: '1px solid #ddd', 
+                  padding: '8px 16px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px'
+                }}
+              >
+                <LogIn size={16} /> Log In
+              </button>
+              <button 
+                onClick={() => openAuthModal('signup')}
+                style={{ 
+                  background: '#10b981', 
+                  color: '#fff',
+                  border: 'none', 
+                  padding: '8px 16px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  fontWeight: '600'
+                }}
+              >
+                <User size={16} /> Sign Up
+              </button>
+            </div>
+          )}
+          
           <button 
             onClick={handleGmailImport} 
             disabled={!gapiInited || importing}
@@ -903,6 +1145,161 @@ const FlightTracker = () => {
           </button>
         </div>
       </header>
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent, maxWidth: '400px'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '20px'}}>
+              <h2 style={{margin: 0}}>{authMode === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
+              <X style={{cursor:'pointer'}} onClick={() => setShowAuthModal(false)}/>
+            </div>
+            
+            {authError && (
+              <div style={{ 
+                background: '#fef2f2', 
+                color: '#dc2626', 
+                padding: '12px', 
+                borderRadius: '8px', 
+                marginBottom: '15px',
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <AlertCircle size={16} />
+                {authError}
+              </div>
+            )}
+
+            <form onSubmit={authMode === 'login' ? handleLogin : handleSignup} style={{ display: 'grid', gap: '15px' }}>
+              <input 
+                type="email" 
+                placeholder="Email address" 
+                required 
+                value={authEmail} 
+                onChange={e => setAuthEmail(e.target.value)} 
+                style={inputStyle} 
+              />
+              <div style={{ position: 'relative' }}>
+                <input 
+                  type={showPassword ? 'text' : 'password'} 
+                  placeholder="Password" 
+                  required 
+                  value={authPassword} 
+                  onChange={e => setAuthPassword(e.target.value)} 
+                  style={{...inputStyle, paddingRight: '45px'}} 
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#888'
+                  }}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <button 
+                type="submit" 
+                style={{ 
+                  background: authMode === 'login' ? '#000' : '#10b981', 
+                  color: '#fff', 
+                  padding: '12px', 
+                  borderRadius: '8px', 
+                  border: 'none', 
+                  fontWeight: 'bold', 
+                  cursor: 'pointer' 
+                }}
+              >
+                {authMode === 'login' ? 'Log In' : 'Create Account'}
+              </button>
+            </form>
+
+            <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0', gap: '10px' }}>
+              <div style={{ flex: 1, height: '1px', background: '#ddd' }} />
+              <span style={{ color: '#888', fontSize: '12px' }}>or</span>
+              <div style={{ flex: 1, height: '1px', background: '#ddd' }} />
+            </div>
+
+            <button 
+              onClick={handleGoogleSignIn}
+              style={{ 
+                width: '100%',
+                background: '#fff', 
+                border: '1px solid #ddd',
+                padding: '12px', 
+                borderRadius: '8px', 
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                fontSize: '14px'
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continue with Google
+            </button>
+
+            <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#666' }}>
+              {authMode === 'login' ? (
+                <>Don't have an account? <button onClick={() => setAuthMode('signup')} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontWeight: '600' }}>Sign up</button></>
+              ) : (
+                <>Already have an account? <button onClick={() => setAuthMode('login')} style={{ background: 'none', border: 'none', color: '#000', cursor: 'pointer', fontWeight: '600' }}>Log in</button></>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Info banner for non-authenticated users */}
+      {!authLoading && !authUser && (
+        <div style={{ 
+          background: '#fef3c7', 
+          border: '1px solid #f59e0b', 
+          borderRadius: '12px', 
+          padding: '16px', 
+          marginBottom: '30px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}>
+          <AlertCircle size={20} color="#d97706" />
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <strong style={{ color: '#92400e' }}>Your data is stored locally.</strong>
+            <span style={{ color: '#a16207', marginLeft: '8px' }}>Sign up to sync your flights across devices and never lose your data.</span>
+          </div>
+          <button 
+            onClick={() => openAuthModal('signup')}
+            style={{ 
+              background: '#f59e0b', 
+              color: '#fff', 
+              border: 'none', 
+              padding: '8px 16px', 
+              borderRadius: '6px', 
+              cursor: 'pointer',
+              fontWeight: '600',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Sign Up Free
+          </button>
+        </div>
+      )}
 
       {/* Import Modal */}
       {showImport && (
