@@ -429,7 +429,8 @@ const FlightTracker = () => {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
           scope: SCOPES,
-          callback: '', 
+          callback: '',
+	  ux_mode: 'popup',
         });
         setTokenClient(client);
       };
