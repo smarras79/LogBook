@@ -71,6 +71,195 @@ const AIRPORTS_DATABASE = [
 
 const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
+// --- AIRLINE ALLIANCES DATABASE ---
+const AIRLINE_ALLIANCES = {
+  // Star Alliance Members (26 airlines)
+  'Star Alliance': [
+    'Aegean Airlines', 'Aegean', 
+    'Air Canada', 
+    'Air China', 
+    'Air India', 
+    'Air New Zealand', 
+    'ANA', 'All Nippon Airways', 'All Nippon',
+    'Asiana Airlines', 'Asiana',
+    'Austrian', 'Austrian Airlines',
+    'Avianca',
+    'Brussels Airlines', 'Brussels',
+    'Copa Airlines', 'Copa',
+    'Croatia Airlines', 'Croatia',
+    'EgyptAir', 'Egypt Air', 'Egyptair',
+    'Ethiopian Airlines', 'Ethiopian',
+    'EVA Air', 'EVA',
+    'LOT Polish Airlines', 'LOT', 'Polish Airlines',
+    'Lufthansa',
+    'Scandinavian Airlines', 'SAS', 'Scandinavian',
+    'Shenzhen Airlines', 'Shenzhen',
+    'Singapore Airlines', 'Singapore',
+    'South African Airways', 'South African',
+    'Swiss', 'Swiss International', 'SWISS',
+    'TAP Air Portugal', 'TAP Portugal', 'TAP',
+    'Thai Airways', 'Thai', 'THAI',
+    'Turkish Airlines', 'Turkish', 'THY',
+    'United', 'United Airlines'
+  ],
+  
+  // SkyTeam Members (19 airlines)
+  'SkyTeam': [
+    'Aeroflot',
+    'Aerolíneas Argentinas', 'Aerolineas Argentinas', 'Aerolíneas',
+    'Aeroméxico', 'Aeromexico', 'AeroMexico',
+    'Air Europa',
+    'Air France', 'AirFrance',
+    'China Airlines',
+    'China Eastern', 'China Eastern Airlines',
+    'Czech Airlines', 'CSA',
+    'Delta', 'Delta Air Lines', 'Delta Airlines',
+    'Garuda Indonesia', 'Garuda',
+    'ITA Airways', 'ITA', 'Alitalia',
+    'Kenya Airways', 'Kenya',
+    'KLM', 'KLM Royal Dutch', 'Royal Dutch Airlines',
+    'Korean Air', 'Korean',
+    'Middle East Airlines', 'MEA',
+    'Saudia', 'Saudi Arabian Airlines', 'Saudi Arabian',
+    'TAROM',
+    'Vietnam Airlines', 'Vietnam',
+    'Virgin Atlantic', 'Virgin',
+    'XiamenAir', 'Xiamen Airlines', 'Xiamen'
+  ],
+  
+  // Oneworld Members (13 airlines)
+  'Oneworld': [
+    'Alaska Airlines', 'Alaska',
+    'American Airlines', 'American', 'AA',
+    'British Airways', 'BA',
+    'Cathay Pacific', 'Cathay',
+    'Finnair',
+    'Iberia',
+    'Japan Airlines', 'JAL',
+    'Malaysia Airlines', 'Malaysia',
+    'Qantas',
+    'Qatar Airways', 'Qatar',
+    'Royal Air Maroc', 'RAM',
+    'Royal Jordanian',
+    'SriLankan Airlines', 'SriLankan'
+  ]
+};
+
+// Alliance styling configuration
+const ALLIANCE_STYLES = {
+  'Star Alliance': { 
+    color: '#1e3a5f', 
+    background: '#e8f4fd', 
+    icon: '⭐',
+    fullName: 'Star Alliance'
+  },
+  'SkyTeam': { 
+    color: '#0f4c81', 
+    background: '#e3f2fd', 
+    icon: '🌐',
+    fullName: 'SkyTeam'
+  },
+  'Oneworld': { 
+    color: '#b91c1c', 
+    background: '#fee2e2', 
+    icon: '🌍',
+    fullName: 'Oneworld'
+  },
+  'Independent': { 
+    color: '#6b7280', 
+    background: '#f3f4f6', 
+    icon: '✈️',
+    fullName: 'Independent'
+  }
+};
+
+// Clean list of alliance members for dropdown display (no duplicates)
+const ALLIANCE_MEMBERS_DISPLAY = {
+  'Star Alliance': [
+    'Aegean Airlines',
+    'Air Canada',
+    'Air China',
+    'Air India',
+    'Air New Zealand',
+    'ANA (All Nippon Airways)',
+    'Asiana Airlines',
+    'Austrian Airlines',
+    'Avianca',
+    'Brussels Airlines',
+    'Copa Airlines',
+    'Croatia Airlines',
+    'EgyptAir',
+    'Ethiopian Airlines',
+    'EVA Air',
+    'LOT Polish Airlines',
+    'Lufthansa',
+    'Scandinavian Airlines (SAS)',
+    'Shenzhen Airlines',
+    'Singapore Airlines',
+    'South African Airways',
+    'Swiss International',
+    'TAP Air Portugal',
+    'Thai Airways',
+    'Turkish Airlines',
+    'United Airlines'
+  ],
+  'SkyTeam': [
+    'Aeroflot',
+    'Aerolíneas Argentinas',
+    'Aeroméxico',
+    'Air Europa',
+    'Air France',
+    'China Airlines',
+    'China Eastern Airlines',
+    'Czech Airlines',
+    'Delta Air Lines',
+    'Garuda Indonesia',
+    'ITA Airways',
+    'Kenya Airways',
+    'KLM Royal Dutch Airlines',
+    'Korean Air',
+    'Middle East Airlines',
+    'Saudia',
+    'TAROM',
+    'Vietnam Airlines',
+    'Virgin Atlantic',
+    'XiamenAir'
+  ],
+  'Oneworld': [
+    'Alaska Airlines',
+    'American Airlines',
+    'British Airways',
+    'Cathay Pacific',
+    'Finnair',
+    'Iberia',
+    'Japan Airlines (JAL)',
+    'Malaysia Airlines',
+    'Qantas',
+    'Qatar Airways',
+    'Royal Air Maroc',
+    'Royal Jordanian',
+    'SriLankan Airlines'
+  ]
+};
+
+// Helper function to get airline alliance
+const getAirlineAlliance = (airlineName) => {
+  if (!airlineName) return null;
+  
+  const normalizedName = airlineName.trim().toLowerCase();
+  
+  for (const [alliance, members] of Object.entries(AIRLINE_ALLIANCES)) {
+    for (const member of members) {
+      if (normalizedName.includes(member.toLowerCase()) || 
+          member.toLowerCase().includes(normalizedName)) {
+        return alliance;
+      }
+    }
+  }
+  
+  return 'Independent';
+};
+
 // --- MATH UTILS ---
 const toRad = (val) => val * Math.PI / 180;
 const toDeg = (val) => val * 180 / Math.PI;
@@ -356,6 +545,7 @@ const FlightTracker = () => {
   const [editingFlight, setEditingFlight] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false); 
   const [statusMsg, setStatusMsg] = useState('');
+  const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null); // tracks which alliance dropdown is open
   const geocoder = useRef(null);
 
   const [formData, setFormData] = useState({
@@ -460,6 +650,18 @@ const FlightTracker = () => {
         geocoder.current = new window.google.maps.Geocoder();
     }
   }, []);
+
+  // Close alliance dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (openAllianceDropdown) {
+        setOpenAllianceDropdown(null);
+      }
+    };
+    
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openAllianceDropdown]);
 
   // --- AUTHENTICATION HANDLERS ---
   const handleSignup = async (e) => {
@@ -961,6 +1163,18 @@ const FlightTracker = () => {
   });
   const topAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
+  // Alliance statistics
+  const allianceStats = {};
+  flights.forEach(f => {
+    if (f.airline) {
+      const alliance = getAirlineAlliance(f.airline);
+      allianceStats[alliance] = (allianceStats[alliance] || 0) + 1;
+    }
+  });
+  const sortedAlliances = Object.entries(allianceStats)
+    .sort((a, b) => b[1] - a[1]);
+  const dominantAlliance = sortedAlliances.length > 0 ? sortedAlliances[0][0] : null;
+
   // Service class statistics
   const classStats = {};
   flights.forEach(f => {
@@ -1345,6 +1559,17 @@ const FlightTracker = () => {
         <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
         <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
         <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
+        {dominantAlliance && dominantAlliance !== 'Independent' && (
+          <div style={{
+            ...statCard,
+            background: ALLIANCE_STYLES[dominantAlliance].background,
+            borderColor: ALLIANCE_STYLES[dominantAlliance].color
+          }}>
+            <span style={{ fontSize: '20px' }}>{ALLIANCE_STYLES[dominantAlliance].icon}</span>
+            <div style={{...statVal, color: ALLIANCE_STYLES[dominantAlliance].color, fontSize: '18px'}}>{dominantAlliance}</div>
+            <div style={statLbl}>Top Alliance</div>
+          </div>
+        )}
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
       </div>
 
@@ -1404,6 +1629,167 @@ const FlightTracker = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Alliance Breakdown Chart */}
+        {flights.length > 0 && sortedAlliances.length > 0 && (
+          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0 }}><Users size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Airline Alliances</h3>
+            {sortedAlliances.map(([alliance, count]) => {
+              const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
+              const dropdownId = `chart-alliance-${alliance}`;
+              const isOpen = openAllianceDropdown === dropdownId;
+              const members = ALLIANCE_MEMBERS_DISPLAY[alliance] || [];
+              const hasDropdown = alliance !== 'Independent' && members.length > 0;
+              
+              return (
+                <div key={alliance} style={{ marginBottom: '15px', position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                    <span 
+                      onClick={(e) => {
+                        if (hasDropdown) {
+                          e.stopPropagation();
+                          setOpenAllianceDropdown(isOpen ? null : dropdownId);
+                        }
+                      }}
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        cursor: hasDropdown ? 'pointer' : 'default',
+                        padding: '4px 8px',
+                        marginLeft: '-8px',
+                        borderRadius: '6px',
+                        background: isOpen ? style.background : 'transparent',
+                        transition: 'background 0.2s ease'
+                      }}
+                      title={hasDropdown ? `Click to see all ${alliance} members` : ''}
+                    >
+                      <span>{style.icon}</span>
+                      {alliance}
+                      {hasDropdown && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          color: '#888',
+                          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s ease'
+                        }}>▼</span>
+                      )}
+                    </span>
+                    <span>{count} flights ({Math.round((count/flights.filter(f => f.airline).length)*100)}%)</span>
+                  </div>
+                  <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                    <div style={{ 
+                      height: '100%', 
+                      background: style.color, 
+                      borderRadius: '4px', 
+                      width: `${(count/flights.filter(f => f.airline).length)*100}%` 
+                    }} />
+                  </div>
+                  
+                  {/* Alliance Members Dropdown */}
+                  {isOpen && members.length > 0 && (
+                    <div 
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: '0',
+                        marginTop: '8px',
+                        background: '#fff',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                        border: `1px solid ${style.color}20`,
+                        zIndex: 1000,
+                        minWidth: '260px',
+                        maxHeight: '350px',
+                        overflowY: 'auto'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid #eee',
+                        background: style.background,
+                        borderRadius: '12px 12px 0 0',
+                        position: 'sticky',
+                        top: 0
+                      }}>
+                        <div style={{ 
+                          fontWeight: '600', 
+                          color: style.color,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '15px'
+                        }}>
+                          <span>{style.icon}</span>
+                          {alliance}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                          {members.length} member airlines worldwide
+                        </div>
+                      </div>
+                      <div style={{ padding: '8px 0' }}>
+                        {members.map((member, idx) => {
+                          // Check if user has flown this airline
+                          const hasFlown = flights.some(f => 
+                            f.airline && (
+                              member.toLowerCase().includes(f.airline.toLowerCase()) ||
+                              f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                            )
+                          );
+                          return (
+                            <div 
+                              key={idx}
+                              style={{
+                                padding: '10px 18px',
+                                fontSize: '13px',
+                                color: hasFlown ? style.color : '#555',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                background: hasFlown ? style.background : 'transparent',
+                                fontWeight: hasFlown ? '600' : 'normal',
+                                borderLeft: hasFlown ? `3px solid ${style.color}` : '3px solid transparent'
+                              }}
+                            >
+                              <span style={{ color: hasFlown ? style.color : '#999' }}>✈</span>
+                              {member}
+                              {hasFlown && (
+                                <span style={{ 
+                                  fontSize: '9px', 
+                                  background: style.color, 
+                                  color: '#fff',
+                                  padding: '2px 8px',
+                                  borderRadius: '10px',
+                                  marginLeft: 'auto'
+                                }}>
+                                  FLOWN
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {dominantAlliance && dominantAlliance !== 'Independent' && (
+              <div style={{ 
+                marginTop: '15px', 
+                padding: '12px', 
+                background: ALLIANCE_STYLES[dominantAlliance].background, 
+                borderRadius: '8px',
+                fontSize: '13px',
+                color: ALLIANCE_STYLES[dominantAlliance].color,
+                textAlign: 'center'
+              }}>
+                {ALLIANCE_STYLES[dominantAlliance].icon} You're a <strong>{dominantAlliance}</strong> loyalist!
+              </div>
+            )}
           </div>
         )}
         
@@ -1556,6 +1942,135 @@ const FlightTracker = () => {
                           {f.airline}
                         </span>
                       )}
+                      {f.airline && (() => {
+                        const alliance = getAirlineAlliance(f.airline);
+                        const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
+                        const dropdownId = `alliance-${f.id}`;
+                        const isOpen = openAllianceDropdown === dropdownId;
+                        const members = ALLIANCE_MEMBERS_DISPLAY[alliance] || [];
+                        
+                        return (
+                          <div style={{ position: 'relative' }}>
+                            <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (alliance !== 'Independent' && members.length > 0) {
+                                  setOpenAllianceDropdown(isOpen ? null : dropdownId);
+                                }
+                              }}
+                              style={{ 
+                                fontSize: '11px', 
+                                color: style.color, 
+                                background: style.background, 
+                                padding: '3px 8px', 
+                                borderRadius: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontWeight: '500',
+                                cursor: alliance !== 'Independent' ? 'pointer' : 'default',
+                                border: isOpen ? `1px solid ${style.color}` : '1px solid transparent',
+                                transition: 'all 0.2s ease'
+                              }}
+                              title={alliance !== 'Independent' ? `Click to see all ${alliance} members` : 'Independent airline'}
+                            >
+                              <span style={{ fontSize: '10px' }}>{style.icon}</span>
+                              {alliance}
+                              {alliance !== 'Independent' && (
+                                <span style={{ 
+                                  fontSize: '8px', 
+                                  marginLeft: '2px',
+                                  transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                  transition: 'transform 0.2s ease'
+                                }}>▼</span>
+                              )}
+                            </span>
+                            
+                            {/* Alliance Members Dropdown */}
+                            {isOpen && members.length > 0 && (
+                              <div 
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '0',
+                                  marginTop: '4px',
+                                  background: '#fff',
+                                  borderRadius: '12px',
+                                  boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                                  border: `1px solid ${style.color}20`,
+                                  zIndex: 1000,
+                                  minWidth: '220px',
+                                  maxHeight: '300px',
+                                  overflowY: 'auto'
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div style={{
+                                  padding: '12px 16px',
+                                  borderBottom: '1px solid #eee',
+                                  background: style.background,
+                                  borderRadius: '12px 12px 0 0',
+                                  position: 'sticky',
+                                  top: 0
+                                }}>
+                                  <div style={{ 
+                                    fontWeight: '600', 
+                                    color: style.color,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}>
+                                    <span>{style.icon}</span>
+                                    {alliance}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                                    {members.length} member airlines
+                                  </div>
+                                </div>
+                                <div style={{ padding: '8px 0' }}>
+                                  {members.map((member, idx) => (
+                                    <div 
+                                      key={idx}
+                                      style={{
+                                        padding: '8px 16px',
+                                        fontSize: '12px',
+                                        color: '#333',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        background: member.toLowerCase().includes(f.airline.toLowerCase()) || 
+                                                   f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                                          ? style.background 
+                                          : 'transparent',
+                                        fontWeight: member.toLowerCase().includes(f.airline.toLowerCase()) || 
+                                                   f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                                          ? '600' 
+                                          : 'normal'
+                                      }}
+                                    >
+                                      <span style={{ color: style.color }}>✈</span>
+                                      {member}
+                                      {(member.toLowerCase().includes(f.airline.toLowerCase()) || 
+                                        f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())) && (
+                                        <span style={{ 
+                                          fontSize: '9px', 
+                                          background: style.color, 
+                                          color: '#fff',
+                                          padding: '2px 6px',
+                                          borderRadius: '10px',
+                                          marginLeft: 'auto'
+                                        }}>
+                                          YOUR FLIGHT
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {f.aircraftType && f.aircraftType !== 'Unknown' && (
                         <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
                           {f.aircraftType}
