@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, Copy,
-  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain 
+  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain 
 } from 'lucide-react';
 
 //const GOOGLE_API_KEY = "AIzaSyDYzKON-9m0NYBIVZEXD434wDrmqMpyeQQ";
@@ -313,7 +313,7 @@ const FlightTracker = () => {
   const geocoder = useRef(null);
 
   const [formData, setFormData] = useState({
-    origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy'
+    origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false
   });
 
   useEffect(() => {
@@ -630,15 +630,33 @@ const FlightTracker = () => {
             features = editingFlight.featuresCrossed || [];
             setStatusMsg('Route unchanged, keeping landmarks...');
         } else {
-            // New flight or route changed - run full analysis
+            // New flight or route changed - calculate distance
             dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-            features = await detectLandmarksHybrid(from, to);
+            
+            // Only detect landmarks if checkbox is checked
+            if (flightData.checkLandmarks) {
+                features = await detectLandmarksHybrid(from, to);
+            } else {
+                // Check if there's an existing flight on this route to copy landmarks from
+                const existingRouteFlights = flights.filter(f => 
+                    f.origin === flightData.origin && f.destination === flightData.destination
+                );
+                if (existingRouteFlights.length > 0 && existingRouteFlights[0].featuresCrossed) {
+                    features = existingRouteFlights[0].featuresCrossed;
+                    setStatusMsg('Copied landmarks from existing route...');
+                } else {
+                    features = [];
+                }
+            }
         }
         
         const pax = getPassengerEstimate(flightData.aircraftType);
 
+        // Remove checkLandmarks from the data to be saved (it's just a form flag)
+        const { checkLandmarks, ...flightDataToSave } = flightData;
+
         const newRecord = { 
-            ...flightData, 
+            ...flightDataToSave, 
             id: flightData.id || Date.now(),
             distance: dist, 
             originCity: from.city, 
@@ -657,7 +675,7 @@ const FlightTracker = () => {
         if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
         setShowForm(false);
         setEditingFlight(null);
-        setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy' });
+        setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
     } catch (e) {
         console.error(e);
         alert("Error saving flight. Check console for details.");
@@ -713,9 +731,39 @@ const FlightTracker = () => {
     else if (type.includes("CRJ") || type.includes("ERJ") || type.includes("EMB")) capacity = 70;
     return Math.round(capacity * 0.82);
   };
+
+  // Estimate personal CO2 emissions in kg based on distance (miles) and service class
+  // Base rate: ~0.14 kg CO2 per passenger-mile for economy (industry standard per-person rate)
+  // Class multipliers account for seat space/fuel share per passenger
+  const getCarbonEstimate = (distance, serviceClass) => {
+    const baseRatePerMile = 0.14; // kg CO2 per passenger-mile for economy
+    const classMultipliers = {
+      'Economy': 1.0,
+      'Premium Economy': 1.5,
+      'Business': 2.5,
+      'First': 4.0
+    };
+    const multiplier = classMultipliers[serviceClass] || 1.0;
+    return Math.round(distance * baseRatePerMile * multiplier);
+  };
   
   const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
   const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
+  
+  // Calculate total personal carbon footprint
+  const totalCarbonKg = flights.reduce((sum, f) => {
+    return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+  }, 0);
+  const totalCarbonTons = (totalCarbonKg / 1000).toFixed(2);
+
+  // Calculate total flight emissions (entire aircraft)
+  // Using average ~0.14 kg CO2 per passenger-mile * estimated passengers
+  const totalFlightCarbonKg = flights.reduce((sum, f) => {
+    const passengerCount = f.passengerCount || getPassengerEstimate(f.aircraftType);
+    const flightEmissions = (f.distance || 0) * 0.14 * passengerCount;
+    return sum + flightEmissions;
+  }, 0);
+  const totalFlightCarbonTons = (totalFlightCarbonKg / 1000).toFixed(1);
   
   const featureStats = {};
   flights.forEach(f => {
@@ -735,6 +783,36 @@ const FlightTracker = () => {
     }
   });
   const topAirlines = Object.entries(airlineStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
+
+  // Aircraft statistics
+  const aircraftStats = {};
+  flights.forEach(f => {
+    if (f.aircraftType && f.aircraftType !== 'Unknown') {
+      aircraftStats[f.aircraftType] = (aircraftStats[f.aircraftType] || 0) + 1;
+    }
+  });
+  const topAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
+
+  // Service class statistics
+  const classStats = {};
+  flights.forEach(f => {
+    if (f.serviceClass) {
+      classStats[f.serviceClass] = (classStats[f.serviceClass] || 0) + 1;
+    }
+  });
+  const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
+  const sortedClasses = Object.entries(classStats).sort((a, b) => {
+    return classOrder.indexOf(a[0]) - classOrder.indexOf(b[0]);
+  });
+
+  // Personal carbon footprint by class
+  const carbonByClass = {};
+  flights.forEach(f => {
+    const cls = f.serviceClass || 'Economy';
+    const carbon = getCarbonEstimate(f.distance || 0, cls);
+    carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
+  });
+  const sortedCarbonByClass = Object.entries(carbonByClass).sort((a, b) => b[1] - a[1]);
 
   // Group flights by route for consolidated display
   const groupedFlights = flights.reduce((acc, flight) => {
@@ -775,7 +853,8 @@ const FlightTracker = () => {
       airline: flight.airline || '',
       aircraftType: flight.aircraftType || '',
       serviceClass: flight.serviceClass || 'Economy',
-      date: '' // Clear date so user must enter new one
+      date: '', // Clear date so user must enter new one
+      checkLandmarks: false
     });
     setShowForm(true);
   };
@@ -789,7 +868,8 @@ const FlightTracker = () => {
       airline: flight.airline || '',
       aircraftType: flight.aircraftType || '',
       serviceClass: flight.serviceClass || 'Economy',
-      date: flight.date || ''
+      date: flight.date || '',
+      checkLandmarks: false
     });
     setShowForm(true);
   };
@@ -816,7 +896,7 @@ const FlightTracker = () => {
           </button>
           <button onClick={() => { 
             setEditingFlight(null); 
-            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy' });
+            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
             setShowForm(true); 
           }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             + Manual Add
@@ -860,10 +940,11 @@ const FlightTracker = () => {
       )}
 
       {/* Stats Dashboard */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px', marginBottom: '40px' }}>
         <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
         <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
         <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
+        <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
       </div>
 
@@ -882,6 +963,49 @@ const FlightTracker = () => {
             ))}
           </div>
         )}
+
+        {/* Top Aircraft Chart */}
+        {flights.length > 0 && topAircraft.length > 0 && (
+          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
+            {topAircraft.map(([name, count]) => (
+              <div key={name} style={{ marginBottom: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
+                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                  <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Class of Service Chart */}
+        {flights.length > 0 && sortedClasses.length > 0 && (
+          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
+            {sortedClasses.map(([name, count]) => {
+              const barColor = name === 'Economy' ? '#d97706' : 
+                               name === 'Premium Economy' ? '#16a34a' : 
+                               name === 'Business' ? '#2563eb' : 
+                               '#ca8a04'; /* First - gold */
+              const displayName = name === 'Economy' ? '🐔 Chicken class' : 
+                                  name === 'Premium Economy' ? '💺 Premium Economy' :
+                                  name === 'Business' ? '💼 Business' :
+                                  '👑 First';
+              return (
+                <div key={name} style={{ marginBottom: '15px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                    <span>{displayName}</span>
+                    <span>{count} flights</span>
+                  </div>
+                  <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                    <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         
         {/* Top Landmarks Chart */}
         {flights.length > 0 && (
@@ -895,6 +1019,75 @@ const FlightTracker = () => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Carbon Footprint Breakdown */}
+        {flights.length > 0 && totalCarbonKg > 0 && (
+          <div style={{ background: '#fef2f2', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0, color: '#991b1b' }}><CloudRain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Your Carbon Footprint</h3>
+            
+            {/* Personal vs Total Flight comparison */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{totalCarbonTons}t</div>
+                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Your emissions</div>
+              </div>
+              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#9ca3af' }}>{totalFlightCarbonTons}t</div>
+                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Total flights' emissions</div>
+              </div>
+            </div>
+
+            {/* Driving comparison */}
+            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>🚗 If you drove {totalMiles.toLocaleString()} miles instead:</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#059669' }}>{(totalMiles * 0.21 / 1000).toFixed(2)}t</span>
+                  <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>CO₂ by car</span>
+                </div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  padding: '4px 8px', 
+                  borderRadius: '12px',
+                  background: totalCarbonKg < (totalMiles * 0.21) ? '#dcfce7' : '#fef3c7',
+                  color: totalCarbonKg < (totalMiles * 0.21) ? '#166534' : '#854d0e'
+                }}>
+                  {totalCarbonKg < (totalMiles * 0.21) 
+                    ? `✈️ Flying saved ${((totalMiles * 0.21 - totalCarbonKg) / 1000).toFixed(2)}t`
+                    : `🚗 Driving would save ${((totalCarbonKg - totalMiles * 0.21) / 1000).toFixed(2)}t`
+                  }
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>Your breakdown by class:</div>
+            {sortedCarbonByClass.map(([name, carbonKg]) => {
+              const barColor = name === 'Economy' ? '#d97706' : 
+                               name === 'Premium Economy' ? '#16a34a' : 
+                               name === 'Business' ? '#2563eb' : 
+                               '#ca8a04';
+              const displayName = name === 'Economy' ? '🐔 Chicken' : 
+                                  name === 'Premium Economy' ? '💺 Prem Eco' :
+                                  name === 'Business' ? '💼 Business' :
+                                  '👑 First';
+              return (
+                <div key={name} style={{ marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+                    <span>{displayName}</span>
+                    <span>{(carbonKg / 1000).toFixed(2)}t ({Math.round(carbonKg / totalCarbonKg * 100)}%)</span>
+                  </div>
+                  <div style={{ height: '6px', background: '#fecaca', borderRadius: '3px' }}>
+                    <div style={{ height: '100%', background: barColor, borderRadius: '3px', width: `${(carbonKg/totalCarbonKg)*100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ fontSize: '11px', color: '#888', marginTop: '16px', borderTop: '1px solid #fecaca', paddingTop: '12px' }}>
+              💡 Your share: ~{((totalCarbonKg / totalFlightCarbonKg) * 100).toFixed(1)}% of total aircraft emissions. Premium classes have larger footprints due to increased seat space.<br/>
+              <span style={{ color: '#aaa' }}>Calculated on the base rate of 0.14 kg CO₂ per passenger-mile (flying) and 0.21 kg CO₂ per mile (driving).</span>
+            </div>
           </div>
         )}
       </div>
@@ -938,7 +1131,11 @@ const FlightTracker = () => {
 
             {/* Individual Flights List */}
             <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
-              {group.flights.map((f, idx) => (
+              {group.flights.map((f, idx) => {
+                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                const drivingCO2 = (f.distance || 0) * 0.21;
+                const co2Diff = drivingCO2 - flightCO2;
+                return (
                 <div 
                   key={f.id} 
                   style={{ 
@@ -949,11 +1146,11 @@ const FlightTracker = () => {
                     borderBottom: idx < group.flights.length - 1 ? '1px solid #f5f5f5' : 'none'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
                     <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
                       {formatDate(f.date)}
                     </span>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                       {f.airline && (
                         <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
                           {f.airline}
@@ -964,11 +1161,51 @@ const FlightTracker = () => {
                           {f.aircraftType}
                         </span>
                       )}
-                      {f.serviceClass && f.serviceClass !== 'Economy' && (
-                        <span style={{ fontSize: '12px', color: '#7c3aed', background: '#f3e8ff', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.serviceClass}
+                      {f.serviceClass && (
+                        <span style={{ 
+                          fontSize: '12px', 
+                          color: f.serviceClass === 'Economy' ? '#8b6914' : 
+                                 f.serviceClass === 'Premium Economy' ? '#166534' : 
+                                 f.serviceClass === 'Business' ? '#1e40af' : 
+                                 '#854d0e', /* First */
+                          background: f.serviceClass === 'Economy' ? '#fef3c7' : 
+                                      f.serviceClass === 'Premium Economy' ? '#dcfce7' : 
+                                      f.serviceClass === 'Business' ? '#dbeafe' : 
+                                      '#fef9c3', /* First - gold */
+                          padding: '3px 8px', 
+                          borderRadius: '6px',
+                          fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
+                        }}>
+                          {f.serviceClass === 'Economy' ? '🐔 Chicken class' : 
+                           f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
+                           f.serviceClass === 'Business' ? '💼 Business' :
+                           '👑 First'}
                         </span>
                       )}
+                      {/* CO2 comparison */}
+                      <span 
+                        style={{ 
+                          fontSize: '11px', 
+                          color: '#dc2626', 
+                          background: '#fef2f2', 
+                          padding: '3px 8px', 
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                        title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
+                      >
+                        <CloudRain size={10}/>
+                        {flightCO2} kg
+                        <span style={{ 
+                          fontSize: '10px', 
+                          color: co2Diff > 0 ? '#166534' : '#854d0e',
+                          marginLeft: '2px'
+                        }}>
+                          {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
+                        </span>
+                      </span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -993,7 +1230,7 @@ const FlightTracker = () => {
                     />
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         ))}
@@ -1008,13 +1245,13 @@ const FlightTracker = () => {
                <X style={{cursor:'pointer'}} onClick={() => {
                  setShowForm(false);
                  setEditingFlight(null);
-                 setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy' });
+                 setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
                }}/>
              </div>
              {isVerifying ? (
                  <div style={{textAlign:'center', padding:'40px'}}>
                      <Loader2 className="animate-spin" size={40} style={{marginBottom:'20px'}}/>
-                     <div>Analyzing route...</div>
+                     <div>{formData.checkLandmarks ? 'Analyzing route & landmarks...' : 'Saving flight...'}</div>
                      <div style={{fontSize:'12px', color:'#666', marginTop:'10px'}}>{statusMsg}</div>
                  </div>
              ) : (
@@ -1033,8 +1270,17 @@ const FlightTracker = () => {
                     ))}
                   </select>
                   <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: '#555' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.checkLandmarks} 
+                      onChange={e => setFormData({...formData, checkLandmarks: e.target.checked})}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Detect landmarks along route</span>
+                  </label>
                   <button type="submit" style={{ background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>
-                    {editingFlight ? 'Update Flight' : 'Save & Analyze'}
+                    {editingFlight ? 'Update Flight' : (formData.checkLandmarks ? 'Save & Analyze' : 'Save Flight')}
                   </button>
                 </form>
              )}
