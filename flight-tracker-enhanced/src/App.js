@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Plane, Plus, Trash2, Edit2, X, 
+  Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain 
 } from 'lucide-react';
 
@@ -736,6 +736,71 @@ const FlightTracker = () => {
   });
   const topAirlines = Object.entries(airlineStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
+  // Group flights by route for consolidated display
+  const groupedFlights = flights.reduce((acc, flight) => {
+    const routeKey = `${flight.origin}-${flight.destination}`;
+    if (!acc[routeKey]) {
+      acc[routeKey] = {
+        origin: flight.origin,
+        destination: flight.destination,
+        originCity: flight.originCity,
+        destCity: flight.destCity,
+        featuresCrossed: flight.featuresCrossed,
+        distance: flight.distance,
+        flights: []
+      };
+    }
+    acc[routeKey].flights.push(flight);
+    return acc;
+  }, {});
+
+  // Sort flights within each group by date (newest first)
+  Object.values(groupedFlights).forEach(group => {
+    group.flights.sort((a, b) => new Date(b.date) - new Date(a.date));
+  });
+
+  // Convert to array and sort by most recent flight date
+  const sortedGroups = Object.values(groupedFlights).sort((a, b) => {
+    const aDate = new Date(a.flights[0].date);
+    const bDate = new Date(b.flights[0].date);
+    return bDate - aDate;
+  });
+
+  // Handler to copy/duplicate a flight
+  const handleCopyFlight = (flight) => {
+    setEditingFlight(null); // Not editing, creating new
+    setFormData({
+      origin: flight.origin,
+      destination: flight.destination,
+      airline: flight.airline || '',
+      aircraftType: flight.aircraftType || '',
+      serviceClass: flight.serviceClass || 'Economy',
+      date: '' // Clear date so user must enter new one
+    });
+    setShowForm(true);
+  };
+
+  // Handler to edit a specific flight within a group
+  const handleEditFlight = (flight) => {
+    setEditingFlight(flight);
+    setFormData({
+      origin: flight.origin,
+      destination: flight.destination,
+      airline: flight.airline || '',
+      aircraftType: flight.aircraftType || '',
+      serviceClass: flight.serviceClass || 'Economy',
+      date: flight.date || ''
+    });
+    setShowForm(true);
+  };
+
+  // Handler to delete a specific flight
+  const handleDeleteFlight = (flightId) => {
+    const updated = flights.filter(x => x.id !== flightId);
+    setFlights(updated);
+    localStorage.setItem('flights-data', JSON.stringify(updated));
+  };
+
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 20px', fontFamily: 'sans-serif' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
@@ -796,9 +861,9 @@ const FlightTracker = () => {
 
       {/* Stats Dashboard */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
         <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
-        <div style={statCard}><Users size={20}/><div style={statVal}>{totalPassengers.toLocaleString()}</div><div style={statLbl}>Fellow Travelers</div></div>
-        <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(featureStats).length}</div><div style={statLbl}>Landmarks Seen</div></div>
+        <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
       </div>
 
@@ -834,38 +899,102 @@ const FlightTracker = () => {
         )}
       </div>
 
-      {/* Flight List */}
+      {/* Flight List - Consolidated by Route */}
       <div style={{ display: 'grid', gap: '20px' }}>
-        {flights.map(f => (
-          <div key={f.id} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-              <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</span>
-              <div style={{display: 'flex', gap: '10px'}}>
-                 <Edit2 size={18} style={{ cursor: 'pointer' }} onClick={() => { setEditingFlight(f); setFormData(f); setShowForm(true); }} />
-                 <Trash2 size={18} color="red" style={{ cursor: 'pointer' }} onClick={() => {
-                   const updated = flights.filter(x => x.id !== f.id);
-                   setFlights(updated);
-                   localStorage.setItem('flights-data', JSON.stringify(updated));
-                 }} />
+        {sortedGroups.map(group => (
+          <div key={`${group.origin}-${group.destination}`} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
+            {/* Route Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+              <div>
+                <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                <div style={{ color: '#666', fontSize: '14px', marginTop: '4px' }}>
+                  {group.originCity} to {group.destCity}
+                  {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
+                  {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
+                </span>
+                <Copy 
+                  size={16} 
+                  style={{ cursor: 'pointer', color: '#666' }} 
+                  title="Copy this route"
+                  onClick={() => handleCopyFlight(group.flights[0])} 
+                />
               </div>
             </div>
-            <div style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
-              {f.originCity} to {f.destCity}
-              {(f.airline || f.aircraftType) && (
-                <span style={{ marginLeft: '10px', color: '#888' }}>
-                  • {[f.airline, f.aircraftType].filter(Boolean).join(' · ')}
-                </span>
-              )}
-            </div>
-            {f.featuresCrossed && f.featuresCrossed.length > 0 && (
-              <div style={{marginTop:'12px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
-                {f.featuresCrossed.map(feat => (
-                    <span key={feat} style={{fontSize:'11px', background:'#e0f2f1', color:'#004d40', padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
-                      <Globe size={10}/> {feat}
-                    </span>
+
+            {/* Landmarks */}
+            {group.featuresCrossed && group.featuresCrossed.length > 0 && (
+              <div style={{marginTop:'12px', marginBottom: '16px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
+                {group.featuresCrossed.map(feat => (
+                  <span key={feat} style={{fontSize:'11px', background:'#e0f2f1', color:'#004d40', padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
+                    <Globe size={10}/> {feat}
+                  </span>
                 ))}
               </div>
             )}
+
+            {/* Individual Flights List */}
+            <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
+              {group.flights.map((f, idx) => (
+                <div 
+                  key={f.id} 
+                  style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    padding: '10px 0',
+                    borderBottom: idx < group.flights.length - 1 ? '1px solid #f5f5f5' : 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
+                      {formatDate(f.date)}
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {f.airline && (
+                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
+                          {f.airline}
+                        </span>
+                      )}
+                      {f.aircraftType && f.aircraftType !== 'Unknown' && (
+                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
+                          {f.aircraftType}
+                        </span>
+                      )}
+                      {f.serviceClass && f.serviceClass !== 'Economy' && (
+                        <span style={{ fontSize: '12px', color: '#7c3aed', background: '#f3e8ff', padding: '3px 8px', borderRadius: '6px' }}>
+                          {f.serviceClass}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <Copy 
+                      size={14} 
+                      style={{ cursor: 'pointer', color: '#888' }} 
+                      title="Duplicate this flight"
+                      onClick={() => handleCopyFlight(f)} 
+                    />
+                    <Edit2 
+                      size={14} 
+                      style={{ cursor: 'pointer', color: '#888' }} 
+                      title="Edit this flight"
+                      onClick={() => handleEditFlight(f)} 
+                    />
+                    <Trash2 
+                      size={14} 
+                      color="#e57373" 
+                      style={{ cursor: 'pointer' }} 
+                      title="Delete this flight"
+                      onClick={() => handleDeleteFlight(f.id)} 
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
@@ -894,6 +1023,15 @@ const FlightTracker = () => {
                   <input placeholder="Destination (e.g. JFK)" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
                   <input placeholder="Airline (e.g. United, Delta)" value={formData.airline} onChange={e => setFormData({...formData, airline: e.target.value})} style={inputStyle} />
                   <input placeholder="Aircraft (e.g. Boeing 737)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
+                  <select 
+                    value={formData.serviceClass} 
+                    onChange={e => setFormData({...formData, serviceClass: e.target.value})} 
+                    style={inputStyle}
+                  >
+                    {serviceClasses.map(cls => (
+                      <option key={cls} value={cls}>{cls}</option>
+                    ))}
+                  </select>
                   <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
                   <button type="submit" style={{ background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>
                     {editingFlight ? 'Update Flight' : 'Save & Analyze'}
