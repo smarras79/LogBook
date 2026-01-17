@@ -14,7 +14,8 @@ import {
   signOut, 
   onAuthStateChanged,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  sendPasswordResetEmail // <--- Added for Forgot Password
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -341,7 +342,7 @@ const FlightTracker = () => {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [authMode, setAuthMode] = useState('login'); // 'login', 'signup', or 'forgot'
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
@@ -510,6 +511,32 @@ const FlightTracker = () => {
           break;
         default:
           setAuthError('Invalid email or password.');
+      }
+    }
+  };
+
+  // --- NEW: Password Reset Handler ---
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!authEmail) {
+      setAuthError('Please enter your email address first.');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, authEmail);
+      alert('Password reset link sent! Check your email to set a new password.');
+      setAuthMode('login'); // Return to login screen
+    } catch (error) {
+      switch (error.code) {
+        case 'auth/user-not-found':
+          setAuthError('No account found with this email.');
+          break;
+        case 'auth/invalid-email':
+          setAuthError('Please enter a valid email address.');
+          break;
+        default:
+          setAuthError(error.message);
       }
     }
   };
@@ -777,899 +804,371 @@ const FlightTracker = () => {
         const to = await fetchAirportData(flightData.destination);
 
         // STRICT VALIDATION: Check if airports exist AND have valid numbers
-        if (!from || !to || isNaN(from.lat) || isNaN(from.lon) || isNaN(to.lat) || isNaN(to.lon)) {
-            alert(`Could not verify airports: ${flightData.origin} or ${flightData.destination}. Please check the codes.`);
-            setIsVerifying(false);
-            setStatusMsg('');
-            return;
+        if (!from || !to || isNaN(from.lat) || isNaN(to.lat)) {
+             alert('Invalid airport codes. Please check IATA codes (e.g., JFK, LHR).');
+             setIsVerifying(false);
+             return;
         }
 
-        // Check if this is an edit with unchanged route
-        const isEditWithSameRoute = editingFlight && 
-            editingFlight.origin === flightData.origin && 
-            editingFlight.destination === flightData.destination;
-
-        let dist, features;
-        
-        if (isEditWithSameRoute) {
-            // Route unchanged - reuse existing distance and landmarks
-            dist = editingFlight.distance;
-            features = editingFlight.featuresCrossed || [];
-            setStatusMsg('Route unchanged, keeping landmarks...');
-        } else {
-            // New flight or route changed - calculate distance
-            dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-            
-            // Only detect landmarks if checkbox is checked
-            if (flightData.checkLandmarks) {
-                features = await detectLandmarksHybrid(from, to);
-            } else {
-                // Check if there's an existing flight on this route to copy landmarks from
-                const existingRouteFlights = flights.filter(f => 
-                    f.origin === flightData.origin && f.destination === flightData.destination
-                );
-                if (existingRouteFlights.length > 0 && existingRouteFlights[0].featuresCrossed) {
-                    features = existingRouteFlights[0].featuresCrossed;
-                    setStatusMsg('Copied landmarks from existing route...');
-                } else {
-                    features = [];
-                }
-            }
+        let landmarks = [];
+        if (flightData.checkLandmarks) {
+           setStatusMsg('Scanning route for landmarks...');
+           landmarks = await detectLandmarksHybrid(from, to);
         }
+
+        const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
         
-        const pax = getPassengerEstimate(flightData.aircraftType);
-
-        // Remove checkLandmarks from the data to be saved (it's just a form flag)
-        const { checkLandmarks, ...flightDataToSave } = flightData;
-
-        const newRecord = { 
-            ...flightDataToSave, 
-            id: flightData.id || Date.now(),
-            distance: dist, 
-            originCity: from.city, 
-            destCity: to.city,
-            featuresCrossed: features,
-            passengerCount: pax
+        const newFlight = {
+          id: flightData.id || Date.now(),
+          ...flightData,
+          distance: dist,
+          landmarks: landmarks || []
         };
 
-        const updated = isImport 
-            ? [newRecord, ...flights] 
-            : (editingFlight ? flights.map(f => f.id === editingFlight.id ? newRecord : f) : [newRecord, ...flights]);
+        if (editingFlight) {
+            setFlights(flights.map(f => f.id === editingFlight.id ? newFlight : f));
+            setEditingFlight(null);
+        } else {
+            setFlights([...flights, newFlight]);
+        }
 
-        setFlights(updated);
-        localStorage.setItem('flights-data', JSON.stringify(updated));
-        
-        if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
-        setShowForm(false);
-        setEditingFlight(null);
-        setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
+        if (isImport) {
+           setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
+        } else {
+            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
+            setShowForm(false);
+        }
     } catch (e) {
-        console.error(e);
-        alert("Error saving flight. Check console for details.");
+        console.error("Error saving flight:", e);
+        alert("Failed to save flight. Please try again.");
     } finally {
         setIsVerifying(false);
         setStatusMsg('');
     }
   };
 
-  const handleSubmit = (e) => {
-      e.preventDefault();
-      handleSaveOrImport({ ...formData, id: editingFlight ? editingFlight.id : null });
-  };
-
   const fetchAirportData = async (code) => {
-    const cleanCode = code.trim().toUpperCase();
-    const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
+    if (!code) return null;
+    const local = AIRPORTS_DATABASE.find(a => a.code === code);
     if (local) return local;
-    
+
     try {
-      const response = await fetch(`https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat`);
-      const text = await response.text();
-      const rows = text.split('\n');
-      for (let row of rows) {
-        if (row.includes(`"${cleanCode}"`)) {
-          const parts = row.split(',');
-          // Robust check for lat/lon parsing
-          const lat = parseFloat(parts[parts.length - 8]);
-          const lon = parseFloat(parts[parts.length - 7]);
-          
-          if (!isNaN(lat) && !isNaN(lon)) {
-              return {
-                code: cleanCode,
-                city: parts[2].replace(/"/g, ''),
-                lat: lat,
-                lon: lon
-              };
-          }
-        }
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${code}+airport&format=json&limit=1`);
+      const data = await response.json();
+      if (data && data[0]) {
+        return {
+          code,
+          name: code + " Airport", 
+          lat: parseFloat(data[0].lat),
+          lon: parseFloat(data[0].lon)
+        };
       }
-    } catch (e) { console.error(e); }
+    } catch (err) {
+      console.error("Airport fetch error:", err);
+    }
     return null;
   };
 
-  const getPassengerEstimate = (aircraftType) => {
-    const type = (aircraftType || "").toUpperCase();
-    let capacity = 150;
-    if (type.includes("380")) capacity = 500;
-    else if (type.includes("747")) capacity = 416;
-    else if (type.includes("777") || type.includes("350")) capacity = 350;
-    else if (type.includes("787") || type.includes("330")) capacity = 250;
-    else if (type.includes("767")) capacity = 220;
-    else if (type.includes("CRJ") || type.includes("ERJ") || type.includes("EMB")) capacity = 70;
-    return Math.round(capacity * 0.82);
+  const handleDelete = (id) => {
+    if (window.confirm("Delete this flight?")) {
+      setFlights(flights.filter(f => f.id !== id));
+    }
   };
 
-  // Estimate personal CO2 emissions in kg based on distance (miles) and service class
-  // Base rate: ~0.14 kg CO2 per passenger-mile for economy (industry standard per-person rate)
-  // Class multipliers account for seat space/fuel share per passenger
-  const getCarbonEstimate = (distance, serviceClass) => {
-    const baseRatePerMile = 0.14; // kg CO2 per passenger-mile for economy
-    const classMultipliers = {
-      'Economy': 1.0,
-      'Premium Economy': 1.5,
-      'Business': 2.5,
-      'First': 4.0
-    };
-    const multiplier = classMultipliers[serviceClass] || 1.0;
-    return Math.round(distance * baseRatePerMile * multiplier);
-  };
-  
-  const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
-  const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
-  
-  // Calculate total personal carbon footprint
-  const totalCarbonKg = flights.reduce((sum, f) => {
-    return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
-  }, 0);
-  const totalCarbonTons = (totalCarbonKg / 1000).toFixed(2);
-
-  // Calculate total flight emissions (entire aircraft)
-  // Using average ~0.14 kg CO2 per passenger-mile * estimated passengers
-  const totalFlightCarbonKg = flights.reduce((sum, f) => {
-    const passengerCount = f.passengerCount || getPassengerEstimate(f.aircraftType);
-    const flightEmissions = (f.distance || 0) * 0.14 * passengerCount;
-    return sum + flightEmissions;
-  }, 0);
-  const totalFlightCarbonTons = (totalFlightCarbonKg / 1000).toFixed(1);
-  
-  const featureStats = {};
-  flights.forEach(f => {
-    if (f.featuresCrossed) {
-      f.featuresCrossed.forEach(feat => {
-        featureStats[feat] = (featureStats[feat] || 0) + 1;
-      });
-    }
-  });
-  const topFeatures = Object.entries(featureStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
-
-  // Airline statistics
-  const airlineStats = {};
-  flights.forEach(f => {
-    if (f.airline) {
-      airlineStats[f.airline] = (airlineStats[f.airline] || 0) + 1;
-    }
-  });
-  const topAirlines = Object.entries(airlineStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
-
-  // Aircraft statistics
-  const aircraftStats = {};
-  flights.forEach(f => {
-    if (f.aircraftType && f.aircraftType !== 'Unknown') {
-      aircraftStats[f.aircraftType] = (aircraftStats[f.aircraftType] || 0) + 1;
-    }
-  });
-  const topAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
-
-  // Service class statistics
-  const classStats = {};
-  flights.forEach(f => {
-    if (f.serviceClass) {
-      classStats[f.serviceClass] = (classStats[f.serviceClass] || 0) + 1;
-    }
-  });
-  const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
-  const sortedClasses = Object.entries(classStats).sort((a, b) => {
-    return classOrder.indexOf(a[0]) - classOrder.indexOf(b[0]);
-  });
-
-  // Personal carbon footprint by class
-  const carbonByClass = {};
-  flights.forEach(f => {
-    const cls = f.serviceClass || 'Economy';
-    const carbon = getCarbonEstimate(f.distance || 0, cls);
-    carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
-  });
-  const sortedCarbonByClass = Object.entries(carbonByClass).sort((a, b) => b[1] - a[1]);
-
-  // Group flights by route for consolidated display
-  const groupedFlights = flights.reduce((acc, flight) => {
-    const routeKey = `${flight.origin}-${flight.destination}`;
-    if (!acc[routeKey]) {
-      acc[routeKey] = {
-        origin: flight.origin,
-        destination: flight.destination,
-        originCity: flight.originCity,
-        destCity: flight.destCity,
-        featuresCrossed: flight.featuresCrossed,
-        distance: flight.distance,
-        flights: []
-      };
-    }
-    acc[routeKey].flights.push(flight);
-    return acc;
-  }, {});
-
-  // Sort flights within each group by date (newest first)
-  Object.values(groupedFlights).forEach(group => {
-    group.flights.sort((a, b) => new Date(b.date) - new Date(a.date));
-  });
-
-  // Convert to array and sort by most recent flight date
-  const sortedGroups = Object.values(groupedFlights).sort((a, b) => {
-    const aDate = new Date(a.flights[0].date);
-    const bDate = new Date(b.flights[0].date);
-    return bDate - aDate;
-  });
-
-  // Handler to copy/duplicate a flight
-  const handleCopyFlight = (flight) => {
-    setEditingFlight(null); // Not editing, creating new
-    setFormData({
-      origin: flight.origin,
-      destination: flight.destination,
-      airline: flight.airline || '',
-      aircraftType: flight.aircraftType || '',
-      serviceClass: flight.serviceClass || 'Economy',
-      date: '', // Clear date so user must enter new one
-      checkLandmarks: false
-    });
-    setShowForm(true);
-  };
-
-  // Handler to edit a specific flight within a group
-  const handleEditFlight = (flight) => {
-    setEditingFlight(flight);
-    setFormData({
-      origin: flight.origin,
-      destination: flight.destination,
-      airline: flight.airline || '',
-      aircraftType: flight.aircraftType || '',
-      serviceClass: flight.serviceClass || 'Economy',
-      date: flight.date || '',
-      checkLandmarks: false
-    });
-    setShowForm(true);
-  };
-
-  // Handler to delete a specific flight
-  const handleDeleteFlight = (flightId) => {
-    const updated = flights.filter(x => x.id !== flightId);
-    setFlights(updated);
-    localStorage.setItem('flights-data', JSON.stringify(updated));
+  const handleEdit = (flight) => {
+      setEditingFlight(flight);
+      setFormData({ ...flight });
+      setShowForm(true);
   };
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 20px', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', flexWrap: 'wrap', gap: '15px' }}>
-        <h1 style={{ margin: 0 }}>FlightLog</h1>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Auth UI */}
-          {authLoading ? (
-            <Loader2 className="animate-spin" size={20} style={{ color: '#888' }} />
-          ) : authUser ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '8px', 
-                padding: '8px 12px', 
-                background: '#f0fdf4', 
-                borderRadius: '20px',
-                fontSize: '13px',
-                color: '#166534'
-              }}>
-                <User size={16} />
-                <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {authUser.email}
-                </span>
-              </div>
-              <button 
-                onClick={handleLogout}
-                style={{ 
-                  background: 'transparent', 
-                  border: '1px solid #ddd', 
-                  padding: '8px 12px', 
-                  borderRadius: '8px', 
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '13px',
-                  color: '#666'
-                }}
-              >
-                <LogOut size={16} /> Sign Out
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button 
-                onClick={() => openAuthModal('login')}
-                style={{ 
-                  background: 'transparent', 
-                  border: '1px solid #ddd', 
-                  padding: '8px 16px', 
-                  borderRadius: '8px', 
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '13px'
-                }}
-              >
-                <LogIn size={16} /> Log In
-              </button>
-              <button 
-                onClick={() => openAuthModal('signup')}
-                style={{ 
-                  background: '#10b981', 
-                  color: '#fff',
-                  border: 'none', 
-                  padding: '8px 16px', 
-                  borderRadius: '8px', 
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '13px',
-                  fontWeight: '600'
-                }}
-              >
-                <User size={16} /> Sign Up
-              </button>
-            </div>
-          )}
-          
-          <button 
-            onClick={handleGmailImport} 
-            disabled={!gapiInited || importing}
-            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
-          >
-            {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
-            {importing ? "Scanning..." : "Sync Gmail"}
-          </button>
-          <button onClick={() => { 
-            setEditingFlight(null); 
-            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
-            setShowForm(true); 
-          }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
-            + Manual Add
-          </button>
+    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px', fontFamily: '-apple-system, sans-serif' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ background: '#000', padding: '10px', borderRadius: '12px' }}>
+             <Plane color="#fff" size={24} />
+          </div>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '24px' }}>FlightLog</h1>
+            <span style={{ fontSize: '14px', color: '#666' }}>Track your journey</span>
+          </div>
         </div>
-      </header>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {!authLoading && (
+            authUser ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '500' }}>{authUser.email}</span>
+                <button onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
+                  <LogOut size={16} /> Sign Out
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => openAuthModal('login')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', background: '#000', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '500' }}>
+                <LogIn size={16} /> Sign In
+              </button>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        <div style={statCard}>
+          <Globe size={24} color="#666" style={{ margin: '0 auto' }} />
+          <div style={statVal}>{flights.length}</div>
+          <div style={statLbl}>Flights</div>
+        </div>
+        <div style={statCard}>
+          <BarChart3 size={24} color="#666" style={{ margin: '0 auto' }} />
+          <div style={statVal}>{flights.reduce((acc, curr) => acc + curr.distance, 0).toLocaleString()}</div>
+          <div style={statLbl}>Miles Flown</div>
+        </div>
+        <div style={statCard}>
+          <Trophy size={24} color="#666" style={{ margin: '0 auto' }} />
+          <div style={statVal}>{new Set(flights.map(f => f.destination)).size}</div>
+          <div style={statLbl}>Cities Visited</div>
+        </div>
+      </div>
+
+      {/* Main Actions */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        <button 
+          onClick={() => { setEditingFlight(null); setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false }); setShowForm(true); }}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '16px', background: '#000', color: '#fff', borderRadius: '12px', border: 'none', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}
+        >
+          <Plus size={20} /> Log Flight
+        </button>
+        <button 
+          onClick={handleGmailImport}
+          disabled={!gapiInited}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '16px', background: '#fff', color: '#000', borderRadius: '12px', border: '1px solid #ddd', fontSize: '16px', fontWeight: 'bold', cursor: gapiInited ? 'pointer' : 'not-allowed', opacity: gapiInited ? 1 : 0.6 }}
+        >
+          {importing ? <Loader2 className="spin" size={20} /> : <Mail size={20} />} Sync Gmail
+        </button>
+      </div>
+
+      {/* Flights List */}
+      <div style={{ display: 'grid', gap: '15px' }}>
+        {flights.map((flight) => (
+          <div key={flight.id} style={{ padding: '20px', border: '1px solid #eee', borderRadius: '16px', background: '#fff', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+               <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '5px' }}>
+                    <h3 style={{ margin: 0, fontSize: '20px' }}>{flight.origin} → {flight.destination}</h3>
+                    <span style={{ fontSize: '12px', padding: '4px 8px', background: '#f5f5f5', borderRadius: '20px' }}>{flight.serviceClass}</span>
+                  </div>
+                  <div style={{ color: '#666', fontSize: '14px' }}>
+                    {formatDate(flight.date)} • {flight.airline} {flight.flightNumber}
+                  </div>
+               </div>
+               <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '18px' }}>{flight.distance.toLocaleString()} mi</div>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                     <button onClick={() => handleEdit(flight)} style={{ padding: '6px', borderRadius: '6px', border: '1px solid #eee', background: 'none', cursor: 'pointer' }}><Edit2 size={16} color="#666"/></button>
+                     <button onClick={() => handleDelete(flight.id)} style={{ padding: '6px', borderRadius: '6px', border: '1px solid #eee', background: 'none', cursor: 'pointer' }}><Trash2 size={16} color="#ef4444"/></button>
+                  </div>
+               </div>
+            </div>
+            
+            {/* Landmarks Section */}
+            {flight.landmarks && flight.landmarks.length > 0 && (
+              <div style={{ paddingTop: '15px', borderTop: '1px solid #f0f0f0' }}>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', fontSize: '13px', fontWeight: '600', color: '#444' }}>
+                   <Mountain size={14} /> Landmarks Flown Over
+                 </div>
+                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                   {flight.landmarks.map((lm, idx) => (
+                     <span key={idx} style={{ fontSize: '12px', padding: '4px 10px', background: '#f0f9ff', color: '#0369a1', borderRadius: '12px', border: '1px solid #e0f2fe' }}>
+                       {lm}
+                     </span>
+                   ))}
+                 </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {flights.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>No flights logged yet. Add your first trip!</div>
+        )}
+      </div>
 
       {/* Auth Modal */}
       {showAuthModal && (
         <div style={modalOverlay}>
           <div style={{...modalContent, maxWidth: '400px'}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '20px'}}>
-              <h2 style={{margin: 0}}>{authMode === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
+              <h2 style={{margin: 0}}>
+                {authMode === 'forgot' ? 'Reset Password' : (authMode === 'login' ? 'Welcome Back' : 'Create Account')}
+              </h2>
               <X style={{cursor:'pointer'}} onClick={() => setShowAuthModal(false)}/>
             </div>
-            
+
+            {/* Only show Google Sign In for Login/Signup, not Password Reset */}
+            {authMode !== 'forgot' && (
+              <div style={{ marginBottom: '20px' }}>
+                <button 
+                  onClick={handleGoogleSignIn}
+                  style={{ width: '100%', background: '#fff', border: '1px solid #ddd', padding: '12px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', fontSize: '14px' }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Continue with Google
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0' }}>
+                  <div style={{ flex: 1, height: '1px', background: '#ddd' }} />
+                  <span style={{ padding: '0 10px', color: '#666', fontSize: '12px' }}>OR</span>
+                  <div style={{ flex: 1, height: '1px', background: '#ddd' }} />
+                </div>
+              </div>
+            )}
+
             {authError && (
-              <div style={{ 
-                background: '#fef2f2', 
-                color: '#dc2626', 
-                padding: '12px', 
-                borderRadius: '8px', 
-                marginBottom: '15px',
-                fontSize: '13px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
+              <div style={{ padding: '10px', background: '#fee2e2', color: '#ef4444', borderRadius: '8px', marginBottom: '16px', fontSize: '14px', display:'flex', alignItems:'center', gap:'8px' }}>
                 <AlertCircle size={16} />
                 {authError}
               </div>
             )}
 
-            <form onSubmit={authMode === 'login' ? handleLogin : handleSignup} style={{ display: 'grid', gap: '15px' }}>
-              <input 
-                type="email" 
-                placeholder="Email address" 
-                required 
-                value={authEmail} 
-                onChange={e => setAuthEmail(e.target.value)} 
-                style={inputStyle} 
-              />
-              <div style={{ position: 'relative' }}>
-                <input 
-                  type={showPassword ? 'text' : 'password'} 
-                  placeholder="Password" 
-                  required 
-                  value={authPassword} 
-                  onChange={e => setAuthPassword(e.target.value)} 
-                  style={{...inputStyle, paddingRight: '45px'}} 
+            <form onSubmit={authMode === 'forgot' ? handlePasswordReset : (authMode === 'login' ? handleLogin : handleSignup)}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '6px', color: '#444' }}>Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#888'
-                  }}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
               </div>
+
+              {/* Hide password field if we are in 'forgot' mode */}
+              {authMode !== 'forgot' && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '6px', color: '#444' }}>Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="••••••••"
+                      style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {/* Forgot Password Link */}
+                  {authMode === 'login' && (
+                    <div style={{ textAlign: 'right', marginTop: '8px' }}>
+                      <span 
+                        onClick={() => setAuthMode('forgot')}
+                        style={{ fontSize: '12px', color: '#4285F4', cursor: 'pointer', fontWeight: '500' }}
+                      >
+                        Forgot password?
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button 
                 type="submit" 
-                style={{ 
-                  background: authMode === 'login' ? '#000' : '#10b981', 
-                  color: '#fff', 
-                  padding: '12px', 
-                  borderRadius: '8px', 
-                  border: 'none', 
-                  fontWeight: 'bold', 
-                  cursor: 'pointer' 
-                }}
+                style={{ width: '100%', background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
               >
-                {authMode === 'login' ? 'Log In' : 'Create Account'}
+                {authMode === 'forgot' ? 'Send Reset Link' : (authMode === 'login' ? 'Log In' : 'Create Account')}
               </button>
             </form>
 
-            <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0', gap: '10px' }}>
-              <div style={{ flex: 1, height: '1px', background: '#ddd' }} />
-              <span style={{ color: '#888', fontSize: '12px' }}>or</span>
-              <div style={{ flex: 1, height: '1px', background: '#ddd' }} />
-            </div>
-
-            <button 
-              onClick={handleGoogleSignIn}
-              style={{ 
-                width: '100%',
-                background: '#fff', 
-                border: '1px solid #ddd',
-                padding: '12px', 
-                borderRadius: '8px', 
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '10px',
-                fontSize: '14px'
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              Continue with Google
-            </button>
-
-            <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#666' }}>
-              {authMode === 'login' ? (
-                <>Don't have an account? <button onClick={() => setAuthMode('signup')} style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontWeight: '600' }}>Sign up</button></>
-              ) : (
-                <>Already have an account? <button onClick={() => setAuthMode('login')} style={{ background: 'none', border: 'none', color: '#000', cursor: 'pointer', fontWeight: '600' }}>Log in</button></>
-              )}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Info banner for non-authenticated users */}
-      {!authLoading && !authUser && (
-        <div style={{ 
-          background: '#fef3c7', 
-          border: '1px solid #f59e0b', 
-          borderRadius: '12px', 
-          padding: '16px', 
-          marginBottom: '30px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          flexWrap: 'wrap'
-        }}>
-          <AlertCircle size={20} color="#d97706" />
-          <div style={{ flex: 1, minWidth: '200px' }}>
-            <strong style={{ color: '#92400e' }}>Your data is stored locally.</strong>
-            <span style={{ color: '#a16207', marginLeft: '8px' }}>Sign up to sync your flights across devices and never lose your data.</span>
-          </div>
-          <button 
-            onClick={() => openAuthModal('signup')}
-            style={{ 
-              background: '#f59e0b', 
-              color: '#fff', 
-              border: 'none', 
-              padding: '8px 16px', 
-              borderRadius: '6px', 
-              cursor: 'pointer',
-              fontWeight: '600',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            Sign Up Free
-          </button>
-        </div>
-      )}
-
-      {/* Import Modal */}
-      {showImport && (
-        <div style={modalOverlay}>
-          <div style={{...modalContent, maxWidth: '600px'}}>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-              <h2>Flights Found ({suggestedFlights.length})</h2>
-              <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
-            </div>
-            {suggestedFlights.length === 0 ? (
-              <div style={{textAlign:'center', padding:'20px', color:'#666'}}>
-                <AlertCircle size={30} style={{marginBottom:'10px'}}/>
-                <p>No new flight emails found.</p>
-              </div>
-            ) : (
-              <div style={{maxHeight: '400px', overflowY: 'auto'}}>
-                {suggestedFlights.map(f => (
-                  <div key={f.id} style={{padding:'15px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div style={{flex: 1, marginRight:'15px'}}>
-                      <div style={{fontWeight:'bold'}}>{f.origin} → {f.destination}</div>
-                      <div style={{fontSize:'12px', color:'#666'}}>
-                        {formatDate(f.date)}
-                        {f.airline && <span style={{marginLeft:'8px'}}>• {f.airline}</span>}
-                      </div>
-                    </div>
-                    <button onClick={() => handleSaveOrImport(f, true)} style={{background: '#00C851', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}>
-                      <Check size={14} /> Add
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Stats Dashboard */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
-        <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
-        <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
-        <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
-        <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        {/* Top Airlines Chart */}
-        {flights.length > 0 && topAirlines.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Airlines</h3>
-            {topAirlines.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#4285F4', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Top Aircraft Chart */}
-        {flights.length > 0 && topAircraft.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
-            {topAircraft.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Class of Service Chart */}
-        {flights.length > 0 && sortedClasses.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
-            {sortedClasses.map(([name, count]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
-                               name === 'Business' ? '#2563eb' : 
-                               '#ca8a04'; /* First - gold */
-              const displayName = name === 'Economy' ? '🐔 Chicken class' : 
-                                  name === 'Premium Economy' ? '💺 Premium Economy' :
-                                  name === 'Business' ? '💼 Business' :
-                                  '👑 First';
-              return (
-                <div key={name} style={{ marginBottom: '15px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
-                    <span>{displayName}</span>
-                    <span>{count} flights</span>
-                  </div>
-                  <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                    <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        
-        {/* Top Landmarks Chart */}
-        {flights.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Landmarks</h3>
-            {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks detected yet.</p> : topFeatures.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} times</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#008080', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Carbon Footprint Breakdown */}
-        {flights.length > 0 && totalCarbonKg > 0 && (
-          <div style={{ background: '#fef2f2', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0, color: '#991b1b' }}><CloudRain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Your Carbon Footprint</h3>
-            
-            {/* Personal vs Total Flight comparison */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{totalCarbonTons}t</div>
-                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Your emissions</div>
-              </div>
-              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#9ca3af' }}>{totalFlightCarbonTons}t</div>
-                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Total flights' emissions</div>
-              </div>
-            </div>
-
-            {/* Driving comparison */}
-            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>🚗 If you drove {totalMiles.toLocaleString()} miles instead:</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#059669' }}>{(totalMiles * 0.21 / 1000).toFixed(2)}t</span>
-                  <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>CO₂ by car</span>
-                </div>
-                <div style={{ 
-                  fontSize: '12px', 
-                  padding: '4px 8px', 
-                  borderRadius: '12px',
-                  background: totalCarbonKg < (totalMiles * 0.21) ? '#dcfce7' : '#fef3c7',
-                  color: totalCarbonKg < (totalMiles * 0.21) ? '#166534' : '#854d0e'
-                }}>
-                  {totalCarbonKg < (totalMiles * 0.21) 
-                    ? `✈️ Flying saved ${((totalMiles * 0.21 - totalCarbonKg) / 1000).toFixed(2)}t`
-                    : `🚗 Driving would save ${((totalCarbonKg - totalMiles * 0.21) / 1000).toFixed(2)}t`
-                  }
-                </div>
-              </div>
-            </div>
-            
-            <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>Your breakdown by class:</div>
-            {sortedCarbonByClass.map(([name, carbonKg]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
-                               name === 'Business' ? '#2563eb' : 
-                               '#ca8a04';
-              const displayName = name === 'Economy' ? '🐔 Chicken' : 
-                                  name === 'Premium Economy' ? '💺 Prem Eco' :
-                                  name === 'Business' ? '💼 Business' :
-                                  '👑 First';
-              return (
-                <div key={name} style={{ marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span>{displayName}</span>
-                    <span>{(carbonKg / 1000).toFixed(2)}t ({Math.round(carbonKg / totalCarbonKg * 100)}%)</span>
-                  </div>
-                  <div style={{ height: '6px', background: '#fecaca', borderRadius: '3px' }}>
-                    <div style={{ height: '100%', background: barColor, borderRadius: '3px', width: `${(carbonKg/totalCarbonKg)*100}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ fontSize: '11px', color: '#888', marginTop: '16px', borderTop: '1px solid #fecaca', paddingTop: '12px' }}>
-              💡 Your share: ~{((totalCarbonKg / totalFlightCarbonKg) * 100).toFixed(1)}% of total aircraft emissions. Premium classes have larger footprints due to increased seat space.<br/>
-              <span style={{ color: '#aaa' }}>Calculated on the base rate of 0.14 kg CO₂ per passenger-mile (flying) and 0.21 kg CO₂ per mile (driving).</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Flight List - Consolidated by Route */}
-      <div style={{ display: 'grid', gap: '20px' }}>
-        {sortedGroups.map(group => (
-          <div key={`${group.origin}-${group.destination}`} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
-            {/* Route Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-              <div>
-                <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
-                <div style={{ color: '#666', fontSize: '14px', marginTop: '4px' }}>
-                  {group.originCity} to {group.destCity}
-                  {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
-                  {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
+            <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px', color: '#666' }}>
+              {authMode === 'forgot' ? (
+                <span>
+                  Remember your password?{' '}
+                  <button 
+                    onClick={() => setAuthMode('login')} 
+                    style={{ background: 'none', border: 'none', color: '#000', fontWeight: 'bold', cursor: 'pointer', padding: 0 }}
+                  >
+                    Log in
+                  </button>
                 </span>
-                <Copy 
-                  size={16} 
-                  style={{ cursor: 'pointer', color: '#666' }} 
-                  title="Copy this route"
-                  onClick={() => handleCopyFlight(group.flights[0])} 
-                />
-              </div>
-            </div>
-
-            {/* Landmarks */}
-            {group.featuresCrossed && group.featuresCrossed.length > 0 && (
-              <div style={{marginTop:'12px', marginBottom: '16px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
-                {group.featuresCrossed.map(feat => (
-                  <span key={feat} style={{fontSize:'11px', background:'#e0f2f1', color:'#004d40', padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
-                    <Globe size={10}/> {feat}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Individual Flights List */}
-            <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
-              {group.flights.map((f, idx) => {
-                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
-                const drivingCO2 = (f.distance || 0) * 0.21;
-                const co2Diff = drivingCO2 - flightCO2;
-                return (
-                <div 
-                  key={f.id} 
-                  style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: idx < group.flights.length - 1 ? '1px solid #f5f5f5' : 'none'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
-                    <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
-                      {formatDate(f.date)}
-                    </span>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {f.airline && (
-                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.airline}
-                        </span>
-                      )}
-                      {f.aircraftType && f.aircraftType !== 'Unknown' && (
-                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.aircraftType}
-                        </span>
-                      )}
-                      {f.serviceClass && (
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: f.serviceClass === 'Economy' ? '#8b6914' : 
-                                 f.serviceClass === 'Premium Economy' ? '#166534' : 
-                                 f.serviceClass === 'Business' ? '#1e40af' : 
-                                 '#854d0e', /* First */
-                          background: f.serviceClass === 'Economy' ? '#fef3c7' : 
-                                      f.serviceClass === 'Premium Economy' ? '#dcfce7' : 
-                                      f.serviceClass === 'Business' ? '#dbeafe' : 
-                                      '#fef9c3', /* First - gold */
-                          padding: '3px 8px', 
-                          borderRadius: '6px',
-                          fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
-                        }}>
-                          {f.serviceClass === 'Economy' ? '🐔 Chicken class' : 
-                           f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
-                           f.serviceClass === 'Business' ? '💼 Business' :
-                           '👑 First'}
-                        </span>
-                      )}
-                      {/* CO2 comparison */}
-                      <span 
-                        style={{ 
-                          fontSize: '11px', 
-                          color: '#dc2626', 
-                          background: '#fef2f2', 
-                          padding: '3px 8px', 
-                          borderRadius: '6px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
-                      >
-                        <CloudRain size={10}/>
-                        {flightCO2} kg
-                        <span style={{ 
-                          fontSize: '10px', 
-                          color: co2Diff > 0 ? '#166534' : '#854d0e',
-                          marginLeft: '2px'
-                        }}>
-                          {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <Copy 
-                      size={14} 
-                      style={{ cursor: 'pointer', color: '#888' }} 
-                      title="Duplicate this flight"
-                      onClick={() => handleCopyFlight(f)} 
-                    />
-                    <Edit2 
-                      size={14} 
-                      style={{ cursor: 'pointer', color: '#888' }} 
-                      title="Edit this flight"
-                      onClick={() => handleEditFlight(f)} 
-                    />
-                    <Trash2 
-                      size={14} 
-                      color="#e57373" 
-                      style={{ cursor: 'pointer' }} 
-                      title="Delete this flight"
-                      onClick={() => handleDeleteFlight(f.id)} 
-                    />
-                  </div>
-                </div>
-              )})}
+              ) : authMode === 'login' ? (
+                <span>
+                  Don't have an account?{' '}
+                  <button 
+                    onClick={() => setAuthMode('signup')} 
+                    style={{ background: 'none', border: 'none', color: '#000', fontWeight: 'bold', cursor: 'pointer', padding: 0 }}
+                  >
+                    Sign up
+                  </button>
+                </span>
+              ) : (
+                <span>
+                  Already have an account?{' '}
+                  <button 
+                    onClick={() => setAuthMode('login')} 
+                    style={{ background: 'none', border: 'none', color: '#000', fontWeight: 'bold', cursor: 'pointer', padding: 0 }}
+                  >
+                    Log in
+                  </button>
+                </span>
+              )}
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {/* Modal Form */}
+      {/* Manual Entry Form Modal */}
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalContent}>
-             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '20px'}}>
-               <h2 style={{margin: 0}}>{editingFlight ? 'Edit Flight' : 'Log Flight'}</h2>
-               <X style={{cursor:'pointer'}} onClick={() => {
-                 setShowForm(false);
-                 setEditingFlight(null);
-                 setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
-               }}/>
+             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+               <h2 style={{ margin: 0 }}>{editingFlight ? 'Edit Flight' : 'Log New Flight'}</h2>
+               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X /></button>
              </div>
              {isVerifying ? (
-                 <div style={{textAlign:'center', padding:'40px'}}>
-                     <Loader2 className="animate-spin" size={40} style={{marginBottom:'20px'}}/>
-                     <div>{formData.checkLandmarks ? 'Analyzing route & landmarks...' : 'Saving flight...'}</div>
-                     <div style={{fontSize:'12px', color:'#666', marginTop:'10px'}}>{statusMsg}</div>
-                 </div>
+               <div style={{ textAlign: 'center', padding: '40px' }}>
+                 <Loader2 className="spin" size={32} style={{ marginBottom: '10px' }} />
+                 <div>{statusMsg}</div>
+               </div>
              ) : (
-                <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
-                  <input placeholder="Origin (e.g. LAX)" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={inputStyle} />
-                  <input placeholder="Destination (e.g. JFK)" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
-                  <input placeholder="Airline (e.g. United, Delta)" value={formData.airline} onChange={e => setFormData({...formData, airline: e.target.value})} style={inputStyle} />
-                  <input placeholder="Aircraft (e.g. Boeing 737)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
-                  <select 
-                    value={formData.serviceClass} 
-                    onChange={e => setFormData({...formData, serviceClass: e.target.value})} 
-                    style={inputStyle}
-                  >
-                    {serviceClasses.map(cls => (
-                      <option key={cls} value={cls}>{cls}</option>
-                    ))}
-                  </select>
-                  <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: '#555' }}>
+                <form onSubmit={(e) => { e.preventDefault(); handleSaveOrImport(formData); }} style={{ display: 'grid', gap: '15px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold' }}>From (Airport Code)</label>
+                      <input style={{...inputStyle, width: '100%', boxSizing: 'border-box'}} placeholder="JFK" value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} required maxLength={3} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold' }}>To (Airport Code)</label>
+                      <input style={{...inputStyle, width: '100%', boxSizing: 'border-box'}} placeholder="LHR" value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} required maxLength={3} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold' }}>Date</label>
+                    <input type="date" style={{...inputStyle, width: '100%', boxSizing: 'border-box'}} value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold' }}>Airline</label>
+                      <input style={{...inputStyle, width: '100%', boxSizing: 'border-box'}} placeholder="Delta" value={formData.airline} onChange={e => setFormData({...formData, airline: e.target.value})} />
+                    </div>
+                    <div>
+                       <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', fontWeight: 'bold' }}>Class</label>
+                       <select style={{...inputStyle, width: '100%', boxSizing: 'border-box'}} value={formData.serviceClass} onChange={e => setFormData({...formData, serviceClass: e.target.value})}>
+                         {serviceClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                       </select>
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', background: '#f9f9f9', borderRadius: '8px', cursor: 'pointer' }}>
                     <input 
                       type="checkbox" 
                       checked={formData.checkLandmarks} 
@@ -1686,6 +1185,33 @@ const FlightTracker = () => {
           </div>
         </div>
       )}
+
+      {/* Gmail Import Modal */}
+      {showImport && (
+        <div style={modalOverlay}>
+           <div style={modalContent}>
+             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+               <h2 style={{ margin: 0 }}>Import from Gmail</h2>
+               <button onClick={() => setShowImport(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X /></button>
+             </div>
+             {suggestedFlights.length === 0 ? (
+               <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>No recent flight emails found.</div>
+             ) : (
+               <div style={{ display: 'grid', gap: '10px', maxHeight: '400px', overflowY: 'auto' }}>
+                 {suggestedFlights.map(flight => (
+                   <div key={flight.id} style={{ padding: '15px', border: '1px solid #eee', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                     <div>
+                       <div style={{ fontWeight: 'bold' }}>{flight.origin} → {flight.destination}</div>
+                       <div style={{ fontSize: '12px', color: '#666' }}>{flight.date} • {flight.airline}</div>
+                     </div>
+                     <button onClick={() => handleSaveOrImport(flight, true)} style={{ padding: '8px 16px', background: '#000', color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Import</button>
+                   </div>
+                 ))}
+               </div>
+             )}
+           </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1695,6 +1221,6 @@ const statVal = { fontSize: '28px', fontWeight: 'bold', margin: '10px 0 5px' };
 const statLbl = { fontSize: '12px', color: '#888', textTransform: 'uppercase' };
 const inputStyle = { padding: '12px', borderRadius: '8px', border: '1px solid #ddd' };
 const modalOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
-const modalContent = { background: '#fff', padding: '30px', borderRadius: '20px', width: '400px' };
+const modalContent = { background: '#fff', padding: '24px', borderRadius: '16px', width: '90%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto' };
 
 export default FlightTracker;
