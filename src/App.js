@@ -30,9 +30,10 @@ const firebaseConfig = {
   apiKey: "AIzaSyBN3khxqaQpC8Ws9EQ7syvnPC_rLasMOL0",
   authDomain: "flightlog-82a3c.firebaseapp.com",
   projectId: "flightlog-82a3c",
-  storageBucket: "flightlog-82a3c.appspot.com",
+  storageBucket: "flightlog-82a3c.firebasestorage.app",
   messagingSenderId: "959347389178",
-  appId: "1:959347389178:web:f175b4aac3b755b71d8f43"
+  appId: "1:959347389178:web:f175b4aac3b755b71d8f43",
+  measurementId: "G-CDV75B04DY"
 };
 
 // Initialize Firebase
