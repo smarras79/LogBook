@@ -617,8 +617,24 @@ const FlightTracker = () => {
             return;
         }
 
-        const dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
-        const features = await detectLandmarksHybrid(from, to);
+        // Check if this is an edit with unchanged route
+        const isEditWithSameRoute = editingFlight && 
+            editingFlight.origin === flightData.origin && 
+            editingFlight.destination === flightData.destination;
+
+        let dist, features;
+        
+        if (isEditWithSameRoute) {
+            // Route unchanged - reuse existing distance and landmarks
+            dist = editingFlight.distance;
+            features = editingFlight.featuresCrossed || [];
+            setStatusMsg('Route unchanged, keeping landmarks...');
+        } else {
+            // New flight or route changed - run full analysis
+            dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+            features = await detectLandmarksHybrid(from, to);
+        }
+        
         const pax = getPassengerEstimate(flightData.aircraftType);
 
         const newRecord = { 
@@ -641,6 +657,7 @@ const FlightTracker = () => {
         if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
         setShowForm(false);
         setEditingFlight(null);
+        setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy' });
     } catch (e) {
         console.error(e);
         alert("Error saving flight. Check console for details.");
@@ -732,7 +749,11 @@ const FlightTracker = () => {
             {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
             {importing ? "Scanning..." : "Sync Gmail"}
           </button>
-          <button onClick={() => { setEditingFlight(null); setShowForm(true); }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+          <button onClick={() => { 
+            setEditingFlight(null); 
+            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy' });
+            setShowForm(true); 
+          }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             + Manual Add
           </button>
         </div>
@@ -821,7 +842,11 @@ const FlightTracker = () => {
               <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{f.origin} → {f.destination}</span>
               <div style={{display: 'flex', gap: '10px'}}>
                  <Edit2 size={18} style={{ cursor: 'pointer' }} onClick={() => { setEditingFlight(f); setFormData(f); setShowForm(true); }} />
-                 <Trash2 size={18} color="red" style={{ cursor: 'pointer' }} onClick={() => setFlights(flights.filter(x => x.id !== f.id))} />
+                 <Trash2 size={18} color="red" style={{ cursor: 'pointer' }} onClick={() => {
+                   const updated = flights.filter(x => x.id !== f.id);
+                   setFlights(updated);
+                   localStorage.setItem('flights-data', JSON.stringify(updated));
+                 }} />
               </div>
             </div>
             <div style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
@@ -849,7 +874,14 @@ const FlightTracker = () => {
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalContent}>
-             <h2 style={{marginBottom: '20px'}}>Log Flight</h2>
+             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '20px'}}>
+               <h2 style={{margin: 0}}>{editingFlight ? 'Edit Flight' : 'Log Flight'}</h2>
+               <X style={{cursor:'pointer'}} onClick={() => {
+                 setShowForm(false);
+                 setEditingFlight(null);
+                 setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy' });
+               }}/>
+             </div>
              {isVerifying ? (
                  <div style={{textAlign:'center', padding:'40px'}}>
                      <Loader2 className="animate-spin" size={40} style={{marginBottom:'20px'}}/>
@@ -864,7 +896,7 @@ const FlightTracker = () => {
                   <input placeholder="Aircraft (e.g. Boeing 737)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
                   <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
                   <button type="submit" style={{ background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>
-                    Save & Analyze
+                    {editingFlight ? 'Update Flight' : 'Save & Analyze'}
                   </button>
                 </form>
              )}
