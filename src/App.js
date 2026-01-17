@@ -437,6 +437,7 @@ const FlightTracker = () => {
       document.body.appendChild(script2);
     }
 
+    
     // 2. Singleton Script Loading for Google Maps
     const mapScriptId = 'google-maps-script';
     
