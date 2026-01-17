@@ -427,10 +427,10 @@ const FlightTracker = () => {
       script2.src = "https://accounts.google.com/gsi/client";
       script2.onload = () => {
         const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: SCOPES,
-          callback: '',
-	  ux_mode: 'popup',
+            client_id: GOOGLE_CLIENT_ID,
+            scope: SCOPES,
+            callback: '',
+	    ux_mode: 'popup',
         });
         setTokenClient(client);
       };
