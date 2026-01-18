@@ -25,6 +25,8 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 
+
+
 // Firebase configuration - Replace with your own config from Firebase Console
 const firebaseConfig = {
   apiKey: "AIzaSyBN3khxqaQpC8Ws9EQ7syvnPC_rLasMOL0",
