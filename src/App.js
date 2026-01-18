@@ -42,20 +42,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
-
-//const GOOGLE_API_KEY = "AIzaSyDYzKON-9m0NYBIVZEXD434wDrmqMpyeQQ";
-//const GOOGLE_API_KEY = "AIzaSyArv6AbTjFIM_nuCm4VKZAZTdfP_y2G0ag";
 const GOOGLE_CLIENT_ID = "959347389178-dhkggam9a7cslv89p0dluaupqa4jg8n4.apps.googleusercontent.com";
 const GOOGLE_API_KEY = "AIzaSyBFt9aE4crI-DkUK1CWRR-GpW8D0n0JheE";
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"];
 const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
-
-//const GOOGLE_API_KEY = "AIzaSyDYzKON-9m0NYBIVZEXD434wDrmqMpyeQQ";
-//const GOOGLE_CLIENT_ID = "959347389178-dhkggam9a7cslv89p0dluaupqa4jg8n4.apps.googleusercontent.com"; 
-//const GOOGLE_API_KEY = "AIzaSyArv6AbTjFIM_nuCm4VKZAZTdfP_y2G0ag";
-//const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"];
-//const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
-
 
 const AIRPORTS_DATABASE = [
   { code: 'JFK', name: 'John F. Kennedy Intl', city: 'New York', lat: 40.6413, lon: -73.7781 },
