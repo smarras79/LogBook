@@ -1987,10 +1987,18 @@ const FlightTracker = () => {
                       </div>
                       <div style={{ padding: '8px 0' }}>
                         {members.map((member, idx) => {
-                          // Check if user has flown this airline
-                          const hasFlown = flights.some(f => 
-                            f.airline && isAirlineMatch(f.airline, member)
-                          );
+                          // Check if user has flown this airline (including multi-leg trips)
+                          const hasFlown = flights.some(f => {
+                            // Check top-level airline (single-leg trips)
+                            if (f.airline && isAirlineMatch(f.airline, member)) {
+                              return true;
+                            }
+                            // Check each leg's airline (multi-leg trips)
+                            if (f.legs && f.legs.length > 0) {
+                              return f.legs.some(leg => leg.airline && isAirlineMatch(leg.airline, member));
+                            }
+                            return false;
+                          });
                           return (
                             <div 
                               key={idx}
