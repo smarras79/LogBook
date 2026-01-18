@@ -170,6 +170,49 @@ const ALLIANCE_STYLES = {
   }
 };
 
+// Helper function to check if a user's airline matches an alliance member
+const isAirlineMatch = (userAirline, memberAirline) => {
+  if (!userAirline || !memberAirline) return false;
+  
+  const user = userAirline.toLowerCase().trim();
+  const member = memberAirline.toLowerCase().trim();
+  
+  // Exact match
+  if (user === member) return true;
+  
+  // Extract the core airline name (handle parentheses like "ANA (All Nippon Airways)")
+  const memberCore = member.replace(/\s*\([^)]*\)\s*/g, '').trim();
+  const memberInParens = member.match(/\(([^)]+)\)/)?.[1]?.toLowerCase() || '';
+  
+  // Check if user airline matches core or parenthetical name
+  if (user === memberCore) return true;
+  if (memberInParens && user === memberInParens) return true;
+  
+  // Check if user airline is contained in member name or vice versa
+  // But use word boundaries to avoid "air" matching "airways"
+  const userWords = user.split(/\s+/);
+  const memberWords = memberCore.split(/\s+/);
+  
+  // If user entered a single word, check if it matches the first word of member
+  // e.g., "Thai" should match "Thai Airways", "United" should match "United Airlines"
+  if (userWords.length === 1) {
+    if (memberWords[0] === userWords[0]) return true;
+    // Also check common abbreviations
+    if (memberInParens && memberInParens.split(/\s+/)[0] === userWords[0]) return true;
+  }
+  
+  // Check if user's full input matches start of member name
+  if (memberCore.startsWith(user)) return true;
+  if (memberInParens && memberInParens.startsWith(user)) return true;
+  
+  // Check if member's core name (without "Airlines", "Airways", etc.) matches
+  const memberWithoutSuffix = memberCore.replace(/\s*(airlines?|airways?|air lines?)\s*$/i, '').trim();
+  if (user === memberWithoutSuffix) return true;
+  if (user.replace(/\s*(airlines?|airways?|air lines?)\s*$/i, '').trim() === memberWithoutSuffix) return true;
+  
+  return false;
+};
+
 // Clean list of alliance members for dropdown display (no duplicates)
 const ALLIANCE_MEMBERS_DISPLAY = {
   'Star Alliance': [
@@ -1792,9 +1835,9 @@ const FlightTracker = () => {
             <h3 style={{ marginTop: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Airlines</h3>
             {topAirlines.map(([name, count]) => (
               <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flight{count > 1 ? 's' : ''}</span></div>
                 <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#4285F4', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                  <div style={{ height: '100%', background: '#4285F4', borderRadius: '4px', width: `${(count/totalFlightLegs)*100}%` }} />
                 </div>
               </div>
             ))}
@@ -1833,10 +1876,10 @@ const FlightTracker = () => {
                 <div key={name} style={{ marginBottom: '15px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
                     <span>{displayName}</span>
-                    <span>{count} flights</span>
+                    <span>{count} flight{count > 1 ? 's' : ''}</span>
                   </div>
                   <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                    <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                    <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/totalFlightLegs)*100}%` }} />
                   </div>
                 </div>
               );
@@ -1946,10 +1989,7 @@ const FlightTracker = () => {
                         {members.map((member, idx) => {
                           // Check if user has flown this airline
                           const hasFlown = flights.some(f => 
-                            f.airline && (
-                              member.toLowerCase().includes(f.airline.toLowerCase()) ||
-                              f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
-                            )
+                            f.airline && isAirlineMatch(f.airline, member)
                           );
                           return (
                             <div 
@@ -2104,9 +2144,15 @@ const FlightTracker = () => {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
-                  {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
-                </span>
+                {(() => {
+                  // Calculate total flight legs for this route group
+                  const totalLegs = group.flights.reduce((sum, f) => sum + (f.legCount || 1), 0);
+                  return (
+                    <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
+                      {totalLegs} flight{totalLegs > 1 ? 's' : ''}
+                    </span>
+                  );
+                })()}
                 <Copy 
                   size={16} 
                   style={{ cursor: 'pointer', color: '#666' }} 
@@ -2263,7 +2309,9 @@ const FlightTracker = () => {
                                       </div>
                                     </div>
                                     <div style={{ padding: '8px 0' }}>
-                                      {members.map((member, mIdx) => (
+                                      {members.map((member, mIdx) => {
+                                        const isMatch = isAirlineMatch(f.airline, member);
+                                        return (
                                         <div 
                                           key={mIdx}
                                           style={{
@@ -2273,20 +2321,13 @@ const FlightTracker = () => {
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: '8px',
-                                            background: member.toLowerCase().includes(f.airline.toLowerCase()) || 
-                                                       f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
-                                              ? style.background 
-                                              : 'transparent',
-                                            fontWeight: member.toLowerCase().includes(f.airline.toLowerCase()) || 
-                                                       f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
-                                              ? '600' 
-                                              : 'normal'
+                                            background: isMatch ? style.background : 'transparent',
+                                            fontWeight: isMatch ? '600' : 'normal'
                                           }}
                                         >
                                           <span style={{ color: style.color }}>✈</span>
                                           {member}
-                                          {(member.toLowerCase().includes(f.airline.toLowerCase()) || 
-                                            f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())) && (
+                                          {isMatch && (
                                             <span style={{ 
                                               fontSize: '9px', 
                                               background: style.color, 
@@ -2299,7 +2340,7 @@ const FlightTracker = () => {
                                             </span>
                                           )}
                                         </div>
-                                      ))}
+                                      );})}
                                     </div>
                                   </div>
                                 )}
@@ -2521,7 +2562,9 @@ const FlightTracker = () => {
                                       </div>
                                     </div>
                                     <div style={{ padding: '6px 0' }}>
-                                      {legMembers.map((member, mIdx) => (
+                                      {legMembers.map((member, mIdx) => {
+                                        const isMatch = isAirlineMatch(leg.airline, member);
+                                        return (
                                         <div 
                                           key={mIdx}
                                           style={{
@@ -2531,20 +2574,26 @@ const FlightTracker = () => {
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: '6px',
-                                            background: member.toLowerCase().includes(leg.airline.toLowerCase()) || 
-                                                       leg.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
-                                              ? legStyle.background 
-                                              : 'transparent',
-                                            fontWeight: member.toLowerCase().includes(leg.airline.toLowerCase()) || 
-                                                       leg.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
-                                              ? '600' 
-                                              : 'normal'
+                                            background: isMatch ? legStyle.background : 'transparent',
+                                            fontWeight: isMatch ? '600' : 'normal'
                                           }}
                                         >
                                           <span style={{ color: legStyle.color }}>✈</span>
                                           {member}
+                                          {isMatch && (
+                                            <span style={{ 
+                                              fontSize: '9px', 
+                                              background: legStyle.color, 
+                                              color: '#fff',
+                                              padding: '2px 6px',
+                                              borderRadius: '10px',
+                                              marginLeft: 'auto'
+                                            }}>
+                                              YOUR FLIGHT
+                                            </span>
+                                          )}
                                         </div>
-                                      ))}
+                                      );})}
                                     </div>
                                   </div>
                                 )}
