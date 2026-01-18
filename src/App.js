@@ -24,9 +24,6 @@ import {
   updateDoc,
   onSnapshot 
 } from 'firebase/firestore';
-
-
-
 // Firebase configuration - Replace with your own config from Firebase Console
 const firebaseConfig = {
   apiKey: "AIzaSyBN3khxqaQpC8Ws9EQ7syvnPC_rLasMOL0",
@@ -70,6 +67,195 @@ const AIRPORTS_DATABASE = [
 ];
 
 const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
+
+// --- AIRLINE ALLIANCES DATABASE ---
+const AIRLINE_ALLIANCES = {
+  // Star Alliance Members (26 airlines)
+  'Star Alliance': [
+    'Aegean Airlines', 'Aegean', 
+    'Air Canada', 
+    'Air China', 
+    'Air India', 
+    'Air New Zealand', 
+    'ANA', 'All Nippon Airways', 'All Nippon',
+    'Asiana Airlines', 'Asiana',
+    'Austrian', 'Austrian Airlines',
+    'Avianca',
+    'Brussels Airlines', 'Brussels',
+    'Copa Airlines', 'Copa',
+    'Croatia Airlines', 'Croatia',
+    'EgyptAir', 'Egypt Air', 'Egyptair',
+    'Ethiopian Airlines', 'Ethiopian',
+    'EVA Air', 'EVA',
+    'LOT Polish Airlines', 'LOT', 'Polish Airlines',
+    'Lufthansa',
+    'Scandinavian Airlines', 'SAS', 'Scandinavian',
+    'Shenzhen Airlines', 'Shenzhen',
+    'Singapore Airlines', 'Singapore',
+    'South African Airways', 'South African',
+    'Swiss', 'Swiss International', 'SWISS',
+    'TAP Air Portugal', 'TAP Portugal', 'TAP',
+    'Thai Airways', 'Thai', 'THAI',
+    'Turkish Airlines', 'Turkish', 'THY',
+    'United', 'United Airlines'
+  ],
+  
+  // SkyTeam Members (19 airlines)
+  'SkyTeam': [
+    'Aeroflot',
+    'Aerolíneas Argentinas', 'Aerolineas Argentinas', 'Aerolíneas',
+    'Aeroméxico', 'Aeromexico', 'AeroMexico',
+    'Air Europa',
+    'Air France', 'AirFrance',
+    'China Airlines',
+    'China Eastern', 'China Eastern Airlines',
+    'Czech Airlines', 'CSA',
+    'Delta', 'Delta Air Lines', 'Delta Airlines',
+    'Garuda Indonesia', 'Garuda',
+    'ITA Airways', 'ITA', 'Alitalia',
+    'Kenya Airways', 'Kenya',
+    'KLM', 'KLM Royal Dutch', 'Royal Dutch Airlines',
+    'Korean Air', 'Korean',
+    'Middle East Airlines', 'MEA',
+    'Saudia', 'Saudi Arabian Airlines', 'Saudi Arabian',
+    'TAROM',
+    'Vietnam Airlines', 'Vietnam',
+    'Virgin Atlantic', 'Virgin',
+    'XiamenAir', 'Xiamen Airlines', 'Xiamen'
+  ],
+  
+  // Oneworld Members (13 airlines)
+  'Oneworld': [
+    'Alaska Airlines', 'Alaska',
+    'American Airlines', 'American', 'AA',
+    'British Airways', 'BA',
+    'Cathay Pacific', 'Cathay',
+    'Finnair',
+    'Iberia',
+    'Japan Airlines', 'JAL',
+    'Malaysia Airlines', 'Malaysia',
+    'Qantas',
+    'Qatar Airways', 'Qatar',
+    'Royal Air Maroc', 'RAM',
+    'Royal Jordanian',
+    'SriLankan Airlines', 'SriLankan'
+  ]
+};
+
+// Alliance styling configuration
+const ALLIANCE_STYLES = {
+  'Star Alliance': { 
+    color: '#1e3a5f', 
+    background: '#e8f4fd', 
+    icon: '⭐',
+    fullName: 'Star Alliance'
+  },
+  'SkyTeam': { 
+    color: '#0f4c81', 
+    background: '#e3f2fd', 
+    icon: '🌐',
+    fullName: 'SkyTeam'
+  },
+  'Oneworld': { 
+    color: '#b91c1c', 
+    background: '#fee2e2', 
+    icon: '🌍',
+    fullName: 'Oneworld'
+  },
+  'Independent': { 
+    color: '#6b7280', 
+    background: '#f3f4f6', 
+    icon: '✈️',
+    fullName: 'Independent'
+  }
+};
+
+// Clean list of alliance members for dropdown display (no duplicates)
+const ALLIANCE_MEMBERS_DISPLAY = {
+  'Star Alliance': [
+    'Aegean Airlines',
+    'Air Canada',
+    'Air China',
+    'Air India',
+    'Air New Zealand',
+    'ANA (All Nippon Airways)',
+    'Asiana Airlines',
+    'Austrian Airlines',
+    'Avianca',
+    'Brussels Airlines',
+    'Copa Airlines',
+    'Croatia Airlines',
+    'EgyptAir',
+    'Ethiopian Airlines',
+    'EVA Air',
+    'LOT Polish Airlines',
+    'Lufthansa',
+    'Scandinavian Airlines (SAS)',
+    'Shenzhen Airlines',
+    'Singapore Airlines',
+    'South African Airways',
+    'Swiss International',
+    'TAP Air Portugal',
+    'Thai Airways',
+    'Turkish Airlines',
+    'United Airlines'
+  ],
+  'SkyTeam': [
+    'Aeroflot',
+    'Aerolíneas Argentinas',
+    'Aeroméxico',
+    'Air Europa',
+    'Air France',
+    'China Airlines',
+    'China Eastern Airlines',
+    'Czech Airlines',
+    'Delta Air Lines',
+    'Garuda Indonesia',
+    'ITA Airways',
+    'Kenya Airways',
+    'KLM Royal Dutch Airlines',
+    'Korean Air',
+    'Middle East Airlines',
+    'Saudia',
+    'TAROM',
+    'Vietnam Airlines',
+    'Virgin Atlantic',
+    'XiamenAir'
+  ],
+  'Oneworld': [
+    'Alaska Airlines',
+    'American Airlines',
+    'British Airways',
+    'Cathay Pacific',
+    'Finnair',
+    'Iberia',
+    'Japan Airlines (JAL)',
+    'Malaysia Airlines',
+    'Qantas',
+    'Qatar Airways',
+    'Royal Air Maroc',
+    'Royal Jordanian',
+    'SriLankan Airlines'
+  ]
+};
+
+// Helper function to get airline alliance
+const getAirlineAlliance = (airlineName) => {
+  if (!airlineName) return null;
+  
+  const normalizedName = airlineName.trim().toLowerCase();
+  
+  for (const [alliance, members] of Object.entries(AIRLINE_ALLIANCES)) {
+    for (const member of members) {
+      if (normalizedName.includes(member.toLowerCase()) || 
+          member.toLowerCase().includes(normalizedName)) {
+        return alliance;
+      }
+    }
+  }
+  
+  return 'Independent';
+};
 
 // --- MATH UTILS ---
 const toRad = (val) => val * Math.PI / 180;
@@ -356,10 +542,22 @@ const FlightTracker = () => {
   const [editingFlight, setEditingFlight] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false); 
   const [statusMsg, setStatusMsg] = useState('');
+  const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null); // tracks which alliance dropdown is open
   const geocoder = useRef(null);
 
   const [formData, setFormData] = useState({
-    origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false
+    origin: '', 
+    destination: '', 
+    date: '', 
+    aircraftType: '', 
+    airline: '', 
+    serviceClass: 'Economy', 
+    checkLandmarks: false,
+    hasLayover: false,
+    viaAirports: [''], // Array of connection airport codes
+    legAirlines: ['', ''], // Airlines for each leg
+    legAircraftTypes: ['', ''], // Aircraft for each leg
+    legServiceClasses: ['Economy', 'Economy'] // Service class for each leg
   });
 
   // Firebase Auth State Listener
@@ -427,16 +625,17 @@ const FlightTracker = () => {
       script2.src = "https://accounts.google.com/gsi/client";
       script2.onload = () => {
         const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: SCOPES,
-          callback: '',
-          ux_mode: 'popup',
+            client_id: GOOGLE_CLIENT_ID,
+            scope: SCOPES,
+            callback: '',
+	    ux_mode: 'popup',
         });
         setTokenClient(client);
       };
       document.body.appendChild(script2);
     }
 
+    
     // 2. Singleton Script Loading for Google Maps
     const mapScriptId = 'google-maps-script';
     
@@ -459,6 +658,18 @@ const FlightTracker = () => {
         geocoder.current = new window.google.maps.Geocoder();
     }
   }, []);
+
+  // Close alliance dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (openAllianceDropdown) {
+        setOpenAllianceDropdown(null);
+      }
+    };
+    
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openAllianceDropdown]);
 
   // --- AUTHENTICATION HANDLERS ---
   const handleSignup = async (e) => {
@@ -733,19 +944,10 @@ const FlightTracker = () => {
     tokenClient.callback = async (resp) => {
       if (resp.error) {
         setImporting(false);
-        console.error("OAuth Error:", resp);
-        alert("Authentication failed: " + (resp.error_description || resp.error));
+        alert("Auth failed.");
         return;
       }
       try {
-        // Set the access token on the GAPI client
-        window.gapi.client.setToken({ access_token: resp.access_token });
-        
-        // Load Gmail API if not already loaded
-        if (!window.gapi.client.gmail) {
-          await window.gapi.client.load('gmail', 'v1');
-        }
-        
         const response = await window.gapi.client.gmail.users.messages.list({
           'userId': 'me',
           'q': 'subject:(flight OR confirmation OR ticket) AND ("ticket number" OR "booking reference" OR "eticket")',
@@ -768,13 +970,7 @@ const FlightTracker = () => {
         setShowImport(true);
       } catch (err) {
         console.error("Gmail Import Error:", err);
-        if (err.status === 403) {
-          alert("Gmail API access denied. Please enable the Gmail API in Google Cloud Console.");
-        } else if (err.status === 400) {
-          alert("Gmail API error. Please ensure Gmail API is enabled in Google Cloud Console for your project.");
-        } else {
-          alert("An error occurred while scanning emails: " + (err.result?.error?.message || err.message || "Unknown error"));
-        }
+        alert("An error occurred while scanning emails.");
       } finally {
         setImporting(false);
       }
@@ -799,52 +995,124 @@ const FlightTracker = () => {
             return;
         }
 
-        // Check if this is an edit with unchanged route
-        const isEditWithSameRoute = editingFlight && 
-            editingFlight.origin === flightData.origin && 
-            editingFlight.destination === flightData.destination;
-
-        let dist, features;
+        // Build legs array
+        let legs = [];
+        let totalDistance = 0;
+        let allFeatures = [];
         
-        if (isEditWithSameRoute) {
-            // Route unchanged - reuse existing distance and landmarks
-            dist = editingFlight.distance;
-            features = editingFlight.featuresCrossed || [];
-            setStatusMsg('Route unchanged, keeping landmarks...');
-        } else {
-            // New flight or route changed - calculate distance
-            dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+        if (flightData.hasLayover && flightData.viaAirports && flightData.viaAirports.some(v => v.trim())) {
+            // Filter out empty via airports
+            const validVias = flightData.viaAirports.filter(v => v.trim());
             
-            // Only detect landmarks if checkbox is checked
-            if (flightData.checkLandmarks) {
-                features = await detectLandmarksHybrid(from, to);
+            // Verify all via airports
+            const viaData = [];
+            for (let i = 0; i < validVias.length; i++) {
+                setStatusMsg(`Verifying connection ${i + 1}: ${validVias[i]}...`);
+                const viaAirport = await fetchAirportData(validVias[i]);
+                if (!viaAirport || isNaN(viaAirport.lat) || isNaN(viaAirport.lon)) {
+                    alert(`Could not verify connection airport: ${validVias[i]}. Please check the code.`);
+                    setIsVerifying(false);
+                    setStatusMsg('');
+                    return;
+                }
+                viaData.push(viaAirport);
+            }
+            
+            // Build legs: origin -> via1 -> via2 -> ... -> destination
+            const allStops = [from, ...viaData, to];
+            const legAirlines = flightData.legAirlines || [];
+            const legAircraftTypes = flightData.legAircraftTypes || [];
+            const legServiceClasses = flightData.legServiceClasses || [];
+            
+            for (let i = 0; i < allStops.length - 1; i++) {
+                const legFrom = allStops[i];
+                const legTo = allStops[i + 1];
+                const legDist = calculateDistance(legFrom.lat, legFrom.lon, legTo.lat, legTo.lon);
+                totalDistance += legDist;
+                
+                // Detect landmarks for this leg if requested
+                let legFeatures = [];
+                if (flightData.checkLandmarks) {
+                    setStatusMsg(`Analyzing leg ${i + 1}: ${legFrom.code} → ${legTo.code}...`);
+                    legFeatures = await detectLandmarksHybrid(legFrom, legTo);
+                    allFeatures = [...new Set([...allFeatures, ...legFeatures])];
+                }
+                
+                legs.push({
+                    origin: legFrom.code,
+                    destination: legTo.code,
+                    originCity: legFrom.city,
+                    destCity: legTo.city,
+                    airline: legAirlines[i] || flightData.airline || '',
+                    aircraftType: legAircraftTypes[i] || flightData.aircraftType || '',
+                    serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Economy',
+                    distance: legDist,
+                    featuresCrossed: legFeatures
+                });
+            }
+        } else {
+            // Single leg flight (no layover)
+            // Check if this is an edit with unchanged route
+            const isEditWithSameRoute = editingFlight && 
+                editingFlight.origin === flightData.origin && 
+                editingFlight.destination === flightData.destination &&
+                !editingFlight.legs; // Only if original was also single-leg
+
+            let dist, features;
+            
+            if (isEditWithSameRoute) {
+                dist = editingFlight.distance;
+                features = editingFlight.featuresCrossed || [];
+                setStatusMsg('Route unchanged, keeping landmarks...');
             } else {
-                // Check if there's an existing flight on this route to copy landmarks from
-                const existingRouteFlights = flights.filter(f => 
-                    f.origin === flightData.origin && f.destination === flightData.destination
-                );
-                if (existingRouteFlights.length > 0 && existingRouteFlights[0].featuresCrossed) {
-                    features = existingRouteFlights[0].featuresCrossed;
-                    setStatusMsg('Copied landmarks from existing route...');
+                dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+                
+                if (flightData.checkLandmarks) {
+                    features = await detectLandmarksHybrid(from, to);
                 } else {
-                    features = [];
+                    const existingRouteFlights = flights.filter(f => 
+                        f.origin === flightData.origin && f.destination === flightData.destination
+                    );
+                    if (existingRouteFlights.length > 0 && existingRouteFlights[0].featuresCrossed) {
+                        features = existingRouteFlights[0].featuresCrossed;
+                        setStatusMsg('Copied landmarks from existing route...');
+                    } else {
+                        features = [];
+                    }
                 }
             }
+            
+            totalDistance = dist;
+            allFeatures = features;
+            
+            legs.push({
+                origin: flightData.origin,
+                destination: flightData.destination,
+                originCity: from.city,
+                destCity: to.city,
+                airline: flightData.airline || '',
+                aircraftType: flightData.aircraftType || '',
+                serviceClass: flightData.serviceClass || 'Economy',
+                distance: dist,
+                featuresCrossed: features
+            });
         }
         
         const pax = getPassengerEstimate(flightData.aircraftType);
 
-        // Remove checkLandmarks from the data to be saved (it's just a form flag)
-        const { checkLandmarks, ...flightDataToSave } = flightData;
+        // Remove form-only fields from the data to be saved
+        const { checkLandmarks, hasLayover, viaAirports, legAirlines, legAircraftTypes, legServiceClasses, ...flightDataToSave } = flightData;
 
         const newRecord = { 
             ...flightDataToSave, 
             id: flightData.id || Date.now(),
-            distance: dist, 
+            distance: totalDistance,
             originCity: from.city, 
             destCity: to.city,
-            featuresCrossed: features,
-            passengerCount: pax
+            featuresCrossed: allFeatures,
+            passengerCount: pax,
+            legs: legs, // Store all legs
+            legCount: legs.length // Quick reference for stats
         };
 
         const updated = isImport 
@@ -857,7 +1125,11 @@ const FlightTracker = () => {
         if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
         setShowForm(false);
         setEditingFlight(null);
-        setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
+        setFormData({ 
+            origin: '', destination: '', date: '', aircraftType: '', airline: '', 
+            serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy']
+        });
     } catch (e) {
         console.error(e);
         alert("Error saving flight. Check console for details.");
@@ -929,12 +1201,23 @@ const FlightTracker = () => {
     return Math.round(distance * baseRatePerMile * multiplier);
   };
   
+  // Calculate total flights (counting each leg as a separate flight)
+  const totalFlightLegs = flights.reduce((sum, f) => sum + (f.legCount || 1), 0);
+  
   const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
   const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
   
-  // Calculate total personal carbon footprint
+  // Calculate total personal carbon footprint (per leg for multi-leg trips)
   const totalCarbonKg = flights.reduce((sum, f) => {
-    return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+    if (f.legs && f.legs.length > 1) {
+      // Multi-leg trip: calculate carbon per leg with its own service class
+      return sum + f.legs.reduce((legSum, leg) => {
+        return legSum + getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Economy');
+      }, 0);
+    } else {
+      // Single leg trip
+      return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+    }
   }, 0);
   const totalCarbonTons = (totalCarbonKg / 1000).toFixed(2);
 
@@ -957,16 +1240,24 @@ const FlightTracker = () => {
   });
   const topFeatures = Object.entries(featureStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
-  // Airline statistics
+  // Airline statistics (count per leg for multi-leg trips)
   const airlineStats = {};
   flights.forEach(f => {
-    if (f.airline) {
+    if (f.legs && f.legs.length > 1) {
+      // Multi-leg trip: count each leg's airline
+      f.legs.forEach(leg => {
+        if (leg.airline) {
+          airlineStats[leg.airline] = (airlineStats[leg.airline] || 0) + 1;
+        }
+      });
+    } else if (f.airline) {
+      // Single leg trip
       airlineStats[f.airline] = (airlineStats[f.airline] || 0) + 1;
     }
   });
   const topAirlines = Object.entries(airlineStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
-  // Aircraft statistics
+  // Aircraft statistics (count per trip, not per leg, since aircraft is per trip)
   const aircraftStats = {};
   flights.forEach(f => {
     if (f.aircraftType && f.aircraftType !== 'Unknown') {
@@ -975,10 +1266,41 @@ const FlightTracker = () => {
   });
   const topAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
-  // Service class statistics
+  // Alliance statistics (count per leg for multi-leg trips)
+  const allianceStats = {};
+  let totalFlightsWithAirlines = 0; // Count of flights/legs that have airline info
+  flights.forEach(f => {
+    if (f.legs && f.legs.length > 1) {
+      // Multi-leg trip: count each leg's alliance
+      f.legs.forEach(leg => {
+        if (leg.airline) {
+          const alliance = getAirlineAlliance(leg.airline);
+          allianceStats[alliance] = (allianceStats[alliance] || 0) + 1;
+          totalFlightsWithAirlines++;
+        }
+      });
+    } else if (f.airline) {
+      // Single leg trip
+      const alliance = getAirlineAlliance(f.airline);
+      allianceStats[alliance] = (allianceStats[alliance] || 0) + 1;
+      totalFlightsWithAirlines++;
+    }
+  });
+  const sortedAlliances = Object.entries(allianceStats)
+    .sort((a, b) => b[1] - a[1]);
+  const dominantAlliance = sortedAlliances.length > 0 ? sortedAlliances[0][0] : null;
+
+  // Service class statistics (count per leg for multi-leg trips)
   const classStats = {};
   flights.forEach(f => {
-    if (f.serviceClass) {
+    if (f.legs && f.legs.length > 1) {
+      // Multi-leg trip: count each leg's service class
+      f.legs.forEach(leg => {
+        const cls = leg.serviceClass || 'Economy';
+        classStats[cls] = (classStats[cls] || 0) + 1;
+      });
+    } else if (f.serviceClass) {
+      // Single leg trip
       classStats[f.serviceClass] = (classStats[f.serviceClass] || 0) + 1;
     }
   });
@@ -987,12 +1309,22 @@ const FlightTracker = () => {
     return classOrder.indexOf(a[0]) - classOrder.indexOf(b[0]);
   });
 
-  // Personal carbon footprint by class
+  // Personal carbon footprint by class (calculated per leg for multi-leg trips)
   const carbonByClass = {};
   flights.forEach(f => {
-    const cls = f.serviceClass || 'Economy';
-    const carbon = getCarbonEstimate(f.distance || 0, cls);
-    carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
+    if (f.legs && f.legs.length > 1) {
+      // Multi-leg trip: calculate carbon per leg with its own service class
+      f.legs.forEach(leg => {
+        const cls = leg.serviceClass || 'Economy';
+        const carbon = getCarbonEstimate(leg.distance || 0, cls);
+        carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
+      });
+    } else {
+      // Single leg trip
+      const cls = f.serviceClass || 'Economy';
+      const carbon = getCarbonEstimate(f.distance || 0, cls);
+      carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
+    }
   });
   const sortedCarbonByClass = Object.entries(carbonByClass).sort((a, b) => b[1] - a[1]);
 
@@ -1029,30 +1361,99 @@ const FlightTracker = () => {
   // Handler to copy/duplicate a flight
   const handleCopyFlight = (flight) => {
     setEditingFlight(null); // Not editing, creating new
-    setFormData({
-      origin: flight.origin,
-      destination: flight.destination,
-      airline: flight.airline || '',
-      aircraftType: flight.aircraftType || '',
-      serviceClass: flight.serviceClass || 'Economy',
-      date: '', // Clear date so user must enter new one
-      checkLandmarks: false
-    });
+    
+    // Check if flight has multiple legs
+    const hasMultipleLegs = flight.legs && flight.legs.length > 1;
+    
+    if (hasMultipleLegs) {
+      // Extract via airports and leg details from legs
+      const viaAirports = flight.legs.slice(1, -1).map(leg => leg.origin);
+      const legAirlines = flight.legs.map(leg => leg.airline || '');
+      const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
+      
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: '',
+        aircraftType: '',
+        serviceClass: 'Economy',
+        date: '', // Clear date so user must enter new one
+        checkLandmarks: false,
+        hasLayover: true,
+        viaAirports: viaAirports.length > 0 ? viaAirports : [''],
+        legAirlines: legAirlines,
+        legAircraftTypes: legAircraftTypes,
+        legServiceClasses: legServiceClasses
+      });
+    } else {
+      const singleLeg = flight.legs && flight.legs[0];
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
+        aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        date: '', // Clear date so user must enter new one
+        checkLandmarks: false,
+        hasLayover: false,
+        viaAirports: [''],
+        legAirlines: ['', ''],
+        legAircraftTypes: ['', ''],
+        legServiceClasses: ['Economy', 'Economy']
+      });
+    }
     setShowForm(true);
   };
 
   // Handler to edit a specific flight within a group
   const handleEditFlight = (flight) => {
     setEditingFlight(flight);
-    setFormData({
-      origin: flight.origin,
-      destination: flight.destination,
-      airline: flight.airline || '',
-      aircraftType: flight.aircraftType || '',
-      serviceClass: flight.serviceClass || 'Economy',
-      date: flight.date || '',
-      checkLandmarks: false
-    });
+    
+    // Check if flight has multiple legs
+    const hasMultipleLegs = flight.legs && flight.legs.length > 1;
+    
+    if (hasMultipleLegs) {
+      // Extract via airports (middle stops) and leg details from legs
+      const viaAirports = [];
+      for (let i = 1; i < flight.legs.length; i++) {
+        viaAirports.push(flight.legs[i].origin);
+      }
+      const legAirlines = flight.legs.map(leg => leg.airline || '');
+      const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
+      
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: '',
+        aircraftType: '',
+        serviceClass: 'Economy',
+        date: flight.date || '',
+        checkLandmarks: false,
+        hasLayover: true,
+        viaAirports: viaAirports.length > 0 ? viaAirports : [''],
+        legAirlines: legAirlines,
+        legAircraftTypes: legAircraftTypes,
+        legServiceClasses: legServiceClasses
+      });
+    } else {
+      const singleLeg = flight.legs && flight.legs[0];
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
+        aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        date: flight.date || '',
+        checkLandmarks: false,
+        hasLayover: false,
+        viaAirports: [''],
+        legAirlines: ['', ''],
+        legAircraftTypes: ['', ''],
+        legServiceClasses: ['Economy', 'Economy']
+      });
+    }
     setShowForm(true);
   };
 
@@ -1155,7 +1556,11 @@ const FlightTracker = () => {
           </button>
           <button onClick={() => { 
             setEditingFlight(null); 
-            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
+            setFormData({ 
+              origin: '', destination: '', date: '', aircraftType: '', airline: '', 
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy']
+            });
             setShowForm(true); 
           }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             + Manual Add
@@ -1355,10 +1760,28 @@ const FlightTracker = () => {
 
       {/* Stats Dashboard */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
+        <div style={statCard}>
+          <Plane size={20}/>
+          <div style={statVal}>{totalFlightLegs}</div>
+          <div style={statLbl}>Total Flights</div>
+          {flights.length !== totalFlightLegs && (
+            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({flights.length} trips)</div>
+          )}
+        </div>
         <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
         <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
         <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
+        {dominantAlliance && dominantAlliance !== 'Independent' && (
+          <div style={{
+            ...statCard,
+            background: ALLIANCE_STYLES[dominantAlliance].background,
+            borderColor: ALLIANCE_STYLES[dominantAlliance].color
+          }}>
+            <span style={{ fontSize: '20px' }}>{ALLIANCE_STYLES[dominantAlliance].icon}</span>
+            <div style={{...statVal, color: ALLIANCE_STYLES[dominantAlliance].color, fontSize: '18px'}}>{dominantAlliance}</div>
+            <div style={statLbl}>Top Alliance</div>
+          </div>
+        )}
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
       </div>
 
@@ -1418,6 +1841,167 @@ const FlightTracker = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Alliance Breakdown Chart */}
+        {flights.length > 0 && sortedAlliances.length > 0 && (
+          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+            <h3 style={{ marginTop: 0 }}><Users size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Airline Alliances</h3>
+            {sortedAlliances.map(([alliance, count]) => {
+              const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
+              const dropdownId = `chart-alliance-${alliance}`;
+              const isOpen = openAllianceDropdown === dropdownId;
+              const members = ALLIANCE_MEMBERS_DISPLAY[alliance] || [];
+              const hasDropdown = alliance !== 'Independent' && members.length > 0;
+              
+              return (
+                <div key={alliance} style={{ marginBottom: '15px', position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                    <span 
+                      onClick={(e) => {
+                        if (hasDropdown) {
+                          e.stopPropagation();
+                          setOpenAllianceDropdown(isOpen ? null : dropdownId);
+                        }
+                      }}
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        cursor: hasDropdown ? 'pointer' : 'default',
+                        padding: '4px 8px',
+                        marginLeft: '-8px',
+                        borderRadius: '6px',
+                        background: isOpen ? style.background : 'transparent',
+                        transition: 'background 0.2s ease'
+                      }}
+                      title={hasDropdown ? `Click to see all ${alliance} members` : ''}
+                    >
+                      <span>{style.icon}</span>
+                      {alliance}
+                      {hasDropdown && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          color: '#888',
+                          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s ease'
+                        }}>▼</span>
+                      )}
+                    </span>
+                    <span>{count} flights ({Math.round((count/totalFlightsWithAirlines)*100)}%)</span>
+                  </div>
+                  <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                    <div style={{ 
+                      height: '100%', 
+                      background: style.color, 
+                      borderRadius: '4px', 
+                      width: `${(count/totalFlightsWithAirlines)*100}%` 
+                    }} />
+                  </div>
+                  
+                  {/* Alliance Members Dropdown */}
+                  {isOpen && members.length > 0 && (
+                    <div 
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: '0',
+                        marginTop: '8px',
+                        background: '#fff',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                        border: `1px solid ${style.color}20`,
+                        zIndex: 1000,
+                        minWidth: '260px',
+                        maxHeight: '350px',
+                        overflowY: 'auto'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid #eee',
+                        background: style.background,
+                        borderRadius: '12px 12px 0 0',
+                        position: 'sticky',
+                        top: 0
+                      }}>
+                        <div style={{ 
+                          fontWeight: '600', 
+                          color: style.color,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '15px'
+                        }}>
+                          <span>{style.icon}</span>
+                          {alliance}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                          {members.length} member airlines worldwide
+                        </div>
+                      </div>
+                      <div style={{ padding: '8px 0' }}>
+                        {members.map((member, idx) => {
+                          // Check if user has flown this airline
+                          const hasFlown = flights.some(f => 
+                            f.airline && (
+                              member.toLowerCase().includes(f.airline.toLowerCase()) ||
+                              f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                            )
+                          );
+                          return (
+                            <div 
+                              key={idx}
+                              style={{
+                                padding: '10px 18px',
+                                fontSize: '13px',
+                                color: hasFlown ? style.color : '#555',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                background: hasFlown ? style.background : 'transparent',
+                                fontWeight: hasFlown ? '600' : 'normal',
+                                borderLeft: hasFlown ? `3px solid ${style.color}` : '3px solid transparent'
+                              }}
+                            >
+                              <span style={{ color: hasFlown ? style.color : '#999' }}>✈</span>
+                              {member}
+                              {hasFlown && (
+                                <span style={{ 
+                                  fontSize: '9px', 
+                                  background: style.color, 
+                                  color: '#fff',
+                                  padding: '2px 8px',
+                                  borderRadius: '10px',
+                                  marginLeft: 'auto'
+                                }}>
+                                  FLOWN
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {dominantAlliance && dominantAlliance !== 'Independent' && (
+              <div style={{ 
+                marginTop: '15px', 
+                padding: '12px', 
+                background: ALLIANCE_STYLES[dominantAlliance].background, 
+                borderRadius: '8px',
+                fontSize: '13px',
+                color: ALLIANCE_STYLES[dominantAlliance].color,
+                textAlign: 'center'
+              }}>
+                {ALLIANCE_STYLES[dominantAlliance].icon} You're a <strong>{dominantAlliance}</strong> loyalist!
+              </div>
+            )}
           </div>
         )}
         
@@ -1549,100 +2133,479 @@ const FlightTracker = () => {
                 const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
                 const drivingCO2 = (f.distance || 0) * 0.21;
                 const co2Diff = drivingCO2 - flightCO2;
+                const hasMultipleLegs = f.legs && f.legs.length > 1;
+                
                 return (
                 <div 
                   key={f.id} 
                   style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '10px 0',
+                    padding: '12px 0',
                     borderBottom: idx < group.flights.length - 1 ? '1px solid #f5f5f5' : 'none'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
-                    <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
-                      {formatDate(f.date)}
-                    </span>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {f.airline && (
-                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.airline}
-                        </span>
-                      )}
-                      {f.aircraftType && f.aircraftType !== 'Unknown' && (
-                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.aircraftType}
-                        </span>
-                      )}
-                      {f.serviceClass && (
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: f.serviceClass === 'Economy' ? '#8b6914' : 
-                                 f.serviceClass === 'Premium Economy' ? '#166534' : 
-                                 f.serviceClass === 'Business' ? '#1e40af' : 
-                                 '#854d0e', /* First */
-                          background: f.serviceClass === 'Economy' ? '#fef3c7' : 
-                                      f.serviceClass === 'Premium Economy' ? '#dcfce7' : 
-                                      f.serviceClass === 'Business' ? '#dbeafe' : 
-                                      '#fef9c3', /* First - gold */
-                          padding: '3px 8px', 
-                          borderRadius: '6px',
-                          fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
-                        }}>
-                          {f.serviceClass === 'Economy' ? '🐔 Chicken class' : 
-                           f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
-                           f.serviceClass === 'Business' ? '💼 Business' :
-                           '👑 First'}
-                        </span>
-                      )}
-                      {/* CO2 comparison */}
-                      <span 
-                        style={{ 
-                          fontSize: '11px', 
-                          color: '#dc2626', 
-                          background: '#fef2f2', 
-                          padding: '3px 8px', 
-                          borderRadius: '6px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
-                      >
-                        <CloudRain size={10}/>
-                        {flightCO2} kg
+                  {/* Trip Header */}
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'flex-start',
+                    marginBottom: hasMultipleLegs ? '10px' : '0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
+                      <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
+                        {formatDate(f.date)}
+                      </span>
+                      
+                      {/* Show leg count badge for multi-leg trips */}
+                      {hasMultipleLegs && (
                         <span style={{ 
                           fontSize: '10px', 
-                          color: co2Diff > 0 ? '#166534' : '#854d0e',
-                          marginLeft: '2px'
+                          color: '#6366f1', 
+                          background: '#eef2ff', 
+                          padding: '3px 8px', 
+                          borderRadius: '10px',
+                          fontWeight: '600'
                         }}>
-                          {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
+                          {f.legs.length} LEGS
                         </span>
-                      </span>
+                      )}
+                      
+                      {/* Single leg flight - show airline inline */}
+                      {!hasMultipleLegs && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {f.airline && (
+                            <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
+                              {f.airline}
+                            </span>
+                          )}
+                          {f.airline && (() => {
+                            const alliance = getAirlineAlliance(f.airline);
+                            const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
+                            const dropdownId = `alliance-${f.id}`;
+                            const isOpen = openAllianceDropdown === dropdownId;
+                            const members = ALLIANCE_MEMBERS_DISPLAY[alliance] || [];
+                            
+                            return (
+                              <div style={{ position: 'relative' }}>
+                                <span 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (alliance !== 'Independent' && members.length > 0) {
+                                      setOpenAllianceDropdown(isOpen ? null : dropdownId);
+                                    }
+                                  }}
+                                  style={{ 
+                                    fontSize: '11px', 
+                                    color: style.color, 
+                                    background: style.background, 
+                                    padding: '3px 8px', 
+                                    borderRadius: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontWeight: '500',
+                                    cursor: alliance !== 'Independent' ? 'pointer' : 'default',
+                                    border: isOpen ? `1px solid ${style.color}` : '1px solid transparent',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                  title={alliance !== 'Independent' ? `Click to see all ${alliance} members` : 'Independent airline'}
+                                >
+                                  <span style={{ fontSize: '10px' }}>{style.icon}</span>
+                                  {alliance}
+                                  {alliance !== 'Independent' && (
+                                    <span style={{ 
+                                      fontSize: '8px', 
+                                      marginLeft: '2px',
+                                      transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                      transition: 'transform 0.2s ease'
+                                    }}>▼</span>
+                                  )}
+                                </span>
+                                
+                                {/* Alliance Members Dropdown */}
+                                {isOpen && members.length > 0 && (
+                                  <div 
+                                    style={{
+                                      position: 'absolute',
+                                      top: '100%',
+                                      left: '0',
+                                      marginTop: '4px',
+                                      background: '#fff',
+                                      borderRadius: '12px',
+                                      boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                                      border: `1px solid ${style.color}20`,
+                                      zIndex: 1000,
+                                      minWidth: '220px',
+                                      maxHeight: '300px',
+                                      overflowY: 'auto'
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <div style={{
+                                      padding: '12px 16px',
+                                      borderBottom: '1px solid #eee',
+                                      background: style.background,
+                                      borderRadius: '12px 12px 0 0',
+                                      position: 'sticky',
+                                      top: 0
+                                    }}>
+                                      <div style={{ 
+                                        fontWeight: '600', 
+                                        color: style.color,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                      }}>
+                                        <span>{style.icon}</span>
+                                        {alliance}
+                                      </div>
+                                      <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                                        {members.length} member airlines
+                                      </div>
+                                    </div>
+                                    <div style={{ padding: '8px 0' }}>
+                                      {members.map((member, mIdx) => (
+                                        <div 
+                                          key={mIdx}
+                                          style={{
+                                            padding: '8px 16px',
+                                            fontSize: '12px',
+                                            color: '#333',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            background: member.toLowerCase().includes(f.airline.toLowerCase()) || 
+                                                       f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                                              ? style.background 
+                                              : 'transparent',
+                                            fontWeight: member.toLowerCase().includes(f.airline.toLowerCase()) || 
+                                                       f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                                              ? '600' 
+                                              : 'normal'
+                                          }}
+                                        >
+                                          <span style={{ color: style.color }}>✈</span>
+                                          {member}
+                                          {(member.toLowerCase().includes(f.airline.toLowerCase()) || 
+                                            f.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())) && (
+                                            <span style={{ 
+                                              fontSize: '9px', 
+                                              background: style.color, 
+                                              color: '#fff',
+                                              padding: '2px 6px',
+                                              borderRadius: '10px',
+                                              marginLeft: 'auto'
+                                            }}>
+                                              YOUR FLIGHT
+                                            </span>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                      
+                      {/* Common badges */}
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {f.aircraftType && f.aircraftType !== 'Unknown' && (
+                          <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
+                            {f.aircraftType}
+                          </span>
+                        )}
+                        {f.serviceClass && (
+                          <span style={{ 
+                            fontSize: '12px', 
+                            color: f.serviceClass === 'Economy' ? '#8b6914' : 
+                                   f.serviceClass === 'Premium Economy' ? '#166534' : 
+                                   f.serviceClass === 'Business' ? '#1e40af' : 
+                                   '#854d0e',
+                            background: f.serviceClass === 'Economy' ? '#fef3c7' : 
+                                        f.serviceClass === 'Premium Economy' ? '#dcfce7' : 
+                                        f.serviceClass === 'Business' ? '#dbeafe' : 
+                                        '#fef9c3',
+                            padding: '3px 8px', 
+                            borderRadius: '6px',
+                            fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
+                          }}>
+                            {f.serviceClass === 'Economy' ? '🐔 Chicken class' : 
+                             f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
+                             f.serviceClass === 'Business' ? '💼 Business' :
+                             '👑 First'}
+                          </span>
+                        )}
+                        <span 
+                          style={{ 
+                            fontSize: '11px', 
+                            color: '#dc2626', 
+                            background: '#fef2f2', 
+                            padding: '3px 8px', 
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
+                        >
+                          <CloudRain size={10}/>
+                          {flightCO2} kg
+                          <span style={{ 
+                            fontSize: '10px', 
+                            color: co2Diff > 0 ? '#166534' : '#854d0e',
+                            marginLeft: '2px'
+                          }}>
+                            {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <Copy 
+                        size={14} 
+                        style={{ cursor: 'pointer', color: '#888' }} 
+                        title="Duplicate this flight"
+                        onClick={() => handleCopyFlight(f)} 
+                      />
+                      <Edit2 
+                        size={14} 
+                        style={{ cursor: 'pointer', color: '#888' }} 
+                        title="Edit this flight"
+                        onClick={() => handleEditFlight(f)} 
+                      />
+                      <Trash2 
+                        size={14} 
+                        color="#e57373" 
+                        style={{ cursor: 'pointer' }} 
+                        title="Delete this flight"
+                        onClick={() => handleDeleteFlight(f.id)} 
+                      />
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <Copy 
-                      size={14} 
-                      style={{ cursor: 'pointer', color: '#888' }} 
-                      title="Duplicate this flight"
-                      onClick={() => handleCopyFlight(f)} 
-                    />
-                    <Edit2 
-                      size={14} 
-                      style={{ cursor: 'pointer', color: '#888' }} 
-                      title="Edit this flight"
-                      onClick={() => handleEditFlight(f)} 
-                    />
-                    <Trash2 
-                      size={14} 
-                      color="#e57373" 
-                      style={{ cursor: 'pointer' }} 
-                      title="Delete this flight"
-                      onClick={() => handleDeleteFlight(f.id)} 
-                    />
-                  </div>
+                  
+                  {/* Multi-leg display */}
+                  {hasMultipleLegs && (
+                    <div style={{ 
+                      marginLeft: '106px', 
+                      background: '#fafafa', 
+                      borderRadius: '10px', 
+                      padding: '12px',
+                      border: '1px solid #f0f0f0'
+                    }}>
+                      {f.legs.map((leg, legIdx) => {
+                        const legAlliance = leg.airline ? getAirlineAlliance(leg.airline) : null;
+                        const legStyle = legAlliance ? (ALLIANCE_STYLES[legAlliance] || ALLIANCE_STYLES['Independent']) : null;
+                        const legDropdownId = `alliance-${f.id}-leg-${legIdx}`;
+                        const isLegDropdownOpen = openAllianceDropdown === legDropdownId;
+                        const legMembers = legAlliance ? (ALLIANCE_MEMBERS_DISPLAY[legAlliance] || []) : [];
+                        
+                        return (
+                          <div 
+                            key={legIdx} 
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '12px',
+                              padding: '8px 0',
+                              borderBottom: legIdx < f.legs.length - 1 ? '1px dashed #e5e5e5' : 'none'
+                            }}
+                          >
+                            {/* Leg number */}
+                            <span style={{ 
+                              fontSize: '10px', 
+                              color: '#94a3b8', 
+                              fontWeight: '600',
+                              minWidth: '35px'
+                            }}>
+                              LEG {legIdx + 1}
+                            </span>
+                            
+                            {/* Route */}
+                            <span style={{ 
+                              fontSize: '13px', 
+                              fontWeight: '600', 
+                              color: '#374151',
+                              minWidth: '100px'
+                            }}>
+                              {leg.origin} → {leg.destination}
+                            </span>
+                            
+                            {/* Distance */}
+                            <span style={{ 
+                              fontSize: '11px', 
+                              color: '#6b7280',
+                              minWidth: '70px'
+                            }}>
+                              {leg.distance?.toLocaleString()} mi
+                            </span>
+                            
+                            {/* Airline */}
+                            {leg.airline && (
+                              <span style={{ 
+                                fontSize: '11px', 
+                                color: '#555', 
+                                background: '#fff', 
+                                padding: '2px 8px', 
+                                borderRadius: '6px',
+                                border: '1px solid #e5e5e5'
+                              }}>
+                                {leg.airline}
+                              </span>
+                            )}
+                            
+                            {/* Alliance badge with dropdown */}
+                            {leg.airline && legStyle && (
+                              <div style={{ position: 'relative' }}>
+                                <span 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (legAlliance !== 'Independent' && legMembers.length > 0) {
+                                      setOpenAllianceDropdown(isLegDropdownOpen ? null : legDropdownId);
+                                    }
+                                  }}
+                                  style={{ 
+                                    fontSize: '10px', 
+                                    color: legStyle.color, 
+                                    background: legStyle.background, 
+                                    padding: '2px 6px', 
+                                    borderRadius: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    fontWeight: '500',
+                                    cursor: legAlliance !== 'Independent' ? 'pointer' : 'default',
+                                    border: isLegDropdownOpen ? `1px solid ${legStyle.color}` : '1px solid transparent'
+                                  }}
+                                  title={legAlliance !== 'Independent' ? `Click to see all ${legAlliance} members` : 'Independent airline'}
+                                >
+                                  <span style={{ fontSize: '9px' }}>{legStyle.icon}</span>
+                                  {legAlliance}
+                                  {legAlliance !== 'Independent' && (
+                                    <span style={{ fontSize: '7px', marginLeft: '1px' }}>▼</span>
+                                  )}
+                                </span>
+                                
+                                {/* Leg Alliance Dropdown */}
+                                {isLegDropdownOpen && legMembers.length > 0 && (
+                                  <div 
+                                    style={{
+                                      position: 'absolute',
+                                      top: '100%',
+                                      left: '0',
+                                      marginTop: '4px',
+                                      background: '#fff',
+                                      borderRadius: '12px',
+                                      boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                                      border: `1px solid ${legStyle.color}20`,
+                                      zIndex: 1000,
+                                      minWidth: '220px',
+                                      maxHeight: '250px',
+                                      overflowY: 'auto'
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <div style={{
+                                      padding: '10px 14px',
+                                      borderBottom: '1px solid #eee',
+                                      background: legStyle.background,
+                                      borderRadius: '12px 12px 0 0',
+                                      position: 'sticky',
+                                      top: 0
+                                    }}>
+                                      <div style={{ fontWeight: '600', color: legStyle.color, fontSize: '13px' }}>
+                                        {legStyle.icon} {legAlliance}
+                                      </div>
+                                    </div>
+                                    <div style={{ padding: '6px 0' }}>
+                                      {legMembers.map((member, mIdx) => (
+                                        <div 
+                                          key={mIdx}
+                                          style={{
+                                            padding: '6px 14px',
+                                            fontSize: '11px',
+                                            color: '#333',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            background: member.toLowerCase().includes(leg.airline.toLowerCase()) || 
+                                                       leg.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                                              ? legStyle.background 
+                                              : 'transparent',
+                                            fontWeight: member.toLowerCase().includes(leg.airline.toLowerCase()) || 
+                                                       leg.airline.toLowerCase().includes(member.split(' ')[0].toLowerCase())
+                                              ? '600' 
+                                              : 'normal'
+                                          }}
+                                        >
+                                          <span style={{ color: legStyle.color }}>✈</span>
+                                          {member}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* Aircraft type badge */}
+                            {leg.aircraftType && leg.aircraftType !== 'Unknown' && (
+                              <span style={{ 
+                                fontSize: '10px', 
+                                color: '#555', 
+                                background: '#f5f5f5', 
+                                padding: '2px 6px', 
+                                borderRadius: '6px'
+                              }}>
+                                {leg.aircraftType}
+                              </span>
+                            )}
+                            
+                            {/* Service class badge */}
+                            {leg.serviceClass && (
+                              <span style={{ 
+                                fontSize: '10px', 
+                                color: leg.serviceClass === 'Economy' ? '#8b6914' : 
+                                       leg.serviceClass === 'Premium Economy' ? '#166534' : 
+                                       leg.serviceClass === 'Business' ? '#1e40af' : 
+                                       '#854d0e',
+                                background: leg.serviceClass === 'Economy' ? '#fef3c7' : 
+                                            leg.serviceClass === 'Premium Economy' ? '#dcfce7' : 
+                                            leg.serviceClass === 'Business' ? '#dbeafe' : 
+                                            '#fef9c3',
+                                padding: '2px 6px', 
+                                borderRadius: '6px',
+                                fontWeight: leg.serviceClass === 'First' ? '600' : 'normal'
+                              }}>
+                                {leg.serviceClass === 'Economy' ? '🐔' : 
+                                 leg.serviceClass === 'Premium Economy' ? '💺' :
+                                 leg.serviceClass === 'Business' ? '💼' :
+                                 '👑'} {leg.serviceClass === 'Economy' ? 'Eco' : 
+                                        leg.serviceClass === 'Premium Economy' ? 'Prem' : 
+                                        leg.serviceClass === 'Business' ? 'Biz' : 'First'}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      
+                      {/* Total distance summary */}
+                      <div style={{ 
+                        marginTop: '8px', 
+                        paddingTop: '8px', 
+                        borderTop: '1px solid #e5e5e5',
+                        fontSize: '11px',
+                        color: '#6b7280',
+                        display: 'flex',
+                        justifyContent: 'flex-end'
+                      }}>
+                        Total: {f.distance?.toLocaleString()} mi
+                      </div>
+                    </div>
+                  )}
                 </div>
               )})}
             </div>
@@ -1653,13 +2616,17 @@ const FlightTracker = () => {
       {/* Modal Form */}
       {showForm && (
         <div style={modalOverlay}>
-          <div style={modalContent}>
+          <div style={{...modalContent, maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto'}}>
              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '20px'}}>
                <h2 style={{margin: 0}}>{editingFlight ? 'Edit Flight' : 'Log Flight'}</h2>
                <X style={{cursor:'pointer'}} onClick={() => {
                  setShowForm(false);
                  setEditingFlight(null);
-                 setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
+                 setFormData({ 
+                   origin: '', destination: '', date: '', aircraftType: '', airline: '', 
+                   serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy']
+                 });
                }}/>
              </div>
              {isVerifying ? (
@@ -1670,20 +2637,287 @@ const FlightTracker = () => {
                  </div>
              ) : (
                 <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
-                  <input placeholder="Origin (e.g. LAX)" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={inputStyle} />
-                  <input placeholder="Destination (e.g. JFK)" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
-                  <input placeholder="Airline (e.g. United, Delta)" value={formData.airline} onChange={e => setFormData({...formData, airline: e.target.value})} style={inputStyle} />
-                  <input placeholder="Aircraft (e.g. Boeing 737)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
-                  <select 
-                    value={formData.serviceClass} 
-                    onChange={e => setFormData({...formData, serviceClass: e.target.value})} 
-                    style={inputStyle}
-                  >
-                    {serviceClasses.map(cls => (
-                      <option key={cls} value={cls}>{cls}</option>
-                    ))}
-                  </select>
-                  <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
+                  {/* Route Section */}
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <input 
+                      placeholder="From (e.g. PRG)" 
+                      required 
+                      value={formData.origin} 
+                      onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} 
+                      style={{...inputStyle, flex: 1, textAlign: 'center', fontWeight: 'bold'}} 
+                    />
+                    <span style={{ color: '#888', fontSize: '20px' }}>→</span>
+                    <input 
+                      placeholder="To (e.g. JFK)" 
+                      required 
+                      value={formData.destination} 
+                      onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} 
+                      style={{...inputStyle, flex: 1, textAlign: 'center', fontWeight: 'bold'}} 
+                    />
+                  </div>
+
+                  {/* Layover Checkbox */}
+                  <label style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '10px', 
+                    cursor: 'pointer', 
+                    fontSize: '14px', 
+                    color: '#555',
+                    padding: '10px 12px',
+                    background: formData.hasLayover ? '#f0f9ff' : '#f9f9f9',
+                    borderRadius: '8px',
+                    border: formData.hasLayover ? '1px solid #3b82f6' : '1px solid #eee'
+                  }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.hasLayover} 
+                      onChange={e => {
+                        const hasLayover = e.target.checked;
+                        setFormData({
+                          ...formData, 
+                          hasLayover,
+                          viaAirports: hasLayover ? [''] : [''],
+                          legAirlines: hasLayover ? ['', ''] : ['', ''],
+                          legAircraftTypes: hasLayover ? ['', ''] : ['', ''],
+                          legServiceClasses: hasLayover ? ['Economy', 'Economy'] : ['Economy', 'Economy'],
+                          airline: hasLayover ? '' : formData.airline
+                        });
+                      }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Has connection/layover</span>
+                  </label>
+
+                  {/* Via Airports Section */}
+                  {formData.hasLayover && (
+                    <div style={{ 
+                      background: '#f8fafc', 
+                      padding: '15px', 
+                      borderRadius: '12px',
+                      border: '1px dashed #cbd5e1'
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px', fontWeight: '600' }}>
+                        CONNECTION AIRPORTS
+                      </div>
+                      
+                      {formData.viaAirports.map((via, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', minWidth: '50px' }}>Via {idx + 1}:</span>
+                          <input 
+                            placeholder={`Connection ${idx + 1} (e.g. FRA)`}
+                            value={via} 
+                            onChange={e => {
+                              const newVias = [...formData.viaAirports];
+                              newVias[idx] = e.target.value.toUpperCase();
+                              // Adjust all leg arrays size
+                              const newLegAirlines = [...formData.legAirlines];
+                              const newLegAircraftTypes = [...formData.legAircraftTypes];
+                              const newLegServiceClasses = [...formData.legServiceClasses];
+                              while (newLegAirlines.length < newVias.length + 1) {
+                                newLegAirlines.push('');
+                                newLegAircraftTypes.push('');
+                                newLegServiceClasses.push('Economy');
+                              }
+                              setFormData({
+                                ...formData, 
+                                viaAirports: newVias, 
+                                legAirlines: newLegAirlines,
+                                legAircraftTypes: newLegAircraftTypes,
+                                legServiceClasses: newLegServiceClasses
+                              });
+                            }} 
+                            style={{...inputStyle, flex: 1, fontSize: '13px', padding: '10px'}} 
+                          />
+                          {formData.viaAirports.length > 1 && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newVias = formData.viaAirports.filter((_, i) => i !== idx);
+                                const newLegAirlines = formData.legAirlines.filter((_, i) => i !== idx + 1);
+                                const newLegAircraftTypes = formData.legAircraftTypes.filter((_, i) => i !== idx + 1);
+                                const newLegServiceClasses = formData.legServiceClasses.filter((_, i) => i !== idx + 1);
+                                setFormData({
+                                  ...formData, 
+                                  viaAirports: newVias, 
+                                  legAirlines: newLegAirlines,
+                                  legAircraftTypes: newLegAircraftTypes,
+                                  legServiceClasses: newLegServiceClasses
+                                });
+                              }}
+                              style={{ 
+                                background: '#fee2e2', 
+                                color: '#dc2626', 
+                                border: 'none', 
+                                borderRadius: '6px',
+                                padding: '8px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center'
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setFormData({
+                            ...formData, 
+                            viaAirports: [...formData.viaAirports, ''],
+                            legAirlines: [...formData.legAirlines, ''],
+                            legAircraftTypes: [...formData.legAircraftTypes, ''],
+                            legServiceClasses: [...formData.legServiceClasses, 'Economy']
+                          });
+                        }}
+                        style={{ 
+                          background: '#e0f2fe', 
+                          color: '#0369a1', 
+                          border: 'none', 
+                          borderRadius: '6px',
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginTop: '5px'
+                        }}
+                      >
+                        <Plus size={14} /> Add another connection
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Airline Section */}
+                  {formData.hasLayover ? (
+                    <div style={{ 
+                      background: '#fefce8', 
+                      padding: '15px', 
+                      borderRadius: '12px',
+                      border: '1px dashed #fde047'
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#a16207', marginBottom: '12px', fontWeight: '600' }}>
+                        FLIGHT DETAILS PER LEG
+                      </div>
+                      
+                      {(() => {
+                        const validVias = formData.viaAirports.filter(v => v.trim());
+                        const stops = [formData.origin, ...validVias, formData.destination].filter(s => s);
+                        const legs = [];
+                        for (let i = 0; i < stops.length - 1; i++) {
+                          if (stops[i] && stops[i+1]) {
+                            legs.push({ from: stops[i], to: stops[i+1], idx: i });
+                          }
+                        }
+                        
+                        return legs.map((leg, i) => (
+                          <div key={i} style={{ 
+                            marginBottom: i < legs.length - 1 ? '16px' : '0',
+                            paddingBottom: i < legs.length - 1 ? '16px' : '0',
+                            borderBottom: i < legs.length - 1 ? '1px dashed #fde047' : 'none'
+                          }}>
+                            {/* Leg header */}
+                            <div style={{ 
+                              fontSize: '12px', 
+                              color: '#92400e', 
+                              fontWeight: '600',
+                              marginBottom: '10px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              <span style={{ 
+                                background: '#fbbf24', 
+                                color: '#78350f', 
+                                padding: '2px 8px', 
+                                borderRadius: '10px',
+                                fontSize: '10px'
+                              }}>
+                                LEG {i + 1}
+                              </span>
+                              {leg.from} → {leg.to}
+                            </div>
+                            
+                            {/* Leg inputs row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                              <input 
+                                placeholder="Airline"
+                                value={formData.legAirlines[i] || ''} 
+                                onChange={e => {
+                                  const newLegAirlines = [...formData.legAirlines];
+                                  newLegAirlines[i] = e.target.value;
+                                  setFormData({...formData, legAirlines: newLegAirlines});
+                                }} 
+                                style={{...inputStyle, fontSize: '13px', padding: '10px'}} 
+                              />
+                              <input 
+                                placeholder="Aircraft"
+                                value={formData.legAircraftTypes[i] || ''} 
+                                onChange={e => {
+                                  const newLegAircraftTypes = [...formData.legAircraftTypes];
+                                  newLegAircraftTypes[i] = e.target.value;
+                                  setFormData({...formData, legAircraftTypes: newLegAircraftTypes});
+                                }} 
+                                style={{...inputStyle, fontSize: '13px', padding: '10px'}} 
+                              />
+                            </div>
+                            <div style={{ marginTop: '8px' }}>
+                              <select 
+                                value={formData.legServiceClasses[i] || 'Economy'} 
+                                onChange={e => {
+                                  const newLegServiceClasses = [...formData.legServiceClasses];
+                                  newLegServiceClasses[i] = e.target.value;
+                                  setFormData({...formData, legServiceClasses: newLegServiceClasses});
+                                }} 
+                                style={{...inputStyle, fontSize: '13px', padding: '10px', width: '100%'}}
+                              >
+                                {serviceClasses.map(cls => (
+                                  <option key={cls} value={cls}>{cls}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  ) : (
+                    <>
+                      <input 
+                        placeholder="Airline (e.g. United, Delta)" 
+                        value={formData.airline} 
+                        onChange={e => setFormData({...formData, airline: e.target.value})} 
+                        style={inputStyle} 
+                      />
+                      <input 
+                        placeholder="Aircraft (e.g. Boeing 737)" 
+                        value={formData.aircraftType} 
+                        onChange={e => setFormData({...formData, aircraftType: e.target.value})} 
+                        style={inputStyle} 
+                      />
+                      <select 
+                        value={formData.serviceClass} 
+                        onChange={e => setFormData({...formData, serviceClass: e.target.value})} 
+                        style={inputStyle}
+                      >
+                        {serviceClasses.map(cls => (
+                          <option key={cls} value={cls}>{cls}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                  
+                  <input 
+                    type="date" 
+                    required 
+                    value={formData.date} 
+                    onChange={e => setFormData({...formData, date: e.target.value})} 
+                    style={inputStyle} 
+                  />
+                  
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: '#555' }}>
                     <input 
                       type="checkbox" 
@@ -1693,8 +2927,14 @@ const FlightTracker = () => {
                     />
                     <span>Detect landmarks along route</span>
                   </label>
+                  
                   <button type="submit" style={{ background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>
                     {editingFlight ? 'Update Flight' : (formData.checkLandmarks ? 'Save & Analyze' : 'Save Flight')}
+                    {formData.hasLayover && formData.viaAirports.filter(v => v.trim()).length > 0 && (
+                      <span style={{ marginLeft: '8px', opacity: 0.8 }}>
+                        ({formData.viaAirports.filter(v => v.trim()).length + 1} legs)
+                      </span>
+                    )}
                   </button>
                 </form>
              )}
