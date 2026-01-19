@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
-  LogIn, LogOut, User, Eye, EyeOff
+  LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard
 } from 'lucide-react';
 
 // Firebase imports
@@ -47,24 +47,164 @@ const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/r
 const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
 
 const AIRPORTS_DATABASE = [
-  { code: 'JFK', name: 'John F. Kennedy Intl', city: 'New York', lat: 40.6413, lon: -73.7781 },
-  { code: 'LHR', name: 'London Heathrow', city: 'London', lat: 51.4700, lon: -0.4543 },
-  { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', lat: 41.2753, lon: 28.7519 },
-  { code: 'SFO', name: 'San Francisco Intl', city: 'San Francisco', lat: 37.6188, lon: -122.3749 },
-  { code: 'DXB', name: 'Dubai Intl', city: 'Dubai', lat: 25.2532, lon: 55.3657 },
-  { code: 'SIN', name: 'Singapore Changi', city: 'Singapore', lat: 1.3644, lon: 103.9915 },
-  { code: 'SYD', name: 'Sydney Kingsford Smith', city: 'Sydney', lat: -33.9399, lon: 151.1753 },
-  { code: 'HND', name: 'Tokyo Haneda', city: 'Tokyo', lat: 35.5494, lon: 139.7798 },
-  { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', lat: 49.0097, lon: 2.5479 },
-  { code: 'LAX', name: 'Los Angeles Intl', city: 'Los Angeles', lat: 33.9416, lon: -118.4085 },
-  { code: 'MIA', name: 'Miami Intl', city: 'Miami', lat: 25.7959, lon: -80.2870 },
-  { code: 'ORD', name: "O'Hare Intl", city: 'Chicago', lat: 41.9742, lon: -87.9073 },
-  { code: 'DFW', name: 'Dallas/Fort Worth Intl', city: 'Dallas', lat: 32.8998, lon: -97.0403 },
-  { code: 'DEN', name: 'Denver Intl', city: 'Denver', lat: 39.8561, lon: -104.6737 },
-  { code: 'SEA', name: 'Seattle-Tacoma Intl', city: 'Seattle', lat: 47.4502, lon: -122.3088 },
-  { code: 'PHX', name: 'Phoenix Sky Harbor', city: 'Phoenix', lat: 33.4373, lon: -112.0078 },
-  { code: 'ATL', name: 'Hartsfield-Jackson Atlanta', city: 'Atlanta', lat: 33.6407, lon: -84.4277 },
+  // North America
+  { code: 'JFK', name: 'John F. Kennedy Intl', city: 'New York', country: 'USA', lat: 40.6413, lon: -73.7781 },
+  { code: 'LGA', name: 'LaGuardia', city: 'New York', country: 'USA', lat: 40.7769, lon: -73.8740 },
+  { code: 'EWR', name: 'Newark Liberty Intl', city: 'Newark', country: 'USA', lat: 40.6895, lon: -74.1745 },
+  { code: 'LAX', name: 'Los Angeles Intl', city: 'Los Angeles', country: 'USA', lat: 33.9416, lon: -118.4085 },
+  { code: 'SFO', name: 'San Francisco Intl', city: 'San Francisco', country: 'USA', lat: 37.6188, lon: -122.3749 },
+  { code: 'ORD', name: "O'Hare Intl", city: 'Chicago', country: 'USA', lat: 41.9742, lon: -87.9073 },
+  { code: 'MDW', name: 'Midway Intl', city: 'Chicago', country: 'USA', lat: 41.7868, lon: -87.7522 },
+  { code: 'ATL', name: 'Hartsfield-Jackson Atlanta', city: 'Atlanta', country: 'USA', lat: 33.6407, lon: -84.4277 },
+  { code: 'DFW', name: 'Dallas/Fort Worth Intl', city: 'Dallas', country: 'USA', lat: 32.8998, lon: -97.0403 },
+  { code: 'DEN', name: 'Denver Intl', city: 'Denver', country: 'USA', lat: 39.8561, lon: -104.6737 },
+  { code: 'SEA', name: 'Seattle-Tacoma Intl', city: 'Seattle', country: 'USA', lat: 47.4502, lon: -122.3088 },
+  { code: 'PHX', name: 'Phoenix Sky Harbor', city: 'Phoenix', country: 'USA', lat: 33.4373, lon: -112.0078 },
+  { code: 'MIA', name: 'Miami Intl', city: 'Miami', country: 'USA', lat: 25.7959, lon: -80.2870 },
+  { code: 'FLL', name: 'Fort Lauderdale-Hollywood', city: 'Fort Lauderdale', country: 'USA', lat: 26.0742, lon: -80.1506 },
+  { code: 'MCO', name: 'Orlando Intl', city: 'Orlando', country: 'USA', lat: 28.4312, lon: -81.3081 },
+  { code: 'BOS', name: 'Logan Intl', city: 'Boston', country: 'USA', lat: 42.3656, lon: -71.0096 },
+  { code: 'IAD', name: 'Dulles Intl', city: 'Washington', country: 'USA', lat: 38.9531, lon: -77.4565 },
+  { code: 'DCA', name: 'Reagan National', city: 'Washington', country: 'USA', lat: 38.8512, lon: -77.0402 },
+  { code: 'BWI', name: 'Baltimore-Washington', city: 'Baltimore', country: 'USA', lat: 39.1774, lon: -76.6684 },
+  { code: 'PHL', name: 'Philadelphia Intl', city: 'Philadelphia', country: 'USA', lat: 39.8729, lon: -75.2437 },
+  { code: 'MSP', name: 'Minneapolis-St Paul', city: 'Minneapolis', country: 'USA', lat: 44.8848, lon: -93.2223 },
+  { code: 'DTW', name: 'Detroit Metro', city: 'Detroit', country: 'USA', lat: 42.2162, lon: -83.3554 },
+  { code: 'CLT', name: 'Charlotte Douglas', city: 'Charlotte', country: 'USA', lat: 35.2140, lon: -80.9431 },
+  { code: 'LAS', name: 'Harry Reid Intl', city: 'Las Vegas', country: 'USA', lat: 36.0840, lon: -115.1537 },
+  { code: 'SAN', name: 'San Diego Intl', city: 'San Diego', country: 'USA', lat: 32.7338, lon: -117.1933 },
+  { code: 'SJC', name: 'San Jose Intl', city: 'San Jose', country: 'USA', lat: 37.3626, lon: -121.9290 },
+  { code: 'OAK', name: 'Oakland Intl', city: 'Oakland', country: 'USA', lat: 37.7213, lon: -122.2208 },
+  { code: 'PDX', name: 'Portland Intl', city: 'Portland', country: 'USA', lat: 45.5898, lon: -122.5951 },
+  { code: 'IAH', name: 'George Bush Intercontinental', city: 'Houston', country: 'USA', lat: 29.9902, lon: -95.3368 },
+  { code: 'HOU', name: 'Hobby', city: 'Houston', country: 'USA', lat: 29.6454, lon: -95.2789 },
+  { code: 'AUS', name: 'Austin-Bergstrom', city: 'Austin', country: 'USA', lat: 30.1975, lon: -97.6664 },
+  { code: 'SLC', name: 'Salt Lake City Intl', city: 'Salt Lake City', country: 'USA', lat: 40.7899, lon: -111.9791 },
+  { code: 'TPA', name: 'Tampa Intl', city: 'Tampa', country: 'USA', lat: 27.9755, lon: -82.5332 },
+  { code: 'HNL', name: 'Daniel K. Inouye Intl', city: 'Honolulu', country: 'USA', lat: 21.3245, lon: -157.9251 },
+  { code: 'ANC', name: 'Ted Stevens Anchorage', city: 'Anchorage', country: 'USA', lat: 61.1743, lon: -149.9962 },
+  { code: 'YYZ', name: 'Toronto Pearson', city: 'Toronto', country: 'Canada', lat: 43.6777, lon: -79.6248 },
+  { code: 'YVR', name: 'Vancouver Intl', city: 'Vancouver', country: 'Canada', lat: 49.1967, lon: -123.1815 },
+  { code: 'YUL', name: 'Montréal-Trudeau', city: 'Montreal', country: 'Canada', lat: 45.4657, lon: -73.7455 },
+  { code: 'YYC', name: 'Calgary Intl', city: 'Calgary', country: 'Canada', lat: 51.1215, lon: -114.0076 },
+  { code: 'MEX', name: 'Benito Juárez Intl', city: 'Mexico City', country: 'Mexico', lat: 19.4363, lon: -99.0721 },
+  { code: 'CUN', name: 'Cancún Intl', city: 'Cancun', country: 'Mexico', lat: 21.0365, lon: -86.8771 },
+  // Europe
+  { code: 'LHR', name: 'London Heathrow', city: 'London', country: 'UK', lat: 51.4700, lon: -0.4543 },
+  { code: 'LGW', name: 'London Gatwick', city: 'London', country: 'UK', lat: 51.1537, lon: -0.1821 },
+  { code: 'STN', name: 'London Stansted', city: 'London', country: 'UK', lat: 51.8860, lon: 0.2389 },
+  { code: 'LTN', name: 'London Luton', city: 'London', country: 'UK', lat: 51.8763, lon: -0.3717 },
+  { code: 'MAN', name: 'Manchester', city: 'Manchester', country: 'UK', lat: 53.3537, lon: -2.2750 },
+  { code: 'EDI', name: 'Edinburgh', city: 'Edinburgh', country: 'UK', lat: 55.9508, lon: -3.3615 },
+  { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', country: 'France', lat: 49.0097, lon: 2.5479 },
+  { code: 'ORY', name: 'Paris Orly', city: 'Paris', country: 'France', lat: 48.7233, lon: 2.3795 },
+  { code: 'NCE', name: 'Nice Côte d\'Azur', city: 'Nice', country: 'France', lat: 43.6584, lon: 7.2159 },
+  { code: 'FRA', name: 'Frankfurt am Main', city: 'Frankfurt', country: 'Germany', lat: 50.0379, lon: 8.5622 },
+  { code: 'MUC', name: 'Munich', city: 'Munich', country: 'Germany', lat: 48.3537, lon: 11.7750 },
+  { code: 'BER', name: 'Berlin Brandenburg', city: 'Berlin', country: 'Germany', lat: 52.3667, lon: 13.5033 },
+  { code: 'DUS', name: 'Düsseldorf', city: 'Dusseldorf', country: 'Germany', lat: 51.2895, lon: 6.7668 },
+  { code: 'HAM', name: 'Hamburg', city: 'Hamburg', country: 'Germany', lat: 53.6304, lon: 10.0065 },
+  { code: 'AMS', name: 'Amsterdam Schiphol', city: 'Amsterdam', country: 'Netherlands', lat: 52.3105, lon: 4.7683 },
+  { code: 'BRU', name: 'Brussels', city: 'Brussels', country: 'Belgium', lat: 50.9010, lon: 4.4856 },
+  { code: 'ZRH', name: 'Zürich', city: 'Zurich', country: 'Switzerland', lat: 47.4647, lon: 8.5492 },
+  { code: 'GVA', name: 'Geneva', city: 'Geneva', country: 'Switzerland', lat: 46.2370, lon: 6.1092 },
+  { code: 'VIE', name: 'Vienna Intl', city: 'Vienna', country: 'Austria', lat: 48.1103, lon: 16.5697 },
+  { code: 'PRG', name: 'Václav Havel Prague', city: 'Prague', country: 'Czechia', lat: 50.1008, lon: 14.2600 },
+  { code: 'WAW', name: 'Warsaw Chopin', city: 'Warsaw', country: 'Poland', lat: 52.1657, lon: 20.9671 },
+  { code: 'KRK', name: 'John Paul II Kraków', city: 'Krakow', country: 'Poland', lat: 50.0777, lon: 19.7848 },
+  { code: 'BUD', name: 'Budapest Ferenc Liszt', city: 'Budapest', country: 'Hungary', lat: 47.4298, lon: 19.2611 },
+  { code: 'FCO', name: 'Rome Fiumicino', city: 'Rome', country: 'Italy', lat: 41.8003, lon: 12.2389 },
+  { code: 'MXP', name: 'Milan Malpensa', city: 'Milan', country: 'Italy', lat: 45.6306, lon: 8.7281 },
+  { code: 'LIN', name: 'Milan Linate', city: 'Milan', country: 'Italy', lat: 45.4555, lon: 9.2765 },
+  { code: 'VCE', name: 'Venice Marco Polo', city: 'Venice', country: 'Italy', lat: 45.5053, lon: 12.3519 },
+  { code: 'NAP', name: 'Naples Intl', city: 'Naples', country: 'Italy', lat: 40.8860, lon: 14.2908 },
+  { code: 'MAD', name: 'Madrid Barajas', city: 'Madrid', country: 'Spain', lat: 40.4936, lon: -3.5668 },
+  { code: 'BCN', name: 'Barcelona El Prat', city: 'Barcelona', country: 'Spain', lat: 41.2974, lon: 2.0833 },
+  { code: 'PMI', name: 'Palma de Mallorca', city: 'Palma', country: 'Spain', lat: 39.5517, lon: 2.7388 },
+  { code: 'AGP', name: 'Málaga', city: 'Malaga', country: 'Spain', lat: 36.6749, lon: -4.4991 },
+  { code: 'LIS', name: 'Lisbon Humberto Delgado', city: 'Lisbon', country: 'Portugal', lat: 38.7756, lon: -9.1354 },
+  { code: 'OPO', name: 'Porto Francisco Sá Carneiro', city: 'Porto', country: 'Portugal', lat: 41.2481, lon: -8.6814 },
+  { code: 'ATH', name: 'Athens Eleftherios Venizelos', city: 'Athens', country: 'Greece', lat: 37.9364, lon: 23.9445 },
+  { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', country: 'Turkey', lat: 41.2753, lon: 28.7519 },
+  { code: 'SAW', name: 'Istanbul Sabiha Gökçen', city: 'Istanbul', country: 'Turkey', lat: 40.8986, lon: 29.3092 },
+  { code: 'DUB', name: 'Dublin', city: 'Dublin', country: 'Ireland', lat: 53.4264, lon: -6.2499 },
+  { code: 'CPH', name: 'Copenhagen Kastrup', city: 'Copenhagen', country: 'Denmark', lat: 55.6180, lon: 12.6508 },
+  { code: 'OSL', name: 'Oslo Gardermoen', city: 'Oslo', country: 'Norway', lat: 60.1976, lon: 11.0004 },
+  { code: 'ARN', name: 'Stockholm Arlanda', city: 'Stockholm', country: 'Sweden', lat: 59.6498, lon: 17.9238 },
+  { code: 'HEL', name: 'Helsinki-Vantaa', city: 'Helsinki', country: 'Finland', lat: 60.3172, lon: 24.9633 },
+  { code: 'SVO', name: 'Moscow Sheremetyevo', city: 'Moscow', country: 'Russia', lat: 55.9726, lon: 37.4146 },
+  { code: 'LED', name: 'St Petersburg Pulkovo', city: 'St Petersburg', country: 'Russia', lat: 59.8003, lon: 30.2625 },
+  // Middle East
+  { code: 'DXB', name: 'Dubai Intl', city: 'Dubai', country: 'UAE', lat: 25.2532, lon: 55.3657 },
+  { code: 'AUH', name: 'Abu Dhabi Intl', city: 'Abu Dhabi', country: 'UAE', lat: 24.4330, lon: 54.6511 },
+  { code: 'DOH', name: 'Hamad Intl', city: 'Doha', country: 'Qatar', lat: 25.2609, lon: 51.6138 },
+  { code: 'TLV', name: 'Ben Gurion', city: 'Tel Aviv', country: 'Israel', lat: 32.0055, lon: 34.8854 },
+  { code: 'CAI', name: 'Cairo Intl', city: 'Cairo', country: 'Egypt', lat: 30.1219, lon: 31.4056 },
+  { code: 'AMM', name: 'Queen Alia Intl', city: 'Amman', country: 'Jordan', lat: 31.7226, lon: 35.9932 },
+  { code: 'RUH', name: 'King Khalid Intl', city: 'Riyadh', country: 'Saudi Arabia', lat: 24.9578, lon: 46.6989 },
+  { code: 'JED', name: 'King Abdulaziz Intl', city: 'Jeddah', country: 'Saudi Arabia', lat: 21.6796, lon: 39.1565 },
+  // Asia Pacific
+  { code: 'SIN', name: 'Singapore Changi', city: 'Singapore', country: 'Singapore', lat: 1.3644, lon: 103.9915 },
+  { code: 'HKG', name: 'Hong Kong Intl', city: 'Hong Kong', country: 'Hong Kong', lat: 22.3080, lon: 113.9185 },
+  { code: 'NRT', name: 'Tokyo Narita', city: 'Tokyo', country: 'Japan', lat: 35.7720, lon: 140.3929 },
+  { code: 'HND', name: 'Tokyo Haneda', city: 'Tokyo', country: 'Japan', lat: 35.5494, lon: 139.7798 },
+  { code: 'KIX', name: 'Osaka Kansai', city: 'Osaka', country: 'Japan', lat: 34.4347, lon: 135.2441 },
+  { code: 'ICN', name: 'Seoul Incheon', city: 'Seoul', country: 'South Korea', lat: 37.4602, lon: 126.4407 },
+  { code: 'GMP', name: 'Seoul Gimpo', city: 'Seoul', country: 'South Korea', lat: 37.5583, lon: 126.7906 },
+  { code: 'PEK', name: 'Beijing Capital', city: 'Beijing', country: 'China', lat: 40.0799, lon: 116.6031 },
+  { code: 'PKX', name: 'Beijing Daxing', city: 'Beijing', country: 'China', lat: 39.5098, lon: 116.4105 },
+  { code: 'PVG', name: 'Shanghai Pudong', city: 'Shanghai', country: 'China', lat: 31.1443, lon: 121.8083 },
+  { code: 'SHA', name: 'Shanghai Hongqiao', city: 'Shanghai', country: 'China', lat: 31.1979, lon: 121.3363 },
+  { code: 'CAN', name: 'Guangzhou Baiyun', city: 'Guangzhou', country: 'China', lat: 23.3959, lon: 113.3080 },
+  { code: 'HAN', name: 'Noi Bai Intl', city: 'Hanoi', country: 'Vietnam', lat: 21.2212, lon: 105.8072 },
+  { code: 'SGN', name: 'Tan Son Nhat', city: 'Ho Chi Minh City', country: 'Vietnam', lat: 10.8188, lon: 106.6520 },
+  { code: 'BKK', name: 'Suvarnabhumi', city: 'Bangkok', country: 'Thailand', lat: 13.6900, lon: 100.7501 },
+  { code: 'DMK', name: 'Don Mueang', city: 'Bangkok', country: 'Thailand', lat: 13.9126, lon: 100.6068 },
+  { code: 'KUL', name: 'Kuala Lumpur Intl', city: 'Kuala Lumpur', country: 'Malaysia', lat: 2.7456, lon: 101.7072 },
+  { code: 'CGK', name: 'Soekarno-Hatta', city: 'Jakarta', country: 'Indonesia', lat: -6.1256, lon: 106.6558 },
+  { code: 'DPS', name: 'Ngurah Rai', city: 'Bali', country: 'Indonesia', lat: -8.7482, lon: 115.1672 },
+  { code: 'MNL', name: 'Ninoy Aquino Intl', city: 'Manila', country: 'Philippines', lat: 14.5086, lon: 121.0198 },
+  { code: 'DEL', name: 'Indira Gandhi Intl', city: 'Delhi', country: 'India', lat: 28.5562, lon: 77.1000 },
+  { code: 'BOM', name: 'Chhatrapati Shivaji', city: 'Mumbai', country: 'India', lat: 19.0896, lon: 72.8656 },
+  { code: 'BLR', name: 'Kempegowda Intl', city: 'Bangalore', country: 'India', lat: 13.1986, lon: 77.7066 },
+  { code: 'MAA', name: 'Chennai Intl', city: 'Chennai', country: 'India', lat: 12.9941, lon: 80.1709 },
+  { code: 'TPE', name: 'Taiwan Taoyuan', city: 'Taipei', country: 'Taiwan', lat: 25.0797, lon: 121.2342 },
+  // Oceania
+  { code: 'SYD', name: 'Sydney Kingsford Smith', city: 'Sydney', country: 'Australia', lat: -33.9399, lon: 151.1753 },
+  { code: 'MEL', name: 'Melbourne Tullamarine', city: 'Melbourne', country: 'Australia', lat: -37.6690, lon: 144.8410 },
+  { code: 'BNE', name: 'Brisbane', city: 'Brisbane', country: 'Australia', lat: -27.3942, lon: 153.1218 },
+  { code: 'PER', name: 'Perth', city: 'Perth', country: 'Australia', lat: -31.9385, lon: 115.9672 },
+  { code: 'AKL', name: 'Auckland', city: 'Auckland', country: 'New Zealand', lat: -37.0082, lon: 174.7850 },
+  { code: 'CHC', name: 'Christchurch', city: 'Christchurch', country: 'New Zealand', lat: -43.4894, lon: 172.5322 },
+  { code: 'WLG', name: 'Wellington', city: 'Wellington', country: 'New Zealand', lat: -41.3272, lon: 174.8050 },
+  // South America
+  { code: 'GRU', name: 'São Paulo Guarulhos', city: 'Sao Paulo', country: 'Brazil', lat: -23.4356, lon: -46.4731 },
+  { code: 'GIG', name: 'Rio de Janeiro Galeão', city: 'Rio de Janeiro', country: 'Brazil', lat: -22.8100, lon: -43.2506 },
+  { code: 'EZE', name: 'Buenos Aires Ezeiza', city: 'Buenos Aires', country: 'Argentina', lat: -34.8222, lon: -58.5358 },
+  { code: 'SCL', name: 'Santiago Arturo Merino', city: 'Santiago', country: 'Chile', lat: -33.3930, lon: -70.7858 },
+  { code: 'LIM', name: 'Lima Jorge Chávez', city: 'Lima', country: 'Peru', lat: -12.0219, lon: -77.1143 },
+  { code: 'BOG', name: 'Bogotá El Dorado', city: 'Bogota', country: 'Colombia', lat: 4.7016, lon: -74.1469 },
+  // Africa
+  { code: 'JNB', name: 'O.R. Tambo Intl', city: 'Johannesburg', country: 'South Africa', lat: -26.1392, lon: 28.2460 },
+  { code: 'CPT', name: 'Cape Town Intl', city: 'Cape Town', country: 'South Africa', lat: -33.9715, lon: 18.6021 },
+  { code: 'NBO', name: 'Jomo Kenyatta Intl', city: 'Nairobi', country: 'Kenya', lat: -1.3192, lon: 36.9278 },
+  { code: 'ADD', name: 'Addis Ababa Bole', city: 'Addis Ababa', country: 'Ethiopia', lat: 8.9779, lon: 38.7993 },
+  { code: 'CMN', name: 'Mohammed V Intl', city: 'Casablanca', country: 'Morocco', lat: 33.3675, lon: -7.5898 },
+  { code: 'LOS', name: 'Murtala Muhammed', city: 'Lagos', country: 'Nigeria', lat: 6.5774, lon: 3.3212 },
 ];
+
+// Helper function to search airports by code, city, or name
+const searchAirports = (query) => {
+  if (!query || query.length < 2) return [];
+  const q = query.toLowerCase().trim();
+  
+  return AIRPORTS_DATABASE.filter(airport => 
+    airport.code.toLowerCase().includes(q) ||
+    airport.city.toLowerCase().includes(q) ||
+    airport.name.toLowerCase().includes(q) ||
+    (airport.country && airport.country.toLowerCase().includes(q))
+  ).slice(0, 8); // Limit to 8 suggestions
+};
 
 const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
@@ -600,8 +740,14 @@ const FlightTracker = () => {
     viaAirports: [''], // Array of connection airport codes
     legAirlines: ['', ''], // Airlines for each leg
     legAircraftTypes: ['', ''], // Aircraft for each leg
-    legServiceClasses: ['Economy', 'Economy'] // Service class for each leg
+    legServiceClasses: ['Economy', 'Economy'], // Service class for each leg
+    paymentType: 'money', // 'money' or 'miles'
+    paymentAmount: ''
   });
+  
+  // Airport autocomplete state
+  const [airportSuggestions, setAirportSuggestions] = useState([]);
+  const [activeAirportField, setActiveAirportField] = useState(null); // 'origin', 'destination', or 'via-0', 'via-1', etc.
 
   // Firebase Auth State Listener
   useEffect(() => {
@@ -1171,8 +1317,11 @@ const FlightTracker = () => {
         setFormData({ 
             origin: '', destination: '', date: '', aircraftType: '', airline: '', 
             serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy']
+            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+            paymentType: 'money', paymentAmount: ''
         });
+        setAirportSuggestions([]);
+        setActiveAirportField(null);
     } catch (e) {
         console.error(e);
         alert("Error saving flight. Check console for details.");
@@ -1371,6 +1520,21 @@ const FlightTracker = () => {
   });
   const sortedCarbonByClass = Object.entries(carbonByClass).sort((a, b) => b[1] - a[1]);
 
+  // Payment statistics
+  const paymentStats = flights.reduce((acc, f) => {
+    if (f.paymentAmount && !isNaN(parseFloat(f.paymentAmount))) {
+      const amount = parseFloat(f.paymentAmount);
+      if (f.paymentType === 'miles') {
+        acc.totalMilesSpent += amount;
+        acc.milesFlightCount += 1;
+      } else {
+        acc.totalMoneySpent += amount;
+        acc.moneyFlightCount += 1;
+      }
+    }
+    return acc;
+  }, { totalMilesSpent: 0, totalMoneySpent: 0, milesFlightCount: 0, moneyFlightCount: 0 });
+
   // Group flights by route for consolidated display
   const groupedFlights = flights.reduce((acc, flight) => {
     const routeKey = `${flight.origin}-${flight.destination}`;
@@ -1443,7 +1607,9 @@ const FlightTracker = () => {
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
-        legServiceClasses: ['Economy', 'Economy']
+        legServiceClasses: ['Economy', 'Economy'],
+        paymentType: 'money',
+        paymentAmount: ''
       });
     }
     setShowForm(true);
@@ -1478,7 +1644,9 @@ const FlightTracker = () => {
         viaAirports: viaAirports.length > 0 ? viaAirports : [''],
         legAirlines: legAirlines,
         legAircraftTypes: legAircraftTypes,
-        legServiceClasses: legServiceClasses
+        legServiceClasses: legServiceClasses,
+        paymentType: flight.paymentType || 'money',
+        paymentAmount: flight.paymentAmount || ''
       });
     } else {
       const singleLeg = flight.legs && flight.legs[0];
@@ -1494,7 +1662,9 @@ const FlightTracker = () => {
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
-        legServiceClasses: ['Economy', 'Economy']
+        legServiceClasses: ['Economy', 'Economy'],
+        paymentType: flight.paymentType || 'money',
+        paymentAmount: flight.paymentAmount || ''
       });
     }
     setShowForm(true);
@@ -1602,8 +1772,11 @@ const FlightTracker = () => {
             setFormData({ 
               origin: '', destination: '', date: '', aircraftType: '', airline: '', 
               serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy']
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+              paymentType: 'money', paymentAmount: ''
             });
+            setAirportSuggestions([]);
+            setActiveAirportField(null);
             setShowForm(true); 
           }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             + Manual Add
@@ -1826,6 +1999,22 @@ const FlightTracker = () => {
           </div>
         )}
         <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
+        {paymentStats.totalMoneySpent > 0 && (
+          <div style={{...statCard, background: '#f0fdf4', borderColor: '#22c55e'}}>
+            <DollarSign size={20} color="#22c55e"/>
+            <div style={{...statVal, color: '#16a34a'}}>${paymentStats.totalMoneySpent.toLocaleString()}</div>
+            <div style={statLbl}>Money Spent</div>
+            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.moneyFlightCount} trip{paymentStats.moneyFlightCount > 1 ? 's' : ''})</div>
+          </div>
+        )}
+        {paymentStats.totalMilesSpent > 0 && (
+          <div style={{...statCard, background: '#eff6ff', borderColor: '#3b82f6'}}>
+            <CreditCard size={20} color="#3b82f6"/>
+            <div style={{...statVal, color: '#2563eb'}}>{paymentStats.totalMilesSpent.toLocaleString()}</div>
+            <div style={statLbl}>Miles Redeemed</div>
+            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.milesFlightCount} trip{paymentStats.milesFlightCount > 1 ? 's' : ''})</div>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
@@ -2682,8 +2871,11 @@ const FlightTracker = () => {
                  setFormData({ 
                    origin: '', destination: '', date: '', aircraftType: '', airline: '', 
                    serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy']
+                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+                   paymentType: 'money', paymentAmount: ''
                  });
+                 setAirportSuggestions([]);
+                 setActiveAirportField(null);
                }}/>
              </div>
              {isVerifying ? (
@@ -2694,23 +2886,115 @@ const FlightTracker = () => {
                  </div>
              ) : (
                 <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
-                  {/* Route Section */}
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <input 
-                      placeholder="From (e.g. PRG)" 
-                      required 
-                      value={formData.origin} 
-                      onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} 
-                      style={{...inputStyle, flex: 1, textAlign: 'center', fontWeight: 'bold'}} 
-                    />
-                    <span style={{ color: '#888', fontSize: '20px' }}>→</span>
-                    <input 
-                      placeholder="To (e.g. JFK)" 
-                      required 
-                      value={formData.destination} 
-                      onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} 
-                      style={{...inputStyle, flex: 1, textAlign: 'center', fontWeight: 'bold'}} 
-                    />
+                  {/* Route Section with Autocomplete */}
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                    {/* Origin Input with Autocomplete */}
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <input 
+                        placeholder="From (code or city)" 
+                        required 
+                        value={formData.origin} 
+                        onChange={e => {
+                          const val = e.target.value.toUpperCase();
+                          setFormData({...formData, origin: val});
+                          setAirportSuggestions(searchAirports(val));
+                          setActiveAirportField('origin');
+                        }}
+                        onFocus={() => {
+                          setAirportSuggestions(searchAirports(formData.origin));
+                          setActiveAirportField('origin');
+                        }}
+                        onBlur={() => setTimeout(() => {
+                          if (activeAirportField === 'origin') setAirportSuggestions([]);
+                        }, 200)}
+                        style={{...inputStyle, width: '100%', textAlign: 'center', fontWeight: 'bold'}} 
+                      />
+                      {activeAirportField === 'origin' && airportSuggestions.length > 0 && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                          background: '#fff', border: '1px solid #ddd', borderRadius: '8px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '200px', overflowY: 'auto'
+                        }}>
+                          {airportSuggestions.map(airport => (
+                            <div 
+                              key={airport.code}
+                              onClick={() => {
+                                setFormData({...formData, origin: airport.code});
+                                setAirportSuggestions([]);
+                                setActiveAirportField(null);
+                              }}
+                              style={{
+                                padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                              }}
+                              onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                              onMouseLeave={e => e.target.style.background = '#fff'}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 'bold', color: '#333' }}>{airport.code}</span>
+                                <span style={{ color: '#666', marginLeft: '8px', fontSize: '13px' }}>{airport.city}</span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: '#999' }}>{airport.country}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <span style={{ color: '#888', fontSize: '20px', paddingTop: '10px' }}>→</span>
+                    
+                    {/* Destination Input with Autocomplete */}
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <input 
+                        placeholder="To (code or city)" 
+                        required 
+                        value={formData.destination} 
+                        onChange={e => {
+                          const val = e.target.value.toUpperCase();
+                          setFormData({...formData, destination: val});
+                          setAirportSuggestions(searchAirports(val));
+                          setActiveAirportField('destination');
+                        }}
+                        onFocus={() => {
+                          setAirportSuggestions(searchAirports(formData.destination));
+                          setActiveAirportField('destination');
+                        }}
+                        onBlur={() => setTimeout(() => {
+                          if (activeAirportField === 'destination') setAirportSuggestions([]);
+                        }, 200)}
+                        style={{...inputStyle, width: '100%', textAlign: 'center', fontWeight: 'bold'}} 
+                      />
+                      {activeAirportField === 'destination' && airportSuggestions.length > 0 && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                          background: '#fff', border: '1px solid #ddd', borderRadius: '8px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '200px', overflowY: 'auto'
+                        }}>
+                          {airportSuggestions.map(airport => (
+                            <div 
+                              key={airport.code}
+                              onClick={() => {
+                                setFormData({...formData, destination: airport.code});
+                                setAirportSuggestions([]);
+                                setActiveAirportField(null);
+                              }}
+                              style={{
+                                padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                              }}
+                              onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                              onMouseLeave={e => e.target.style.background = '#fff'}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 'bold', color: '#333' }}>{airport.code}</span>
+                                <span style={{ color: '#666', marginLeft: '8px', fontSize: '13px' }}>{airport.city}</span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: '#999' }}>{airport.country}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Layover Checkbox */}
@@ -2761,31 +3045,75 @@ const FlightTracker = () => {
                       {formData.viaAirports.map((via, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
                           <span style={{ fontSize: '11px', color: '#94a3b8', minWidth: '50px' }}>Via {idx + 1}:</span>
-                          <input 
-                            placeholder={`Connection ${idx + 1} (e.g. FRA)`}
-                            value={via} 
-                            onChange={e => {
-                              const newVias = [...formData.viaAirports];
-                              newVias[idx] = e.target.value.toUpperCase();
-                              // Adjust all leg arrays size
-                              const newLegAirlines = [...formData.legAirlines];
-                              const newLegAircraftTypes = [...formData.legAircraftTypes];
-                              const newLegServiceClasses = [...formData.legServiceClasses];
-                              while (newLegAirlines.length < newVias.length + 1) {
-                                newLegAirlines.push('');
-                                newLegAircraftTypes.push('');
-                                newLegServiceClasses.push('Economy');
-                              }
-                              setFormData({
-                                ...formData, 
-                                viaAirports: newVias, 
-                                legAirlines: newLegAirlines,
-                                legAircraftTypes: newLegAircraftTypes,
-                                legServiceClasses: newLegServiceClasses
-                              });
-                            }} 
-                            style={{...inputStyle, flex: 1, fontSize: '13px', padding: '10px'}} 
-                          />
+                          <div style={{ flex: 1, position: 'relative' }}>
+                            <input 
+                              placeholder={`Connection ${idx + 1} (code or city)`}
+                              value={via} 
+                              onChange={e => {
+                                const val = e.target.value.toUpperCase();
+                                const newVias = [...formData.viaAirports];
+                                newVias[idx] = val;
+                                // Adjust all leg arrays size
+                                const newLegAirlines = [...formData.legAirlines];
+                                const newLegAircraftTypes = [...formData.legAircraftTypes];
+                                const newLegServiceClasses = [...formData.legServiceClasses];
+                                while (newLegAirlines.length < newVias.length + 1) {
+                                  newLegAirlines.push('');
+                                  newLegAircraftTypes.push('');
+                                  newLegServiceClasses.push('Economy');
+                                }
+                                setFormData({
+                                  ...formData, 
+                                  viaAirports: newVias, 
+                                  legAirlines: newLegAirlines,
+                                  legAircraftTypes: newLegAircraftTypes,
+                                  legServiceClasses: newLegServiceClasses
+                                });
+                                setAirportSuggestions(searchAirports(val));
+                                setActiveAirportField(`via-${idx}`);
+                              }}
+                              onFocus={() => {
+                                setAirportSuggestions(searchAirports(via));
+                                setActiveAirportField(`via-${idx}`);
+                              }}
+                              onBlur={() => setTimeout(() => {
+                                if (activeAirportField === `via-${idx}`) setAirportSuggestions([]);
+                              }, 200)}
+                              style={{...inputStyle, width: '100%', fontSize: '13px', padding: '10px'}} 
+                            />
+                            {activeAirportField === `via-${idx}` && airportSuggestions.length > 0 && (
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                                background: '#fff', border: '1px solid #ddd', borderRadius: '8px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)', maxHeight: '160px', overflowY: 'auto'
+                              }}>
+                                {airportSuggestions.map(airport => (
+                                  <div 
+                                    key={airport.code}
+                                    onClick={() => {
+                                      const newVias = [...formData.viaAirports];
+                                      newVias[idx] = airport.code;
+                                      setFormData({...formData, viaAirports: newVias});
+                                      setAirportSuggestions([]);
+                                      setActiveAirportField(null);
+                                    }}
+                                    style={{
+                                      padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0',
+                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px'
+                                    }}
+                                    onMouseEnter={e => e.target.style.background = '#f5f5f5'}
+                                    onMouseLeave={e => e.target.style.background = '#fff'}
+                                  >
+                                    <div>
+                                      <span style={{ fontWeight: 'bold', color: '#333' }}>{airport.code}</span>
+                                      <span style={{ color: '#666', marginLeft: '6px' }}>{airport.city}</span>
+                                    </div>
+                                    <span style={{ fontSize: '10px', color: '#999' }}>{airport.country}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                           {formData.viaAirports.length > 1 && (
                             <button 
                               type="button"
@@ -2974,6 +3302,37 @@ const FlightTracker = () => {
                     onChange={e => setFormData({...formData, date: e.target.value})} 
                     style={inputStyle} 
                   />
+                  
+                  {/* Payment Section */}
+                  <div style={{ 
+                    background: '#fafafa', 
+                    padding: '15px', 
+                    borderRadius: '12px',
+                    border: '1px solid #eee'
+                  }}>
+                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px', fontWeight: '600' }}>
+                      PAYMENT (optional)
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <select 
+                        value={formData.paymentType} 
+                        onChange={e => setFormData({...formData, paymentType: e.target.value})} 
+                        style={{...inputStyle, padding: '10px', fontSize: '13px', minWidth: '100px'}}
+                      >
+                        <option value="money">💵 Money</option>
+                        <option value="miles">✈️ Miles</option>
+                      </select>
+                      <input 
+                        type="number"
+                        placeholder={formData.paymentType === 'money' ? 'Amount ($)' : 'Miles used'}
+                        value={formData.paymentAmount}
+                        onChange={e => setFormData({...formData, paymentAmount: e.target.value})}
+                        style={{...inputStyle, flex: 1, padding: '10px', fontSize: '13px'}}
+                        min="0"
+                        step={formData.paymentType === 'money' ? '0.01' : '1'}
+                      />
+                    </div>
+                  </div>
                   
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: '#555' }}>
                     <input 
