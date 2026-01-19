@@ -1449,10 +1449,18 @@ const FlightTracker = () => {
   });
   const topAirlines = Object.entries(airlineStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
 
-  // Aircraft statistics (count per trip, not per leg, since aircraft is per trip)
+  // Aircraft statistics (count per leg for multi-leg trips)
   const aircraftStats = {};
   flights.forEach(f => {
-    if (f.aircraftType && f.aircraftType !== 'Unknown') {
+    if (f.legs && f.legs.length > 1) {
+      // Multi-leg trip: count each leg's aircraft
+      f.legs.forEach(leg => {
+        if (leg.aircraftType && leg.aircraftType !== 'Unknown') {
+          aircraftStats[leg.aircraftType] = (aircraftStats[leg.aircraftType] || 0) + 1;
+        }
+      });
+    } else if (f.aircraftType && f.aircraftType !== 'Unknown') {
+      // Single leg trip
       aircraftStats[f.aircraftType] = (aircraftStats[f.aircraftType] || 0) + 1;
     }
   });
@@ -2275,7 +2283,7 @@ const FlightTracker = () => {
             </div>
 
             {/* Driving comparison */}
-            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '16px' }}>
+            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '12px' }}>
               <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>🚗 If you drove {totalMiles.toLocaleString()} miles instead:</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -2293,6 +2301,26 @@ const FlightTracker = () => {
                     ? `✈️ Flying saved ${((totalMiles * 0.21 - totalCarbonKg) / 1000).toFixed(2)}t`
                     : `🚗 Driving would save ${((totalCarbonKg - totalMiles * 0.21) / 1000).toFixed(2)}t`
                   }
+                </div>
+              </div>
+            </div>
+
+            {/* Train comparison - ~0.041 kg CO2 per passenger-mile for average train */}
+            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>🚂 If you took trains for {totalMiles.toLocaleString()} miles instead:</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#0891b2' }}>{(totalMiles * 0.041 / 1000).toFixed(2)}t</span>
+                  <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>CO₂ by train</span>
+                </div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  padding: '4px 8px', 
+                  borderRadius: '12px',
+                  background: '#fef3c7',
+                  color: '#854d0e'
+                }}>
+                  🚂 Train would save {((totalCarbonKg - totalMiles * 0.041) / 1000).toFixed(2)}t ({Math.round((1 - (totalMiles * 0.041) / totalCarbonKg) * 100)}% less)
                 </div>
               </div>
             </div>
@@ -2321,7 +2349,7 @@ const FlightTracker = () => {
             })}
             <div style={{ fontSize: '11px', color: '#888', marginTop: '16px', borderTop: '1px solid #fecaca', paddingTop: '12px' }}>
               💡 Your share: ~{((totalCarbonKg / totalFlightCarbonKg) * 100).toFixed(1)}% of total aircraft emissions. Premium classes have larger footprints due to increased seat space.<br/>
-              <span style={{ color: '#aaa' }}>Calculated on the base rate of 0.14 kg CO₂ per passenger-mile (flying) and 0.21 kg CO₂ per mile (driving).</span>
+              <span style={{ color: '#aaa' }}>Rates: 0.14 kg CO₂/mi (flying), 0.21 kg CO₂/mi (driving), 0.041 kg CO₂/mi (train avg).</span>
             </div>
           </div>
         )}
@@ -2410,6 +2438,91 @@ const FlightTracker = () => {
                         }}>
                           {f.legs.length} LEGS
                         </span>
+                      )}
+                      
+                      {/* Multi-leg flight - show top-level badges */}
+                      {hasMultipleLegs && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {/* Multi-leg aggregated service class badge */}
+                          {(() => {
+                            const classes = f.legs.map(leg => leg.serviceClass || 'Economy');
+                            const uniqueClasses = [...new Set(classes)];
+                            const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
+                            const bestClass = classOrder.find(c => uniqueClasses.includes(c)) || 'Economy';
+                            const displayClass = uniqueClasses.length > 1 ? bestClass : bestClass;
+                            return (
+                              <span style={{ 
+                                fontSize: '11px', 
+                                color: bestClass === 'Economy' ? '#8b6914' : 
+                                       bestClass === 'Premium Economy' ? '#166534' : 
+                                       bestClass === 'Business' ? '#1e40af' : 
+                                       '#854d0e',
+                                background: bestClass === 'Economy' ? '#fef3c7' : 
+                                            bestClass === 'Premium Economy' ? '#dcfce7' : 
+                                            bestClass === 'Business' ? '#dbeafe' : 
+                                            '#fef9c3',
+                                padding: '3px 8px', 
+                                borderRadius: '6px',
+                                fontWeight: bestClass === 'First' ? '600' : 'normal'
+                              }}>
+                                {bestClass === 'Economy' ? '🐔' : bestClass === 'Premium Economy' ? '💺' : bestClass === 'Business' ? '💼' : '👑'}
+                                {uniqueClasses.length > 1 ? ' Mixed' : ` ${bestClass === 'Economy' ? 'Chicken class' : bestClass}`}
+                              </span>
+                            );
+                          })()}
+                          {/* Multi-leg CO2 badge */}
+                          {(() => {
+                            const totalLegCO2 = f.legs.reduce((sum, leg) => 
+                              sum + Math.round(getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Economy')), 0
+                            );
+                            const totalDrivingCO2 = f.distance * 0.21;
+                            const co2Diff = totalDrivingCO2 - totalLegCO2;
+                            return (
+                              <span 
+                                style={{ 
+                                  fontSize: '11px', 
+                                  color: '#dc2626', 
+                                  background: '#fef2f2', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                                title={`Flying: ${totalLegCO2} kg CO₂ | Driving: ${Math.round(totalDrivingCO2)} kg CO₂`}
+                              >
+                                <CloudRain size={10}/>
+                                {totalLegCO2} kg
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  color: co2Diff > 0 ? '#166534' : '#854d0e',
+                                  marginLeft: '2px'
+                                }}>
+                                  {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
+                                </span>
+                              </span>
+                            );
+                          })()}
+                          {/* Payment badge for multi-leg */}
+                          {f.paymentAmount && (
+                            <span style={{ 
+                              fontSize: '11px', 
+                              color: f.paymentType === 'miles' ? '#2563eb' : '#16a34a', 
+                              background: f.paymentType === 'miles' ? '#eff6ff' : '#f0fdf4', 
+                              padding: '3px 8px', 
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}>
+                              {f.paymentType === 'miles' ? '✈️' : '💵'}
+                              {f.paymentType === 'miles' 
+                                ? `${parseInt(f.paymentAmount).toLocaleString()} mi`
+                                : `$${parseFloat(f.paymentAmount).toLocaleString()}`
+                              }
+                            </span>
+                          )}
+                        </div>
                       )}
                       
                       {/* Single leg flight - show airline inline */}
@@ -2598,6 +2711,25 @@ const FlightTracker = () => {
                             {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
                           </span>
                         </span>
+                        {/* Payment badge */}
+                        {f.paymentAmount && (
+                          <span style={{ 
+                            fontSize: '11px', 
+                            color: f.paymentType === 'miles' ? '#2563eb' : '#16a34a', 
+                            background: f.paymentType === 'miles' ? '#eff6ff' : '#f0fdf4', 
+                            padding: '3px 8px', 
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px'
+                          }}>
+                            {f.paymentType === 'miles' ? '✈️' : '💵'}
+                            {f.paymentType === 'miles' 
+                              ? `${parseInt(f.paymentAmount).toLocaleString()} mi`
+                              : `$${parseFloat(f.paymentAmount).toLocaleString()}`
+                            }
+                          </span>
+                        )}
                       </div>
                     </div>
                     
