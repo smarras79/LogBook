@@ -1084,8 +1084,22 @@ const FlightTracker = () => {
     const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
     const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
 
-    const isTicket = /ticket number|booking ref|confirmation code|eticket|itinerary|flight number/i.test(fullText);
-    if (!isTicket) return null;
+    // STRICTER validation - require strong evidence of being a flight ticket
+    const hasStrongFlightEvidence = /flight\s+confirmation|itinerary|e-?ticket|boarding pass/i.test(subject);
+    const hasTicketKeywords = /confirmation (?:number|code)|booking reference|ticket number|eticket|PNR|record locator/i.test(fullText);
+    const hasFlightTerms = /\b(flight|airline|departure|arrival)\b/i.test(fullText);
+
+    // Common trusted airline/travel domains
+    const trustedDomains = /united\.com|delta\.com|aa\.com|southwest\.com|jetblue\.com|alaskaair\.com|britishairways\.com|lufthansa\.com|airfrance\.com|klm\.com|emirates\.com|qatarairways\.com|singaporeair\.com|cathaypacific\.com|ana\.co\.jp|jal\.com|expedia\.com|booking\.com|kayak\.com|priceline\.com/i;
+    const isFromTrustedSource = trustedDomains.test(from);
+
+    // Filter out common false positives
+    const isFalsePositive = /hotel\s+confirmation|car\s+rental|accommodation|lodging|apartment|reservation\s+request|quote\s+request|estimate|invoice\s+(?!.*flight)|receipt\s+(?!.*flight)|meeting|appointment|webinar|conference\s+(?!.*airport)/i.test(fullText);
+
+    // Require EITHER strong evidence OR trusted source + ticket keywords
+    if (isFalsePositive) return null;
+    if (!isFromTrustedSource && !hasStrongFlightEvidence) return null;
+    if (!hasTicketKeywords && !hasFlightTerms) return null;
 
     // Try to extract airline from email sender or content
     const airlines = [
@@ -1108,8 +1122,11 @@ const FlightTracker = () => {
     // Check if this is a round trip
     const isRoundTrip = /round.?trip|return|outbound.*inbound|departure.*return/i.test(fullText);
 
-    // Extract all airport codes (3-letter IATA codes)
-    const airportMatches = fullText.match(/\b[A-Z]{3}\b/g) || [];
+    // Common non-airport 3-letter words to filter out
+    const nonAirportWords = new Set(['THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'ITS', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'VIA', 'YES', 'YET', 'FRI', 'SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']);
+
+    // Extract all potential airport codes (3-letter IATA codes) and filter out common words
+    const airportMatches = (fullText.match(/\b[A-Z]{3}\b/g) || []).filter(code => !nonAirportWords.has(code));
     const uniqueAirports = [...new Set(airportMatches)];
 
     // Extract dates - look for various date patterns
@@ -1239,7 +1256,20 @@ const FlightTracker = () => {
       }
     }
 
-    return flights.length > 0 ? flights : null;
+    // Final validation: require airline OR flight number for all flights
+    // Also validate that origin and destination are different
+    const validFlights = flights.filter(flight => {
+      const hasAirlineOrFlightNum = flight.airline || flight.flightNumber;
+      const hasValidRoute = flight.origin !== flight.destination && flight.origin && flight.destination;
+      const hasValidDate = flight.date && !isNaN(new Date(flight.date).getTime());
+
+      // For non-trusted sources, require airline or flight number
+      if (!isFromTrustedSource && !hasAirlineOrFlightNum) return false;
+
+      return hasValidRoute && hasValidDate;
+    });
+
+    return validFlights.length > 0 ? validFlights : null;
   };
 
   const handleGmailImport = () => {
@@ -1304,18 +1334,31 @@ const FlightTracker = () => {
         const afterDate = formatDateForGmail(dateRange.from);
         const beforeDate = formatDateForGmail(dateRange.to);
 
-        // Build search query with broad matching (less restrictive to reduce false negatives)
-        const subjectKeywords = ['flight', 'confirmation', 'ticket', 'itinerary', 'boarding', 'eticket', 'reservation'];
-        const contentKeywords = ['ticket number', 'booking reference', 'confirmation code', 'eticket', 'flight number', 'departure', 'arrival'];
+        // Trusted airline and travel booking domains
+        const trustedDomains = [
+          'united.com', 'delta.com', 'aa.com', 'southwest.com', 'jetblue.com',
+          'alaskaair.com', 'spirit.com', 'flyfrontier.com', 'britishairways.com',
+          'lufthansa.com', 'airfrance.com', 'klm.com', 'emirates.com', 'qatarairways.com',
+          'singaporeair.com', 'cathaypacific.com', 'ana.co.jp', 'jal.com',
+          'turkishairlines.com', 'qantas.com', 'virginatlantic.com', 'aircanada.com',
+          'expedia.com', 'booking.com', 'kayak.com', 'priceline.com', 'orbitz.com'
+        ];
 
-        // Subject: at least one keyword (OR logic)
-        const subjectQuery = `(${subjectKeywords.map(k => `subject:${k}`).join(' OR ')})`;
+        // Build search query with stricter matching to reduce false positives
+        const subjectKeywords = ['flight confirmation', 'itinerary', 'boarding pass', 'eticket', 'e-ticket'];
+        const contentKeywords = ['confirmation number', 'booking reference', 'ticket number', 'PNR', 'record locator'];
 
-        // Content: at least one keyword (OR logic)
+        // Create sender domain filter (helps prioritize real flight emails)
+        const senderQuery = `(${trustedDomains.map(d => `from:${d}`).join(' OR ')})`;
+
+        // Subject: specific flight-related keywords
+        const subjectQuery = `(${subjectKeywords.map(k => `subject:"${k}"`).join(' OR ')})`;
+
+        // Content: require specific booking identifiers
         const contentQuery = `(${contentKeywords.map(k => `"${k}"`).join(' OR ')})`;
 
-        // Combined query: subject OR content keywords with date range (removed sender domain requirement)
-        const searchQuery = `(${subjectQuery} OR ${contentQuery}) after:${afterDate} before:${beforeDate}`;
+        // Combined query: (trusted sender OR flight subject) AND booking identifiers
+        const searchQuery = `(${senderQuery} OR ${subjectQuery}) ${contentQuery} after:${afterDate} before:${beforeDate}`;
 
         console.log('Gmail search query:', searchQuery);
 
