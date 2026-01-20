@@ -1099,12 +1099,13 @@ const FlightTracker = () => {
     // Relaxed validation for trusted sources
     if (isFalsePositive) return null;
 
-    // For trusted airline/booking domains, be more lenient
+    // For trusted airline/booking domains, be more lenient but still validate
     if (isFromTrustedSource) {
-      // Trust airline emails unless they're clearly false positives
-      // Just check for basic flight indicators
-      const hasBasicFlightIndicators = hasFlightTerms || hasTicketKeywords || /\b[A-Z]{3}\b.*\b[A-Z]{3}\b/.test(fullText);
-      if (!hasBasicFlightIndicators) return null;
+      // Trust airline emails if they have flight terms AND meaningful content
+      // Require at least flight-related keywords (not just any two 3-letter codes)
+      const hasValidFlightContent = (hasFlightTerms || hasTicketKeywords) &&
+                                     (hasStrongFlightEvidence || /\b(departure|arrival|gate|terminal|seat|boarding)\b/i.test(fullText));
+      if (!hasValidFlightContent) return null;
     } else {
       // For non-trusted sources, require strong evidence
       if (!hasStrongFlightEvidence) return null;
@@ -1153,22 +1154,28 @@ const FlightTracker = () => {
       // Units and measurements
       'KGS', 'LBS', 'OZS', 'MPH', 'KPH', 'PSI', 'BAR', 'RPM', 'BPM',
       // Other common patterns
-      'INC', 'LLC', 'LTD', 'PLC', 'GRP', 'DIV', 'MSG', 'TXT', 'IMG', 'PIC', 'VID', 'DOC', 'ZIP', 'RAR', 'ISO'
+      'INC', 'LLC', 'LTD', 'PLC', 'GRP', 'DIV', 'MSG', 'TXT', 'IMG', 'PIC', 'VID', 'DOC', 'ZIP', 'RAR', 'ISO',
+      // Business/Commerce abbreviations (common false positives)
+      'CUS', 'MER', 'SUP', 'VEN', 'ACC', 'INV', 'ORD', 'POS', 'REC', 'REQ', 'RES', 'SER', 'SVC', 'TRX', 'CHG', 'CRT', 'DIS', 'EXP', 'IMP', 'OPT', 'PAC', 'PKG', 'QTY', 'SKU', 'STK', 'SUB', 'TOT', 'UNT', 'AMT', 'BAL', 'BIL', 'CHK', 'CRD', 'DEB', 'DEP', 'FND', 'PAT', 'PMT', 'PRO', 'PUR', 'QUO', 'SAL', 'TXN'
     ]);
 
     // Only extract airport codes from flight-context sentences
-    // Look for codes near flight-related keywords
-    const flightContextRegex = /(?:from|to|depart|arrive|departure|arrival|origin|destination|flight|route|via|layover|connection|boarding|gate|terminal).{0,100}?\b([A-Z]{3})\b/gi;
+    // Look for codes near flight-related keywords (within 50 chars, not 100)
+    const flightContextRegex = /(?:from|to|depart|arrive|departure|arrival|origin|destination|flight|route|via|layover|connection|boarding|gate|terminal).{0,50}?\b([A-Z]{3})\b/gi;
     const contextualAirportMatches = [...fullText.matchAll(flightContextRegex)]
       .map(match => match[1])
       .filter(code => !nonAirportWords.has(code));
 
-    // Also look for explicit route patterns (XXX to YYY, XXX-YYY)
-    const routeRegex = /\b([A-Z]{3})\s*(?:to|→|–)\s*([A-Z]{3})\b/gi;
+    // STRICT route pattern matching - only match if preceded by flight context
+    // This prevents matching random "XXX to YYY" patterns in email text
+    const routeRegex = /(?:flight|from|route|depart|travelling|traveling|fly|flying).{0,30}?\b([A-Z]{3})\s*(?:to|→|–)\s*([A-Z]{3})\b/gi;
     const routeMatches = [...fullText.matchAll(routeRegex)];
 
-    // Combine and deduplicate airport codes
-    const routeAirports = routeMatches.flatMap(m => [m[1], m[2]]).filter(code => !nonAirportWords.has(code));
+    // Filter route airports through validation
+    const routeAirports = routeMatches
+      .flatMap(m => [m[1], m[2]])
+      .filter(code => !nonAirportWords.has(code));
+
     const allAirportCodes = [...new Set([...contextualAirportMatches, ...routeAirports])];
     const uniqueAirports = allAirportCodes;
 
@@ -1191,10 +1198,13 @@ const FlightTracker = () => {
     // Real airports often have specific patterns and shouldn't be common words
     const looksLikeAirportCode = (code) => {
       if (!code || code.length !== 3) return false;
-      if (nonAirportWords.has(code.toUpperCase())) return false;
+
+      const upperCode = code.toUpperCase();
+
+      // First check against banned words list
+      if (nonAirportWords.has(upperCode)) return false;
 
       // Additional heuristics for real airport codes:
-      // - Common airport patterns: Often end in X (LAX, PHX, PDX), or are abbreviations of cities
       // - Should not be all vowels or all consonants
       const vowels = code.match(/[AEIOU]/gi) || [];
       const consonants = code.match(/[BCDFGHJKLMNPQRSTVWXYZ]/gi) || [];
@@ -1202,9 +1212,14 @@ const FlightTracker = () => {
       // Reject if all vowels or all consonants (very rare for real airports)
       if (vowels.length === 0 || consonants.length === 0) return false;
 
-      // Reject if it forms a common word pattern
-      const commonWordPatterns = /^(com|but|for|out|got|not|can|get|set|let|put|run|won|way|day|may|say|try|why|buy|guy|pay|key|yet|yes|was|has|had|did|saw|got|met|sat|ran|got)$/i;
+      // Reject common word patterns and business abbreviations
+      const commonWordPatterns = /^(com|but|for|out|got|not|can|get|set|let|put|run|won|way|day|may|say|try|why|buy|guy|pay|key|yet|yes|was|has|had|did|saw|got|met|sat|ran|cus|mer|sup|ven|acc|inv|ord|pos|rec|req|res|ser|svc|amt|bal|tot|qty)$/i;
       if (commonWordPatterns.test(code)) return false;
+
+      // Reject codes that look like partial words (common in business emails)
+      // These often have patterns like: starts with common prefixes
+      const businessPrefixes = /^(cus|mer|sup|acc|inv|ord|rec|req|res|exp|imp|opt|pro|pur|quo|sal|sub|tot)/i;
+      if (businessPrefixes.test(code)) return false;
 
       return true;
     };
