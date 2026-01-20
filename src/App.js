@@ -1122,20 +1122,28 @@ const FlightTracker = () => {
     // Check if this is a round trip
     const isRoundTrip = /round.?trip|return|outbound.*inbound|departure.*return/i.test(fullText);
 
-    // Extended filter list: common words, dates, currencies, airline codes, units, etc.
+    // Comprehensive filter list: common words, dates, currencies, airline codes, units, etc.
+    // This list includes 200+ common 3-letter combinations that are NOT airports
     const nonAirportWords = new Set([
-      // Common words
+      // Common English words
       'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'VIA', 'YES', 'YET',
+      'AGO', 'ANY', 'ASK', 'BAD', 'BAG', 'BIG', 'BIT', 'BOX', 'BUY', 'CAR', 'CAT', 'CUP', 'CUT', 'DOG', 'DOT', 'EAT', 'END', 'FAR', 'FEW', 'FIT', 'FLY', 'GOT', 'GUN', 'GUY', 'HAD', 'HAT', 'HIT', 'HOT', 'JOB', 'KEY', 'LAW', 'LAY', 'LEG', 'LET', 'LIE', 'LOT', 'LOW', 'MAN', 'MAP', 'MEN', 'MET', 'MRS', 'OFF', 'OWN', 'PAY', 'PER', 'PET', 'RAN', 'RED', 'RUN', 'SAT', 'SAW', 'SET', 'SIT', 'SIX', 'TEN', 'THE', 'TIP', 'TOP', 'TRY', 'WAR', 'WAY', 'WEB', 'WET', 'WIN', 'WON', 'YET',
+      'ART', 'BAR', 'BED', 'BUS', 'CAP', 'COW', 'CRY', 'DUE', 'EYE', 'FAN', 'FUN', 'GAP', 'GAS', 'GOD', 'GOLD', 'ICE', 'ILL', 'INN', 'IRE', 'JAR', 'JET', 'JOY', 'KID', 'KIT', 'LAD', 'LAP', 'LED', 'LID', 'LIP', 'LOG', 'MAD', 'MIX', 'MOM', 'MUD', 'NET', 'NOR', 'NUT', 'OAK', 'ODD', 'OIL', 'PAN', 'PAD', 'PEN', 'PIE', 'PIG', 'PIN', 'PIT', 'POT', 'RAW', 'RAY', 'RID', 'ROD', 'ROW', 'RUB', 'RUG', 'SAD', 'SEA', 'SIN', 'SKI', 'SKY', 'SON', 'SUM', 'SUN', 'TAB', 'TAG', 'TAN', 'TAR', 'TEA', 'TIE', 'TON', 'TOY', 'VAN', 'VOW', 'WAX', 'WHO', 'WHY', 'WIG', 'WIN', 'WIT', 'ZEN', 'ZIP', 'ZOO',
+      'ACE', 'ACT', 'ADD', 'ADS', 'AFT', 'AGE', 'AID', 'AIM', 'ALE', 'ANT', 'APE', 'ARC', 'ARK', 'ARM', 'ATE', 'AWE', 'AXE', 'BAT', 'BAY', 'BEE', 'BET', 'BIN', 'BOW', 'BRA', 'BUD', 'BUM', 'BUN', 'COB', 'COD', 'COG', 'COP', 'COT', 'CUB', 'CUD', 'CUE', 'DAB', 'DAD', 'DAM', 'DEN', 'DEW', 'DIG', 'DIM', 'DIN', 'DIP', 'DOC', 'DOE', 'DRY', 'DUB', 'DUD', 'DUE', 'DUG', 'EEL', 'EGG', 'ELF', 'ELM', 'EMU', 'ERA', 'EVE', 'EWE',
       // Days
       'FRI', 'SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU',
       // Months
       'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
       // Currency codes
-      'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'MXN', 'BRL', 'ZAR', 'KRW', 'SGD', 'HKD', 'NOK', 'SEK', 'DKK', 'PLN', 'THB', 'IDR', 'HUF', 'CZK', 'ILS', 'CLP', 'PHP', 'AED', 'COP', 'SAR', 'MYR', 'RON',
+      'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'MXN', 'BRL', 'ZAR', 'KRW', 'SGD', 'HKD', 'NOK', 'SEK', 'DKK', 'PLN', 'THB', 'IDR', 'HUF', 'CZK', 'ILS', 'CLP', 'PHP', 'AED', 'COP', 'SAR', 'MYR', 'RON', 'TRY', 'NZD', 'RUB', 'VND', 'ARS', 'EGP', 'PKR', 'BGN', 'HRK',
       // Common airline IATA codes that aren't airports
-      'KLM', 'SAS', 'TAP', 'LOT', 'SKY', 'AIR',
-      // Other common abbrevations
-      'EST', 'PST', 'MST', 'CST', 'GMT', 'UTC', 'PDF', 'CSV', 'XML', 'API', 'URL', 'APP', 'WEB', 'NET', 'ORG', 'GOV', 'EDU', 'COM', 'REF', 'VAT', 'TAX', 'FEE', 'TBD', 'TBA', 'FAQ', 'CEO', 'CFO', 'CTO', 'COO', 'VIP'
+      'KLM', 'SAS', 'TAP', 'LOT', 'SKY', 'AIR', 'ANA', 'JAL',
+      // Web/Tech abbreviations
+      'EST', 'PST', 'MST', 'CST', 'GMT', 'UTC', 'PDF', 'CSV', 'XML', 'API', 'URL', 'APP', 'WEB', 'NET', 'ORG', 'GOV', 'EDU', 'COM', 'REF', 'VAT', 'TAX', 'FEE', 'TBD', 'TBA', 'FAQ', 'CEO', 'CFO', 'CTO', 'COO', 'VIP', 'WWW', 'FTP', 'DNS', 'SSL', 'SQL', 'PHP', 'CSS', 'HTML', 'HTTP', 'HTTPS',
+      // Units and measurements
+      'KGS', 'LBS', 'OZS', 'MPH', 'KPH', 'PSI', 'BAR', 'RPM', 'BPM',
+      // Other common patterns
+      'INC', 'LLC', 'LTD', 'PLC', 'GRP', 'DIV', 'MSG', 'TXT', 'IMG', 'PIC', 'VID', 'DOC', 'ZIP', 'RAR', 'ISO'
     ]);
 
     // Only extract airport codes from flight-context sentences
@@ -1169,6 +1177,28 @@ const FlightTracker = () => {
 
     // routeMatches already defined above during airport extraction
 
+    // Additional validation: check if extracted codes look like real IATA airports
+    // Real airports often have specific patterns and shouldn't be common words
+    const looksLikeAirportCode = (code) => {
+      if (!code || code.length !== 3) return false;
+      if (nonAirportWords.has(code.toUpperCase())) return false;
+
+      // Additional heuristics for real airport codes:
+      // - Common airport patterns: Often end in X (LAX, PHX, PDX), or are abbreviations of cities
+      // - Should not be all vowels or all consonants
+      const vowels = code.match(/[AEIOU]/gi) || [];
+      const consonants = code.match(/[BCDFGHJKLMNPQRSTVWXYZ]/gi) || [];
+
+      // Reject if all vowels or all consonants (very rare for real airports)
+      if (vowels.length === 0 || consonants.length === 0) return false;
+
+      // Reject if it forms a common word pattern
+      const commonWordPatterns = /^(com|but|for|out|got|not|can|get|set|let|put|run|won|way|day|may|say|try|why|buy|guy|pay|key|yet|yes|was|has|had|did|saw|got|met|sat|ran|got)$/i;
+      if (commonWordPatterns.test(code)) return false;
+
+      return true;
+    };
+
     let flights = [];
 
     if (routeMatches.length >= 2 && isRoundTrip) {
@@ -1180,6 +1210,12 @@ const FlightTracker = () => {
       const outboundDest = outbound[2].toUpperCase();
       const returnOrigin = returnFlight[1].toUpperCase();
       const returnDest = returnFlight[2].toUpperCase();
+
+      // Validate all airport codes before creating flights
+      if (!looksLikeAirportCode(outboundOrigin) || !looksLikeAirportCode(outboundDest) ||
+          !looksLikeAirportCode(returnOrigin) || !looksLikeAirportCode(returnDest)) {
+        return null; // Invalid airport codes detected
+      }
 
       // Create outbound flight
       flights.push({
@@ -1211,6 +1247,11 @@ const FlightTracker = () => {
       const route = routeMatches[0];
       const origin = route[1].toUpperCase();
       const destination = route[2].toUpperCase();
+
+      // Validate airport codes
+      if (!looksLikeAirportCode(origin) || !looksLikeAirportCode(destination)) {
+        return null; // Invalid airport codes detected
+      }
 
       const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/;
       const numMatch = fullText.match(flightNumRegex);
@@ -1246,6 +1287,11 @@ const FlightTracker = () => {
       // Fallback: use first two unique airports
       const origin = uniqueAirports[0];
       const destination = uniqueAirports[1];
+
+      // Validate airport codes
+      if (!looksLikeAirportCode(origin) || !looksLikeAirportCode(destination)) {
+        return null; // Invalid airport codes detected
+      }
 
       const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/;
       const numMatch = fullText.match(flightNumRegex);
