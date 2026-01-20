@@ -1122,12 +1122,37 @@ const FlightTracker = () => {
     // Check if this is a round trip
     const isRoundTrip = /round.?trip|return|outbound.*inbound|departure.*return/i.test(fullText);
 
-    // Common non-airport 3-letter words to filter out
-    const nonAirportWords = new Set(['THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'ITS', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'VIA', 'YES', 'YET', 'FRI', 'SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']);
+    // Extended filter list: common words, dates, currencies, airline codes, units, etc.
+    const nonAirportWords = new Set([
+      // Common words
+      'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'VIA', 'YES', 'YET',
+      // Days
+      'FRI', 'SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU',
+      // Months
+      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+      // Currency codes
+      'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'MXN', 'BRL', 'ZAR', 'KRW', 'SGD', 'HKD', 'NOK', 'SEK', 'DKK', 'PLN', 'THB', 'IDR', 'HUF', 'CZK', 'ILS', 'CLP', 'PHP', 'AED', 'COP', 'SAR', 'MYR', 'RON',
+      // Common airline IATA codes that aren't airports
+      'KLM', 'SAS', 'TAP', 'LOT', 'SKY', 'AIR',
+      // Other common abbrevations
+      'EST', 'PST', 'MST', 'CST', 'GMT', 'UTC', 'PDF', 'CSV', 'XML', 'API', 'URL', 'APP', 'WEB', 'NET', 'ORG', 'GOV', 'EDU', 'COM', 'REF', 'VAT', 'TAX', 'FEE', 'TBD', 'TBA', 'FAQ', 'CEO', 'CFO', 'CTO', 'COO', 'VIP'
+    ]);
 
-    // Extract all potential airport codes (3-letter IATA codes) and filter out common words
-    const airportMatches = (fullText.match(/\b[A-Z]{3}\b/g) || []).filter(code => !nonAirportWords.has(code));
-    const uniqueAirports = [...new Set(airportMatches)];
+    // Only extract airport codes from flight-context sentences
+    // Look for codes near flight-related keywords
+    const flightContextRegex = /(?:from|to|depart|arrive|departure|arrival|origin|destination|flight|route|via|layover|connection|boarding|gate|terminal).{0,100}?\b([A-Z]{3})\b/gi;
+    const contextualAirportMatches = [...fullText.matchAll(flightContextRegex)]
+      .map(match => match[1])
+      .filter(code => !nonAirportWords.has(code));
+
+    // Also look for explicit route patterns (XXX to YYY, XXX-YYY)
+    const routeRegex = /\b([A-Z]{3})\s*(?:to|→|–)\s*([A-Z]{3})\b/gi;
+    const routeMatches = [...fullText.matchAll(routeRegex)];
+
+    // Combine and deduplicate airport codes
+    const routeAirports = routeMatches.flatMap(m => [m[1], m[2]]).filter(code => !nonAirportWords.has(code));
+    const allAirportCodes = [...new Set([...contextualAirportMatches, ...routeAirports])];
+    const uniqueAirports = allAirportCodes;
 
     // Extract dates - look for various date patterns
     const datePatterns = [
@@ -1142,9 +1167,7 @@ const FlightTracker = () => {
       if (matches) extractedDates.push(...matches);
     });
 
-    // Try to find route patterns
-    const routeRegex = /\b([A-Z]{3})\s*(?:to|-|>|→|–)\s*([A-Z]{3})\b/gi;
-    const routeMatches = [...fullText.matchAll(routeRegex)];
+    // routeMatches already defined above during airport extraction
 
     let flights = [];
 
@@ -1316,6 +1339,19 @@ const FlightTracker = () => {
           document.getElementById('searchBtn').onclick = () => {
             const from = document.getElementById('dateFrom').value;
             const to = document.getElementById('dateTo').value;
+
+            // Validate dates
+            if (!from || !to) {
+              alert('Please select both start and end dates.');
+              return;
+            }
+
+            if (new Date(from) > new Date(to)) {
+              alert('Start date must be before end date.');
+              return;
+            }
+
+            console.log('Date range selected - From:', from, 'To:', to);
             document.body.removeChild(modal);
             resolve({ from, to });
           };
@@ -1328,11 +1364,15 @@ const FlightTracker = () => {
         return;
       }
 
+      console.log('User selected date range:', dateRange);
+
       try {
         // Build date range query (Gmail format: YYYY/MM/DD)
         const formatDateForGmail = (dateStr) => dateStr.replace(/-/g, '/');
         const afterDate = formatDateForGmail(dateRange.from);
         const beforeDate = formatDateForGmail(dateRange.to);
+
+        console.log('Gmail date range - After:', afterDate, 'Before:', beforeDate);
 
         // Trusted airline and travel booking domains
         const trustedDomains = [
