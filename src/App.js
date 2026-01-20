@@ -1090,7 +1090,7 @@ const FlightTracker = () => {
     const hasFlightTerms = /\b(flight|airline|departure|arrival)\b/i.test(fullText);
 
     // Common trusted airline/travel domains
-    const trustedDomains = /united\.com|delta\.com|aa\.com|southwest\.com|jetblue\.com|alaskaair\.com|britishairways\.com|lufthansa\.com|airfrance\.com|klm\.com|emirates\.com|qatarairways\.com|singaporeair\.com|cathaypacific\.com|ana\.co\.jp|jal\.com|expedia\.com|booking\.com|kayak\.com|priceline\.com/i;
+    const trustedDomains = /united\.com|delta\.com|aa\.com|southwest\.com|jetblue\.com|alaskaair\.com|britishairways\.com|lufthansa\.com|airfrance\.com|klm\.com|emirates\.com|qatarairways\.com|singaporeair\.com|cathaypacific\.com|ana\.co\.jp|jal\.com|iberia\.com|vueling\.com|turkishairlines\.com|qantas\.com|virginatlantic\.com|aircanada\.com|spirit\.com|flyfrontier\.com|tap\.pt|sas\.se|finnair\.com|expedia\.com|booking\.com|kayak\.com|priceline\.com|orbitz\.com/i;
     const isFromTrustedSource = trustedDomains.test(from);
 
     // Filter out common false positives
@@ -1106,7 +1106,7 @@ const FlightTracker = () => {
       'United', 'Delta', 'American', 'Southwest', 'JetBlue', 'Alaska', 'Spirit', 'Frontier',
       'British Airways', 'Lufthansa', 'Air France', 'KLM', 'Emirates', 'Qatar Airways',
       'Singapore Airlines', 'Cathay Pacific', 'ANA', 'JAL', 'Turkish Airlines', 'Qantas',
-      'Virgin Atlantic', 'Air Canada', 'Aeromexico', 'LATAM', 'Iberia', 'Swiss', 'Austrian',
+      'Virgin Atlantic', 'Air Canada', 'Aeromexico', 'LATAM', 'Iberia', 'Vueling', 'Swiss', 'Austrian',
       'TAP', 'SAS', 'Finnair', 'Etihad', 'Avianca', 'Copa', 'Aeroflot', 'China Eastern',
       'China Southern', 'Air China', 'EVA Air', 'Thai Airways', 'Malaysia Airlines'
     ];
@@ -1427,12 +1427,14 @@ const FlightTracker = () => {
           'lufthansa.com', 'airfrance.com', 'klm.com', 'emirates.com', 'qatarairways.com',
           'singaporeair.com', 'cathaypacific.com', 'ana.co.jp', 'jal.com',
           'turkishairlines.com', 'qantas.com', 'virginatlantic.com', 'aircanada.com',
+          'iberia.com', 'vueling.com', 'tap.pt', 'sas.se', 'finnair.com',
           'expedia.com', 'booking.com', 'kayak.com', 'priceline.com', 'orbitz.com'
         ];
 
         // Build search query with stricter matching to reduce false positives
-        const subjectKeywords = ['flight confirmation', 'itinerary', 'boarding pass', 'eticket', 'e-ticket'];
-        const contentKeywords = ['confirmation number', 'booking reference', 'ticket number', 'PNR', 'record locator'];
+        // Make subject keywords more flexible to catch variations
+        const subjectKeywords = ['flight confirmation', 'itinerary', 'boarding pass', 'eticket', 'e-ticket', 'flight', 'reservation', 'booking'];
+        const contentKeywords = ['confirmation number', 'booking reference', 'ticket number', 'PNR', 'record locator', 'flight number', 'confirmation code'];
 
         // Create sender domain filter (helps prioritize real flight emails)
         const senderQuery = `(${trustedDomains.map(d => `from:${d}`).join(' OR ')})`;
