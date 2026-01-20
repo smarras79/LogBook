@@ -690,18 +690,87 @@ const OCEANS_DB = [
 ];
 
 // --- HELPERS ---
-const decodeEmailBody = (payload) => {
-  let body = '';
-  if (payload.parts) {
-    payload.parts.forEach(part => {
-      if (part.mimeType === 'text/plain' && part.body.data) {
-        body += atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+// Extract raw HTML from email payload (needed for JSON-LD parsing)
+const extractRawHtml = (payload) => {
+  let html = '';
+  
+  const extractHtmlFromParts = (parts) => {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.parts) {
+        extractHtmlFromParts(part.parts);
       }
-    });
-  } else if (payload.body.data) {
-    body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+      if (part.mimeType === 'text/html' && part.body && part.body.data) {
+        try {
+          html += atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+        } catch (e) { /* decoding failed */ }
+      }
+    }
+  };
+  
+  if (payload.parts) {
+    extractHtmlFromParts(payload.parts);
+  } else if (payload.mimeType === 'text/html' && payload.body && payload.body.data) {
+    try {
+      html = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+    } catch (e) { /* decoding failed */ }
   }
-  return body;
+  
+  return html;
+};
+
+// Decode email body - extracts plain text content
+const decodeEmailBody = (payload) => {
+  let plainText = '';
+  let htmlText = '';
+  
+  const extractFromParts = (parts) => {
+    if (!parts) return;
+    for (const part of parts) {
+      if (part.parts) {
+        extractFromParts(part.parts);
+      }
+      if (part.body && part.body.data) {
+        try {
+          const decoded = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+          if (part.mimeType === 'text/plain') {
+            plainText += decoded + ' ';
+          } else if (part.mimeType === 'text/html') {
+            // Strip HTML tags but preserve text
+            htmlText += decoded
+              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&nbsp;/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&#(\d+);/g, (m, code) => String.fromCharCode(code))
+              + ' ';
+          }
+        } catch (e) { /* decoding failed */ }
+      }
+    }
+  };
+  
+  if (payload.parts) {
+    extractFromParts(payload.parts);
+  } else if (payload.body && payload.body.data) {
+    try {
+      const decoded = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+      if (payload.mimeType === 'text/html') {
+        htmlText = decoded
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ');
+      } else {
+        plainText = decoded;
+      }
+    } catch (e) { /* decoding failed */ }
+  }
+  
+  return (plainText + ' ' + htmlText).replace(/\s+/g, ' ').trim();
 };
 
 const formatDate = (dateString) => {
@@ -725,6 +794,18 @@ const FlightTracker = () => {
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [suggestedFlights, setSuggestedFlights] = useState([]);
+  
+  // Progress tracking for Gmail import
+  const [importProgress, setImportProgress] = useState({
+    show: false,
+    phase: 'searching', // 'searching' | 'processing'
+    currentQuery: 0,
+    totalQueries: 9,
+    currentEmail: 0,
+    totalEmails: 0,
+    foundFlights: 0,
+    currentQueryText: ''
+  });
   const [gapiInited, setGapiInited] = useState(false);
   const [tokenClient, setTokenClient] = useState(null);
   const [editingFlight, setEditingFlight] = useState(null);
@@ -1082,293 +1163,556 @@ const FlightTracker = () => {
   };
 
   // --- GMAIL LOGIC ---
+  // Gmail-style flight extractor - primarily uses JSON-LD Schema.org data
+  // This is the same approach Gmail uses to show flight cards
   const extractFlightInfo = (message) => {
     const headers = message.payload.headers;
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
     const from = headers.find(h => h.name === 'From')?.value || '';
     const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
-    const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
-
-    // STRICTER validation - require strong evidence of being a flight ticket
-    const hasStrongFlightEvidence = /flight\s+confirmation|itinerary|e-?ticket|boarding pass|booking|reservation/i.test(subject);
-    const hasTicketKeywords = /confirmation (?:number|code)|booking reference|ticket number|eticket|PNR|record locator|localizador|reserva/i.test(fullText);
-    const hasFlightTerms = /\b(flight|airline|departure|arrival|vuelo|salida|llegada)\b/i.test(fullText);
-
-    // Common trusted airline/travel domains
-    const trustedDomains = /united\.com|delta\.com|aa\.com|southwest\.com|jetblue\.com|alaskaair\.com|britishairways\.com|lufthansa\.com|airfrance\.com|klm\.com|emirates\.com|qatarairways\.com|singaporeair\.com|cathaypacific\.com|ana\.co\.jp|jal\.com|iberia\.com|vueling\.com|turkishairlines\.com|qantas\.com|virginatlantic\.com|aircanada\.com|spirit\.com|flyfrontier\.com|tap\.pt|sas\.se|finnair\.com|expedia\.com|booking\.com|kayak\.com|priceline\.com|orbitz\.com/i;
-    const isFromTrustedSource = trustedDomains.test(from);
-
-    // Filter out common false positives
-    const isFalsePositive = /hotel\s+confirmation|car\s+rental|accommodation|lodging|apartment|reservation\s+request|quote\s+request|estimate|invoice\s+(?!.*flight)|receipt\s+(?!.*flight)|meeting|appointment|webinar|conference\s+(?!.*airport)/i.test(fullText);
-
-    // Relaxed validation for trusted sources
-    if (isFalsePositive) return null;
-
-    // For trusted airline/booking domains, be more lenient but still validate
-    if (isFromTrustedSource) {
-      // Trust airline emails if they have flight terms AND meaningful content
-      // Require at least flight-related keywords (not just any two 3-letter codes)
-      const hasValidFlightContent = (hasFlightTerms || hasTicketKeywords) &&
-                                     (hasStrongFlightEvidence || /\b(departure|arrival|gate|terminal|seat|boarding)\b/i.test(fullText));
-      if (!hasValidFlightContent) return null;
-    } else {
-      // For non-trusted sources, require strong evidence
-      if (!hasStrongFlightEvidence) return null;
-      if (!hasTicketKeywords && !hasFlightTerms) return null;
+    
+    // Get raw HTML to extract JSON-LD
+    const rawHtml = extractRawHtml(message.payload);
+    const bodyText = decodeEmailBody(message.payload);
+    
+    // ===== PRIMARY METHOD: Parse JSON-LD (Schema.org FlightReservation) =====
+    // This is exactly how Gmail extracts flight data
+    const extractedFlights = [];
+    
+    try {
+      // Find all JSON-LD script tags
+      const jsonLdRegex = /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+      let match;
+      
+      while ((match = jsonLdRegex.exec(rawHtml)) !== null) {
+        try {
+          const jsonContent = match[1].trim();
+          const data = JSON.parse(jsonContent);
+          
+          // Handle both single objects and arrays
+          const items = Array.isArray(data) ? data : [data];
+          
+          for (const item of items) {
+            // Check for FlightReservation type
+            if (item['@type'] === 'FlightReservation' && item.reservationFor) {
+              const flight = item.reservationFor;
+              const departureAirport = flight.departureAirport;
+              const arrivalAirport = flight.arrivalAirport;
+              
+              if (departureAirport?.iataCode && arrivalAirport?.iataCode) {
+                extractedFlights.push({
+                  id: `${message.id}-${extractedFlights.length}`,
+                  origin: departureAirport.iataCode.toUpperCase(),
+                  destination: arrivalAirport.iataCode.toUpperCase(),
+                  date: flight.departureTime ? flight.departureTime.split('T')[0] : '',
+                  flightNumber: (flight.airline?.iataCode || '') + (flight.flightNumber || ''),
+                  airline: flight.airline?.name || '',
+                  aircraftType: flight.aircraft?.name || flight.aircraft?.model || 'Unknown',
+                  serviceClass: item.reservedTicket?.ticketedSeat?.seatingType || 'Economy',
+                  confirmationNumber: item.reservationNumber || '',
+                  snippet: `${departureAirport.name || departureAirport.iataCode} → ${arrivalAirport.name || arrivalAirport.iataCode}`,
+                  source: 'json-ld'
+                });
+              }
+            }
+            
+            // Also check for direct Flight type
+            if (item['@type'] === 'Flight') {
+              const departureAirport = item.departureAirport;
+              const arrivalAirport = item.arrivalAirport;
+              
+              if (departureAirport?.iataCode && arrivalAirport?.iataCode) {
+                extractedFlights.push({
+                  id: `${message.id}-${extractedFlights.length}`,
+                  origin: departureAirport.iataCode.toUpperCase(),
+                  destination: arrivalAirport.iataCode.toUpperCase(),
+                  date: item.departureTime ? item.departureTime.split('T')[0] : '',
+                  flightNumber: (item.airline?.iataCode || '') + (item.flightNumber || ''),
+                  airline: item.airline?.name || '',
+                  aircraftType: item.aircraft?.name || 'Unknown',
+                  serviceClass: 'Economy',
+                  confirmationNumber: '',
+                  snippet: `${departureAirport.name || departureAirport.iataCode} → ${arrivalAirport.name || arrivalAirport.iataCode}`,
+                  source: 'json-ld'
+                });
+              }
+            }
+          }
+        } catch (parseError) {
+          // JSON parse failed for this script tag, continue to next
+          console.log('JSON-LD parse error:', parseError.message);
+        }
+      }
+    } catch (e) {
+      console.log('JSON-LD extraction error:', e.message);
     }
-
-    // Try to extract airline from email sender or content
-    const airlines = [
-      'United', 'Delta', 'American', 'Southwest', 'JetBlue', 'Alaska', 'Spirit', 'Frontier',
-      'British Airways', 'Lufthansa', 'Air France', 'KLM', 'Emirates', 'Qatar Airways',
-      'Singapore Airlines', 'Cathay Pacific', 'ANA', 'JAL', 'Turkish Airlines', 'Qantas',
-      'Virgin Atlantic', 'Air Canada', 'Aeromexico', 'LATAM', 'Iberia', 'Vueling', 'Swiss', 'Austrian',
-      'TAP', 'SAS', 'Finnair', 'Etihad', 'Avianca', 'Copa', 'Aeroflot', 'China Eastern',
-      'China Southern', 'Air China', 'EVA Air', 'Thai Airways', 'Malaysia Airlines'
-    ];
+    
+    // If we found flights via JSON-LD, return them (most reliable)
+    if (extractedFlights.length > 0) {
+      console.log(`Found ${extractedFlights.length} flight(s) via JSON-LD in email:`, subject);
+      return extractedFlights;
+    }
+    
+    // ===== FALLBACK METHOD: Regex parsing for older email systems =====
+    // Only used when JSON-LD is not present
+    
+    const fullText = (subject + ' ' + bodyText).replace(/\s+/g, ' ');
+    
+    // Check if sender is from a known airline domain (high confidence)
+    const airlineDomains = {
+      'united.com': { name: 'United Airlines', code: 'UA' },
+      'delta.com': { name: 'Delta Air Lines', code: 'DL' },
+      'aa.com': { name: 'American Airlines', code: 'AA' },
+      'southwest.com': { name: 'Southwest Airlines', code: 'WN' },
+      'jetblue.com': { name: 'JetBlue', code: 'B6' },
+      'alaskaair.com': { name: 'Alaska Airlines', code: 'AS' },
+      'britishairways.com': { name: 'British Airways', code: 'BA' },
+      'lufthansa.com': { name: 'Lufthansa', code: 'LH' },
+      'airfrance.com': { name: 'Air France', code: 'AF' },
+      'klm.com': { name: 'KLM', code: 'KL' },
+      'emirates.com': { name: 'Emirates', code: 'EK' },
+      'qatarairways.com': { name: 'Qatar Airways', code: 'QR' },
+      'singaporeair.com': { name: 'Singapore Airlines', code: 'SQ' },
+      'cathaypacific.com': { name: 'Cathay Pacific', code: 'CX' },
+      'turkishairlines.com': { name: 'Turkish Airlines', code: 'TK' },
+      'aircanada.com': { name: 'Air Canada', code: 'AC' },
+      'qantas.com': { name: 'Qantas', code: 'QF' },
+      'iberia.com': { name: 'Iberia', code: 'IB' },
+      'vueling.com': { name: 'Vueling', code: 'VY' },
+      'tap.pt': { name: 'TAP Air Portugal', code: 'TP' },
+      'ana.co.jp': { name: 'ANA', code: 'NH' },
+      'jal.com': { name: 'Japan Airlines', code: 'JL' },
+      'thaiairways.com': { name: 'Thai Airways', code: 'TG' },
+      'koreanair.com': { name: 'Korean Air', code: 'KE' },
+      'evaair.com': { name: 'EVA Air', code: 'BR' },
+      'virginatlantic.com': { name: 'Virgin Atlantic', code: 'VS' },
+      'swiss.com': { name: 'Swiss', code: 'LX' },
+      'austrian.com': { name: 'Austrian', code: 'OS' },
+      'finnair.com': { name: 'Finnair', code: 'AY' },
+      'sas.se': { name: 'SAS', code: 'SK' },
+      'ryanair.com': { name: 'Ryanair', code: 'FR' },
+      'easyjet.com': { name: 'easyJet', code: 'U2' },
+      'wizzair.com': { name: 'Wizz Air', code: 'W6' },
+      'spirit.com': { name: 'Spirit Airlines', code: 'NK' },
+      'flyfrontier.com': { name: 'Frontier Airlines', code: 'F9' },
+      'norwegian.com': { name: 'Norwegian', code: 'DY' },
+      'expedia.com': { name: '', code: '' },
+      'booking.com': { name: '', code: '' },
+      'kayak.com': { name: '', code: '' },
+    };
+    
+    let isFromAirline = false;
     let detectedAirline = '';
-    for (const airline of airlines) {
-      if (fullText.toLowerCase().includes(airline.toLowerCase()) ||
-          from.toLowerCase().includes(airline.toLowerCase())) {
-        detectedAirline = airline;
+    let airlineCode = '';
+    
+    for (const [domain, info] of Object.entries(airlineDomains)) {
+      // Check for domain in From header - handles subdomains like info.email.aa.com
+      const domainPattern = domain.replace('.', '\\.');
+      const regex = new RegExp(`[.@]${domainPattern}`, 'i');
+      if (regex.test(from) || from.toLowerCase().includes(domain)) {
+        isFromAirline = true;
+        detectedAirline = info.name;
+        airlineCode = info.code;
         break;
       }
     }
-
-    // Check if this is a round trip
-    const isRoundTrip = /round.?trip|return|outbound.*inbound|departure.*return/i.test(fullText);
-
-    // Comprehensive filter list: common words, dates, currencies, airline codes, units, etc.
-    // This list includes 200+ common 3-letter combinations that are NOT airports
-    const nonAirportWords = new Set([
-      // Common English words
-      'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW', 'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WHO', 'BOY', 'DID', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'VIA', 'YES', 'YET',
-      'AGO', 'ANY', 'ASK', 'BAD', 'BAG', 'BIG', 'BIT', 'BOX', 'BUY', 'CAR', 'CAT', 'CUP', 'CUT', 'DOG', 'DOT', 'EAT', 'END', 'FAR', 'FEW', 'FIT', 'FLY', 'GOT', 'GUN', 'GUY', 'HAD', 'HAT', 'HIT', 'HOT', 'JOB', 'KEY', 'LAW', 'LAY', 'LEG', 'LET', 'LIE', 'LOT', 'LOW', 'MAN', 'MAP', 'MEN', 'MET', 'MRS', 'OFF', 'OWN', 'PAY', 'PER', 'PET', 'RAN', 'RED', 'RUN', 'SAT', 'SAW', 'SET', 'SIT', 'SIX', 'TEN', 'THE', 'TIP', 'TOP', 'TRY', 'WAR', 'WAY', 'WEB', 'WET', 'WIN', 'WON', 'YET',
-      'ART', 'BAR', 'BED', 'BUS', 'CAP', 'COW', 'CRY', 'DUE', 'EYE', 'FAN', 'FUN', 'GAP', 'GAS', 'GOD', 'GOLD', 'ICE', 'ILL', 'INN', 'IRE', 'JAR', 'JET', 'JOY', 'KID', 'KIT', 'LAD', 'LAP', 'LED', 'LID', 'LIP', 'LOG', 'MAD', 'MIX', 'MOM', 'MUD', 'NET', 'NOR', 'NUT', 'OAK', 'ODD', 'OIL', 'PAN', 'PAD', 'PEN', 'PIE', 'PIG', 'PIN', 'PIT', 'POT', 'RAW', 'RAY', 'RID', 'ROD', 'ROW', 'RUB', 'RUG', 'SAD', 'SEA', 'SIN', 'SKI', 'SKY', 'SON', 'SUM', 'SUN', 'TAB', 'TAG', 'TAN', 'TAR', 'TEA', 'TIE', 'TON', 'TOY', 'VAN', 'VOW', 'WAX', 'WHO', 'WHY', 'WIG', 'WIN', 'WIT', 'ZEN', 'ZIP', 'ZOO',
-      'ACE', 'ACT', 'ADD', 'ADS', 'AFT', 'AGE', 'AID', 'AIM', 'ALE', 'ANT', 'APE', 'ARC', 'ARK', 'ARM', 'ATE', 'AWE', 'AXE', 'BAT', 'BAY', 'BEE', 'BET', 'BIN', 'BOW', 'BRA', 'BUD', 'BUM', 'BUN', 'COB', 'COD', 'COG', 'COP', 'COT', 'CUB', 'CUD', 'CUE', 'DAB', 'DAD', 'DAM', 'DEN', 'DEW', 'DIG', 'DIM', 'DIN', 'DIP', 'DOC', 'DOE', 'DRY', 'DUB', 'DUD', 'DUE', 'DUG', 'EEL', 'EGG', 'ELF', 'ELM', 'EMU', 'ERA', 'EVE', 'EWE',
-      // Days
-      'FRI', 'SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU',
-      // Months
-      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
-      // Currency codes
-      'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'MXN', 'BRL', 'ZAR', 'KRW', 'SGD', 'HKD', 'NOK', 'SEK', 'DKK', 'PLN', 'THB', 'IDR', 'HUF', 'CZK', 'ILS', 'CLP', 'PHP', 'AED', 'COP', 'SAR', 'MYR', 'RON', 'TRY', 'NZD', 'RUB', 'VND', 'ARS', 'EGP', 'PKR', 'BGN', 'HRK',
-      // Common airline IATA codes that aren't airports
-      'KLM', 'SAS', 'TAP', 'LOT', 'SKY', 'AIR', 'ANA', 'JAL',
-      // Web/Tech abbreviations
-      'EST', 'PST', 'MST', 'CST', 'GMT', 'UTC', 'PDF', 'CSV', 'XML', 'API', 'URL', 'APP', 'WEB', 'NET', 'ORG', 'GOV', 'EDU', 'COM', 'REF', 'VAT', 'TAX', 'FEE', 'TBD', 'TBA', 'FAQ', 'CEO', 'CFO', 'CTO', 'COO', 'VIP', 'WWW', 'FTP', 'DNS', 'SSL', 'SQL', 'PHP', 'CSS', 'HTML', 'HTTP', 'HTTPS',
-      // Units and measurements
-      'KGS', 'LBS', 'OZS', 'MPH', 'KPH', 'PSI', 'BAR', 'RPM', 'BPM',
-      // Other common patterns
-      'INC', 'LLC', 'LTD', 'PLC', 'GRP', 'DIV', 'MSG', 'TXT', 'IMG', 'PIC', 'VID', 'DOC', 'ZIP', 'RAR', 'ISO',
-      // Business/Commerce abbreviations (common false positives)
-      'CUS', 'MER', 'SUP', 'VEN', 'ACC', 'INV', 'ORD', 'POS', 'REC', 'REQ', 'RES', 'SER', 'SVC', 'TRX', 'CHG', 'CRT', 'DIS', 'EXP', 'IMP', 'OPT', 'PAC', 'PKG', 'QTY', 'SKU', 'STK', 'SUB', 'TOT', 'UNT', 'AMT', 'BAL', 'BIL', 'CHK', 'CRD', 'DEB', 'DEP', 'FND', 'PAT', 'PMT', 'PRO', 'PUR', 'QUO', 'SAL', 'TXN'
+    
+    // Subject or content indicators
+    const hasFlightIndicator = /\b(e-?ticket|itinerary|boarding\s*pass|flight\s*confirm|booking\s*confirm|trip\s*confirm|check-?in|your\s*flight|your\s*trip|reservation|confirmation)\b/i.test(subject + ' ' + fullText);
+    
+    // If not from airline/booking site and no flight indicators, skip
+    if (!isFromAirline && !hasFlightIndicator) {
+      return null;
+    }
+    
+    // Valid IATA codes - comprehensive set
+    const validIata = new Set([
+      // North America
+      'JFK','LGA','EWR','LAX','SFO','ORD','MDW','ATL','DFW','DEN','SEA','PHX','MIA','FLL','MCO',
+      'BOS','IAD','DCA','BWI','PHL','MSP','DTW','CLT','LAS','SAN','SJC','OAK','PDX','IAH','HOU',
+      'AUS','SLC','TPA','HNL','ANC','YYZ','YVR','YUL','YYC','YEG','YOW','MEX','CUN','GDL','SJD',
+      // Europe
+      'LHR','LGW','STN','LTN','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','TXL',
+      'SXF','DUS','HAM','AMS','BRU','ZRH','GVA','VIE','PRG','WAW','KRK','BUD','OTP','SOF',
+      'FCO','MXP','VCE','NAP','BCN','MAD','PMI','AGP','LIS','OPO','ATH','SKG','IST','SAW',
+      'OSL','ARN','CPH','HEL','RIX','TLL','VNO',
+      // Middle East
+      'DXB','AUH','DOH','KWI','BAH','MCT','AMM','TLV','CAI','JED','RUH',
+      // Asia
+      'SIN','KUL','BKK','DMK','SGN','HAN','CGK','MNL','HKG','TPE','NRT','HND','KIX','ICN','GMP',
+      'PEK','PVG','CAN','HGH','CTU','XIY','SZX','DEL','BOM','BLR','MAA','CCU',
+      // Oceania
+      'SYD','MEL','BNE','PER','AKL','WLG','CHC',
+      // South America
+      'GRU','GIG','BSB','EZE','AEP','SCL','LIM','BOG','MDE','UIO','GYE','CCS','PTY',
+      // Africa
+      'JNB','CPT','NBO','ADD','CAI','CMN','LOS','ACC',
+      // Brazil specific (for the user)
+      'REC','FOR','SSA','POA','CWB','VCP','CNF','MAO','BEL','NAT',
     ]);
-
-    // Only extract airport codes from flight-context sentences
-    // Look for codes near flight-related keywords (within 50 chars, not 100)
-    const flightContextRegex = /(?:from|to|depart|arrive|departure|arrival|origin|destination|flight|route|via|layover|connection|boarding|gate|terminal).{0,50}?\b([A-Z]{3})\b/gi;
-    const contextualAirportMatches = [...fullText.matchAll(flightContextRegex)]
-      .map(match => match[1])
-      .filter(code => !nonAirportWords.has(code));
-
-    // STRICT route pattern matching - only match if preceded by flight context
-    // This prevents matching random "XXX to YYY" patterns in email text
-    const routeRegex = /(?:flight|from|route|depart|travelling|traveling|fly|flying).{0,30}?\b([A-Z]{3})\s*(?:to|→|–)\s*([A-Z]{3})\b/gi;
-    const routeMatches = [...fullText.matchAll(routeRegex)];
-
-    // Filter route airports through validation
-    const routeAirports = routeMatches
-      .flatMap(m => [m[1], m[2]])
-      .filter(code => !nonAirportWords.has(code));
-
-    const allAirportCodes = [...new Set([...contextualAirportMatches, ...routeAirports])];
-    const uniqueAirports = allAirportCodes;
-
-    // Extract dates - look for various date patterns
-    const datePatterns = [
-      /\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\b/g,  // MM/DD/YYYY or DD-MM-YYYY
-      /\b([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})\b/g,  // Month DD, YYYY
-      /\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b/g  // DD Month YYYY
+    
+    // Route patterns - more permissive but still require context
+    const routePatterns = [
+      // Explicit route with context words
+      /(?:flight|flying|from|depart|route)\s+(?:from\s+)?([A-Z]{3})\s+(?:to|→|->|–|-)\s+([A-Z]{3})/gi,
+      // Departure/Arrival labels
+      /(?:departure|depart|origin)\s*[:\s]+([A-Z]{3})[\s\S]{0,150}?(?:arrival|arrive|destination)\s*[:\s]+([A-Z]{3})/gi,
+      // Arrow patterns
+      /\b([A-Z]{3})\s*(?:→|->|=>|➔|»)\s*([A-Z]{3})\b/g,
+      // Dash between codes (with flight context nearby)
+      /(?:flight|route|itinerary).{0,30}?\b([A-Z]{3})\s*[-–]\s*([A-Z]{3})\b/gi,
+      // Flight number followed by route
+      /\b[A-Z]{2}\d{1,4}\s+([A-Z]{3})\s*[-–\/]\s*([A-Z]{3})\b/g,
+      // City (CODE) format: "New York (JFK) to Los Angeles (LAX)"
+      /\b\w+\s*\(([A-Z]{3})\)\s*(?:to|→|->|–|-)\s*\w+\s*\(([A-Z]{3})\)/gi,
+      // United baggage table format: "City (CODE) to City (CODE)"
+      /\b[A-Za-z\s,]+\(([A-Z]{3})\)\s+to\s+[A-Za-z\s,]+\(([A-Z]{3})\)/gi,
+      // American Airlines style: CODE followed by city name, then another CODE followed by city name
+      /\b([A-Z]{3})\b[^A-Z]{0,30}(?:Newark|New York|Los Angeles|Chicago|Dallas|Houston|Miami|Boston|Denver|Seattle|Phoenix|Atlanta|San Francisco|Washington|Philadelphia|Detroit|Minneapolis|Charlotte|Orlando|Tampa|Austin|San Diego|Portland|Las Vegas|Baltimore|Fort Lauderdale|Salt Lake|Honolulu|Fort Worth|Cleveland|St\.? Louis|Pittsburgh|Indianapolis|Kansas City|Columbus|Cincinnati|Milwaukee|Nashville|Raleigh|San Antonio|Sacramento)[^A-Z]{0,200}?\b([A-Z]{3})\b/gi,
     ];
-
-    const extractedDates = [];
-    datePatterns.forEach(pattern => {
-      const matches = fullText.match(pattern);
-      if (matches) extractedDates.push(...matches);
-    });
-
-    // routeMatches already defined above during airport extraction
-
-    // Additional validation: check if extracted codes look like real IATA airports
-    // Real airports often have specific patterns and shouldn't be common words
-    const looksLikeAirportCode = (code) => {
-      if (!code || code.length !== 3) return false;
-
-      const upperCode = code.toUpperCase();
-
-      // First check against banned words list
-      if (nonAirportWords.has(upperCode)) return false;
-
-      // Additional heuristics for real airport codes:
-      // - Should not be all vowels or all consonants
-      const vowels = code.match(/[AEIOU]/gi) || [];
-      const consonants = code.match(/[BCDFGHJKLMNPQRSTVWXYZ]/gi) || [];
-
-      // Reject if all vowels or all consonants (very rare for real airports)
-      if (vowels.length === 0 || consonants.length === 0) return false;
-
-      // Reject common word patterns and business abbreviations
-      const commonWordPatterns = /^(com|but|for|out|got|not|can|get|set|let|put|run|won|way|day|may|say|try|why|buy|guy|pay|key|yet|yes|was|has|had|did|saw|got|met|sat|ran|cus|mer|sup|ven|acc|inv|ord|pos|rec|req|res|ser|svc|amt|bal|tot|qty)$/i;
-      if (commonWordPatterns.test(code)) return false;
-
-      // Reject codes that look like partial words (common in business emails)
-      // These often have patterns like: starts with common prefixes
-      const businessPrefixes = /^(cus|mer|sup|acc|inv|ord|rec|req|res|exp|imp|opt|pro|pur|quo|sal|sub|tot)/i;
-      if (businessPrefixes.test(code)) return false;
-
-      return true;
+    
+    // Additional pattern: Extract routes from HTML with CITY <BR />(CODE) format (United old style)
+    const extractUnitedStyleRoutes = (text) => {
+      // Pattern: CITY NAME <BR />(CODE) followed later by another CITY NAME <BR />(CODE)
+      const cityCodePattern = /([A-Z][A-Za-z\s,]+?)(?:<BR\s*\/?>|\n)\s*\(([A-Z]{3})\)/gi;
+      const matches = [...text.matchAll(cityCodePattern)];
+      const codes = [];
+      
+      for (const match of matches) {
+        const code = match[2].toUpperCase();
+        if (validIata.has(code) && !codes.includes(code)) {
+          codes.push(code);
+        }
+      }
+      return codes;
     };
-
-    let flights = [];
-
-    if (routeMatches.length >= 2 && isRoundTrip) {
-      // Found multiple routes - likely outbound and return
-      const outbound = routeMatches[0];
-      const returnFlight = routeMatches[1];
-
-      const outboundOrigin = outbound[1].toUpperCase();
-      const outboundDest = outbound[2].toUpperCase();
-      const returnOrigin = returnFlight[1].toUpperCase();
-      const returnDest = returnFlight[2].toUpperCase();
-
-      // Validate all airport codes before creating flights
-      if (!looksLikeAirportCode(outboundOrigin) || !looksLikeAirportCode(outboundDest) ||
-          !looksLikeAirportCode(returnOrigin) || !looksLikeAirportCode(returnDest)) {
-        return null; // Invalid airport codes detected
+    
+    // Extract all flight segments from multi-segment itineraries
+    const extractFlightSegments = (text) => {
+      const segments = [];
+      
+      // Method 1: Look for flight rows with Date + Flight# + Origin(CODE) + Destination(CODE)
+      // Handles: "Tue, 12MAR13 ... TG565 ... HANOI VN (HAN) ... BANGKOK, THAILAND (BKK)"
+      
+      // First, extract all rows that contain a date and flight number pattern
+      const rowPattern = /((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s*\d{1,2}[A-Z]{3}\d{2,4})[^<>]{0,500}?([A-Z]{2}\d{2,4})[^<>]{0,300}?\(([A-Z]{3})\)[^<>]{0,200}?\(([A-Z]{3})\)/gi;
+      
+      let match;
+      while ((match = rowPattern.exec(text)) !== null) {
+        const dateStr = match[1];
+        const flightNum = match[2];
+        const code1 = match[3].toUpperCase();
+        const code2 = match[4].toUpperCase();
+        
+        if (validIata.has(code1) && validIata.has(code2) && code1 !== code2) {
+          segments.push({
+            date: dateStr,
+            flightNumber: flightNum,
+            origin: code1,
+            destination: code2
+          });
+        }
       }
-
-      // Create outbound flight
-      flights.push({
-        id: `${message.id}-outbound`,
-        origin: outboundOrigin,
-        destination: outboundDest,
-        date: extractedDates[0] ? new Date(extractedDates[0]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
-        flightNumber: '',
-        airline: detectedAirline,
-        aircraftType: 'Unknown',
-        serviceClass: 'Economy',
-        snippet: `Outbound: ${outboundOrigin} → ${outboundDest}`
-      });
-
-      // Create return flight
-      flights.push({
-        id: `${message.id}-return`,
-        origin: returnOrigin,
-        destination: returnDest,
-        date: extractedDates[1] ? new Date(extractedDates[1]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
-        flightNumber: '',
-        airline: detectedAirline,
-        aircraftType: 'Unknown',
-        serviceClass: 'Economy',
-        snippet: `Return: ${returnOrigin} → ${returnDest}`
-      });
-    } else if (routeMatches.length === 1) {
-      // Single route found
-      const route = routeMatches[0];
-      const origin = route[1].toUpperCase();
-      const destination = route[2].toUpperCase();
-
-      // Validate airport codes
-      if (!looksLikeAirportCode(origin) || !looksLikeAirportCode(destination)) {
-        return null; // Invalid airport codes detected
+      
+      // Method 2: Simpler - find all (CODE) pairs in sequence with flight context
+      if (segments.length === 0) {
+        const codeSequence = [];
+        const allCodes = /\(([A-Z]{3})\)/g;
+        let codeMatch;
+        while ((codeMatch = allCodes.exec(text)) !== null) {
+          const code = codeMatch[1];
+          if (validIata.has(code)) {
+            codeSequence.push(code);
+          }
+        }
+        
+        // Create segments from consecutive unique pairs
+        for (let i = 0; i < codeSequence.length - 1; i++) {
+          const orig = codeSequence[i];
+          const dest = codeSequence[i + 1];
+          if (orig !== dest && !segments.some(s => s.origin === orig && s.destination === dest)) {
+            segments.push({
+              date: '',
+              flightNumber: '',
+              origin: orig,
+              destination: dest
+            });
+          }
+        }
       }
-
-      const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/;
-      const numMatch = fullText.match(flightNumRegex);
-      let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
-
-      flights.push({
-        id: message.id,
-        origin,
-        destination,
-        date: extractedDates[0] ? new Date(extractedDates[0]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
-        flightNumber: flightNum,
-        airline: detectedAirline,
-        aircraftType: 'Unknown',
-        serviceClass: 'Economy',
-        snippet: message.snippet.substring(0, 80) + "..."
-      });
-
-      // If round trip but only one route found, create return with reversed route
-      if (isRoundTrip && extractedDates.length >= 2) {
-        flights.push({
-          id: `${message.id}-return`,
-          origin: destination,
-          destination: origin,
-          date: new Date(extractedDates[1]).toISOString().split('T')[0],
-          flightNumber: '',
+      
+      return segments;
+    };
+    
+    // Additional: Try to find two IATA codes that appear as standalone with city context
+    // This handles emails where codes appear in separate visual sections
+    const findCodesWithCityContext = (text) => {
+      // Look for patterns like "CODE" followed by city name
+      const codeWithCity = /\b([A-Z]{3})\b[\s\n]{0,20}(Newark|New York|JFK|LaGuardia|Los Angeles|LAX|Chicago|O'Hare|Midway|Dallas|Fort Worth|DFW|Houston|Hobby|Bush|Miami|Boston|Logan|Denver|Seattle|Tacoma|Phoenix|Atlanta|Hartsfield|San Francisco|SFO|Washington|Dulles|Reagan|National|Philadelphia|Detroit|Minneapolis|St\.? Paul|Charlotte|Douglas|Orlando|Tampa|Austin|San Diego|Portland|Las Vegas|McCarran|Baltimore|BWI|Fort Lauderdale|Hollywood|Salt Lake|Honolulu|Cleveland|Hopkins|St\.? Louis|Lambert|Pittsburgh|Indianapolis|Kansas City|Columbus|Cincinnati|Milwaukee|Nashville|Raleigh|Durham|San Antonio|Sacramento|Anchorage|Toronto|Pearson|Vancouver|Montreal|Trudeau|Mexico City|Cancun|London|Heathrow|Gatwick|Paris|CDG|Orly|Frankfurt|Munich|Berlin|Amsterdam|Schiphol|Brussels|Zurich|Geneva|Vienna|Prague|Warsaw|Budapest|Rome|Fiumicino|Milan|Malpensa|Barcelona|Madrid|Barajas|Lisbon|Athens|Istanbul|Dubai|Doha|Singapore|Changi|Kuala Lumpur|Bangkok|Hong Kong|Tokyo|Narita|Haneda|Seoul|Incheon|Beijing|Shanghai|Pudong|Sydney|Melbourne|Auckland|Hanoi|Buenos Aires|Sao Paulo|Guarulhos)/gi;
+      
+      const matches = [...text.matchAll(codeWithCity)];
+      const codesFound = [];
+      
+      for (const match of matches) {
+        const code = match[1].toUpperCase();
+        if (validIata.has(code) && !codesFound.includes(code)) {
+          codesFound.push(code);
+        }
+      }
+      
+      return codesFound;
+    };
+    
+    let origin = '', destination = '';
+    
+    for (const pattern of routePatterns) {
+      pattern.lastIndex = 0;
+      const matches = [...fullText.matchAll(pattern)];
+      
+      for (const match of matches) {
+        const code1 = match[1]?.toUpperCase();
+        const code2 = match[2]?.toUpperCase();
+        if (code1 && code2 && validIata.has(code1) && validIata.has(code2) && code1 !== code2) {
+          origin = code1;
+          destination = code2;
+          break;
+        }
+      }
+      if (origin && destination) break;
+    }
+    
+    // Try extracting multi-segment itinerary (for emails with multiple flights)
+    const segments = extractFlightSegments(fullText);
+    if (segments.length > 0) {
+      console.log(`Found ${segments.length} flight segment(s) in multi-segment itinerary`);
+      
+      const flights = segments.map((seg, idx) => {
+        // Parse date from formats like "12MAR13" or "12 March 2013"
+        let segDate = '';
+        const dateMatch = seg.date.match(/(\d{1,2})([A-Z]{3})(\d{2,4})/i);
+        if (dateMatch) {
+          const day = dateMatch[1].padStart(2, '0');
+          const monthStr = dateMatch[2].toLowerCase();
+          const year = dateMatch[3].length === 2 ? '20' + dateMatch[3] : dateMatch[3];
+          segDate = `${year}-${monthNames[monthStr] || '01'}-${day}`;
+        }
+        
+        return {
+          id: `${message.id}-seg${idx}`,
+          origin: seg.origin,
+          destination: seg.destination,
+          date: segDate || flightDate || new Date(dateHeader).toISOString().split('T')[0],
+          flightNumber: seg.flightNumber,
           airline: detectedAirline,
           aircraftType: 'Unknown',
           serviceClass: 'Economy',
-          snippet: `Return: ${destination} → ${origin}`
-        });
-      }
-    } else if (uniqueAirports.length >= 2) {
-      // Fallback: use first two unique airports
-      const origin = uniqueAirports[0];
-      const destination = uniqueAirports[1];
-
-      // Validate airport codes
-      if (!looksLikeAirportCode(origin) || !looksLikeAirportCode(destination)) {
-        return null; // Invalid airport codes detected
-      }
-
-      const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/;
-      const numMatch = fullText.match(flightNumRegex);
-      let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
-
-      flights.push({
-        id: message.id,
-        origin,
-        destination,
-        date: extractedDates[0] ? new Date(extractedDates[0]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
-        flightNumber: flightNum,
-        airline: detectedAirline,
-        aircraftType: 'Unknown',
-        serviceClass: 'Economy',
-        snippet: message.snippet.substring(0, 80) + "..."
+          confirmationNumber,
+          snippet: `${seg.origin} → ${seg.destination}`,
+          source: 'multi-segment'
+        };
       });
-
-      // If round trip, create return flight
-      if (isRoundTrip && extractedDates.length >= 2) {
-        flights.push({
-          id: `${message.id}-return`,
-          origin: destination,
-          destination: origin,
-          date: new Date(extractedDates[1]).toISOString().split('T')[0],
-          flightNumber: '',
-          airline: detectedAirline,
-          aircraftType: 'Unknown',
-          serviceClass: 'Economy',
-          snippet: `Return: ${destination} → ${origin}`
-        });
+      
+      return flights;
+    }
+    
+    // If no route found, try United-style HTML parsing
+    if (!origin || !destination) {
+      const unitedCodes = extractUnitedStyleRoutes(rawHtml || fullText);
+      if (unitedCodes.length >= 2) {
+        origin = unitedCodes[0];
+        destination = unitedCodes[unitedCodes.length - 1]; // First origin to last destination
+        console.log(`Found codes via United-style HTML: ${origin} → ${destination}`);
       }
     }
+    
+    // If no route found, try finding codes with city name context
+    if (!origin || !destination) {
+      const codesWithCities = findCodesWithCityContext(fullText);
+      if (codesWithCities.length >= 2) {
+        origin = codesWithCities[0];
+        destination = codesWithCities[1];
+        console.log(`Found codes via city context: ${origin} → ${destination}`);
+      }
+    }
+    
+    // If still no route, try to find two IATA codes in close proximity with flight context
+    if (!origin || !destination) {
+      const contextPattern = /(?:flight|depart|arrive|from|to|origin|destination|airport).{0,40}?\b([A-Z]{3})\b/gi;
+      const contextMatches = [...fullText.matchAll(contextPattern)];
+      const foundCodes = [];
+      
+      for (const match of contextMatches) {
+        const code = match[1].toUpperCase();
+        if (validIata.has(code) && !foundCodes.includes(code)) {
+          foundCodes.push(code);
+        }
+      }
+      
+      if (foundCodes.length >= 2) {
+        origin = foundCodes[0];
+        destination = foundCodes[1];
+      }
+    }
+    
+    // Last resort: if email is from airline, find any two valid IATA codes in the text
+    if ((!origin || !destination) && isFromAirline) {
+      const allCodesPattern = /\b([A-Z]{3})\b/g;
+      const allMatches = [...fullText.matchAll(allCodesPattern)];
+      const validCodes = [];
+      
+      // Common non-airport 3-letter codes to exclude
+      const excludeCodes = new Set([
+        'THE','AND','FOR','ARE','BUT','NOT','YOU','ALL','CAN','HAS','WAS','ONE','OUR','OUT',
+        'DAY','GET','HIM','HIS','HOW','ITS','MAY','NEW','NOW','OLD','SEE','TWO','WHO',
+        'FRI','SAT','SUN','MON','TUE','WED','THU','JAN','FEB','MAR','APR','JUN','JUL',
+        'AUG','SEP','OCT','NOV','DEC','USD','EUR','GBP','CAD','PDF','APP','WWW','COM',
+        'ORG','NET','GOV','EST','PST','CST','MST','GMT','UTC','INC','LLC','LTD','USA'
+      ]);
+      
+      for (const match of allMatches) {
+        const code = match[1].toUpperCase();
+        if (validIata.has(code) && !excludeCodes.has(code) && !validCodes.includes(code)) {
+          validCodes.push(code);
+        }
+      }
+      
+      if (validCodes.length >= 2) {
+        origin = validCodes[0];
+        destination = validCodes[1];
+        console.log(`Found codes from airline email (last resort): ${origin} → ${destination}`);
+      }
+    }
+    
+    if (!origin || !destination) {
+      return null;
+    }
+    
+    // Extract date - handle various formats
+    let flightDate = '';
+    const monthNames = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+                        jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12',
+                        january:'01',february:'02',march:'03',april:'04',june:'06',
+                        july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
+    
+    const datePatterns = [
+      // ISO format: 2025-02-27
+      { regex: /\b(\d{4})-(\d{2})-(\d{2})\b/, parse: m => m[0] },
+      // Full day name: Thursday, February 27, 2025
+      { regex: /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})/i, 
+        parse: m => `${m[3]}-${monthNames[m[1].toLowerCase()]}-${m[2].padStart(2,'0')}` },
+      // Short day name + DDMMMYY: Tue, 12MAR13
+      { regex: /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s*(\d{1,2})([A-Z]{3})(\d{2})\b/i, 
+        parse: m => {
+          const day = m[1].padStart(2,'0');
+          const monthStr = m[2].toLowerCase();
+          const year = parseInt(m[3]) > 50 ? '19' + m[3] : '20' + m[3];
+          return `${year}-${monthNames[monthStr] || '01'}-${day}`;
+        }},
+      // Month DD, YYYY: February 27, 2025
+      { regex: /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4})\b/i, 
+        parse: m => `${m[3]}-${monthNames[m[1].toLowerCase().substring(0,3)]}-${m[2].padStart(2,'0')}` },
+      // DD Month YYYY: 27 February 2025
+      { regex: /\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})\b/i,
+        parse: m => `${m[3]}-${monthNames[m[2].toLowerCase().substring(0,3)]}-${m[1].padStart(2,'0')}` },
+      // DDMMMYYYY: 12MAR2013
+      { regex: /\b(\d{1,2})([A-Z]{3})(\d{4})\b/i,
+        parse: m => `${m[3]}-${monthNames[m[2].toLowerCase()] || '01'}-${m[1].padStart(2,'0')}` },
+      // MM/DD/YYYY or DD/MM/YYYY (assume US format)
+      { regex: /\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/, 
+        parse: m => `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}` },
+    ];
+    
+    for (const {regex, parse} of datePatterns) {
+      const match = fullText.match(regex);
+      if (match) {
+        try {
+          flightDate = parse(match);
+          const d = new Date(flightDate);
+          if (d.getFullYear() >= 2020 && d.getFullYear() <= 2030) break;
+          flightDate = '';
+        } catch (e) { flightDate = ''; }
+      }
+    }
+    
+    if (!flightDate) {
+      try {
+        flightDate = new Date(dateHeader).toISOString().split('T')[0];
+      } catch (e) {
+        flightDate = new Date().toISOString().split('T')[0];
+      }
+    }
+    
+    // Detect airline from content if not from sender
+    if (!detectedAirline) {
+      const airlinePatterns = [
+        [/\bunited\s*(airlines?)?\b/i, 'United Airlines'],
+        [/\bdelta\s*(air\s*lines?)?\b/i, 'Delta Air Lines'],
+        [/\bamerican\s*airlines?\b/i, 'American Airlines'],
+        [/\bsouthwest\b/i, 'Southwest Airlines'],
+        [/\bjetblue\b/i, 'JetBlue'],
+        [/\bbritish\s*airways?\b/i, 'British Airways'],
+        [/\blufthansa\b/i, 'Lufthansa'],
+        [/\bair\s*france\b/i, 'Air France'],
+        [/\bklm\b/i, 'KLM'],
+        [/\bemirates\b/i, 'Emirates'],
+        [/\bqatar\b/i, 'Qatar Airways'],
+        [/\bsingapore\s*air/i, 'Singapore Airlines'],
+        [/\bturkish\b/i, 'Turkish Airlines'],
+        [/\biberia\b/i, 'Iberia'],
+        [/\btap\s*(portugal)?\b/i, 'TAP'],
+        [/\bswiss\b/i, 'Swiss'],
+        [/\bryanair\b/i, 'Ryanair'],
+        [/\beasyjet\b/i, 'easyJet'],
+        [/\blatam\b/i, 'LATAM'],
+        [/\bgol\b/i, 'GOL'],
+        [/\bazul\b/i, 'Azul'],
+        [/\bavianca\b/i, 'Avianca'],
+      ];
+      
+      for (const [pattern, name] of airlinePatterns) {
+        if (pattern.test(fullText)) {
+          detectedAirline = name;
+          break;
+        }
+      }
+    }
+    
+    // Extract flight number
+    let flightNumber = '';
+    if (airlineCode) {
+      const fnMatch = fullText.match(new RegExp(`\\b${airlineCode}\\s?(\\d{1,4})\\b`, 'i'));
+      if (fnMatch) flightNumber = airlineCode + fnMatch[1];
+    }
+    if (!flightNumber) {
+      const genericFn = fullText.match(/\b([A-Z]{2})\s?(\d{3,4})\b/);
+      if (genericFn) flightNumber = genericFn[1] + genericFn[2];
+    }
+    
+    // Extract confirmation number
+    let confirmationNumber = '';
+    const confMatch = fullText.match(/(?:confirm|booking|pnr|locator|reference)\s*(?:number|code|#)?\s*[:\s]*([A-Z0-9]{5,8})\b/i);
+    if (confMatch) confirmationNumber = confMatch[1].toUpperCase();
+    
+    console.log(`Regex fallback found: ${origin} → ${destination} (${detectedAirline || 'unknown'})`);
+    
+    return [{
+      id: message.id,
+      origin,
+      destination,
+      date: flightDate,
+      flightNumber,
+      airline: detectedAirline,
+      aircraftType: 'Unknown',
+      serviceClass: 'Economy',
+      confirmationNumber,
+      snippet: message.snippet?.substring(0, 80) + '...',
+      source: 'regex-fallback'
+    }];
+  };
 
-    // Final validation: require airline OR flight number for all flights
-    // Also validate that origin and destination are different
-    const validFlights = flights.filter(flight => {
-      const hasAirlineOrFlightNum = flight.airline || flight.flightNumber;
-      const hasValidRoute = flight.origin !== flight.destination && flight.origin && flight.destination;
-      const hasValidDate = flight.date && !isNaN(new Date(flight.date).getTime());
-
-      // For non-trusted sources, require airline or flight number
-      if (!isFromTrustedSource && !hasAirlineOrFlightNum) return false;
-
-      return hasValidRoute && hasValidDate;
-    });
-
-    return validFlights.length > 0 ? validFlights : null;
+  // Delete a suggested flight from the list
+  const handleDeleteSuggestion = (flightId) => {
+    setSuggestedFlights(prev => prev.filter(f => f.id !== flightId));
   };
 
   const handleGmailImport = () => {
@@ -1376,6 +1720,7 @@ const FlightTracker = () => {
     tokenClient.callback = async (resp) => {
       if (resp.error) {
         setImporting(false);
+        setImportProgress(p => ({...p, show: false}));
         alert("Auth failed.");
         return;
       }
@@ -1441,6 +1786,18 @@ const FlightTracker = () => {
       }
 
       console.log('User selected date range:', dateRange);
+      
+      // Show progress modal
+      setImportProgress({
+        show: true,
+        phase: 'searching',
+        currentQuery: 0,
+        totalQueries: 9,
+        currentEmail: 0,
+        totalEmails: 0,
+        foundFlights: 0,
+        currentQueryText: 'Initializing...'
+      });
 
       try {
         // Build date range query (Gmail format: YYYY/MM/DD)
@@ -1450,71 +1807,153 @@ const FlightTracker = () => {
 
         console.log('Gmail date range - After:', afterDate, 'Before:', beforeDate);
 
-        // Trusted airline and travel booking domains
-        const trustedDomains = [
-          'united.com', 'delta.com', 'aa.com', 'southwest.com', 'jetblue.com',
-          'alaskaair.com', 'spirit.com', 'flyfrontier.com', 'britishairways.com',
-          'lufthansa.com', 'airfrance.com', 'klm.com', 'emirates.com', 'qatarairways.com',
-          'singaporeair.com', 'cathaypacific.com', 'ana.co.jp', 'jal.com',
-          'turkishairlines.com', 'qantas.com', 'virginatlantic.com', 'aircanada.com',
-          'iberia.com', 'vueling.com', 'tap.pt', 'sas.se', 'finnair.com',
-          'expedia.com', 'booking.com', 'kayak.com', 'priceline.com', 'orbitz.com'
+        // Multi-pronged search strategy
+        const searchQueries = [
+          // 1. Gmail's reservation category (when available)
+          `category:reservations after:${afterDate} before:${beforeDate}`,
+          
+          // 2. Flight-specific subject keywords
+          `subject:(itinerary OR "flight confirmation" OR "booking confirmation" OR "e-ticket" OR eticket OR "boarding pass") after:${afterDate} before:${beforeDate}`,
+          
+          // 3. Check-in and trip emails
+          `subject:("check-in" OR "your trip" OR "your flight" OR "trip confirmation") after:${afterDate} before:${beforeDate}`,
+          
+          // 4. Major US airlines (including subdomains)
+          `from:(united.com OR delta.com OR aa.com OR southwest.com OR jetblue.com OR alaskaair.com OR email.aa.com OR email.united.com OR email.delta.com) after:${afterDate} before:${beforeDate}`,
+          
+          // 5. European airlines
+          `from:(britishairways.com OR lufthansa.com OR airfrance.com OR klm.com OR iberia.com OR vueling.com OR tap.pt OR swiss.com) after:${afterDate} before:${beforeDate}`,
+          
+          // 6. Middle East & Asian airlines
+          `from:(emirates.com OR qatarairways.com OR singaporeair.com OR cathaypacific.com OR turkishairlines.com OR thaiairways.com) after:${afterDate} before:${beforeDate}`,
+          
+          // 7. Other major airlines
+          `from:(aircanada.com OR qantas.com OR ana.co.jp OR jal.com OR koreanair.com OR evaair.com) after:${afterDate} before:${beforeDate}`,
+          
+          // 8. Low-cost carriers
+          `from:(ryanair.com OR easyjet.com OR wizzair.com OR norwegian.com OR spirit.com OR flyfrontier.com) after:${afterDate} before:${beforeDate}`,
+          
+          // 9. Travel booking sites
+          `from:(expedia.com OR booking.com OR kayak.com OR priceline.com OR orbitz.com OR travelocity.com OR tripadvisor.com) after:${afterDate} before:${beforeDate}`,
+        ];
+        
+        // Query labels for display
+        const queryLabels = [
+          'Gmail Reservations',
+          'Flight Confirmations',
+          'Check-in & Trip Emails',
+          'US Airlines',
+          'European Airlines',
+          'Middle East & Asian Airlines',
+          'Other Major Airlines',
+          'Low-cost Carriers',
+          'Travel Booking Sites'
         ];
 
-        // Build search query with stricter matching to reduce false positives
-        // Make subject keywords more flexible to catch variations
-        const subjectKeywords = ['flight confirmation', 'itinerary', 'boarding pass', 'eticket', 'e-ticket', 'flight', 'reservation', 'booking'];
-        const contentKeywords = ['confirmation number', 'booking reference', 'ticket number', 'PNR', 'record locator', 'flight number', 'confirmation code'];
-
-        // Create sender domain filter (helps prioritize real flight emails)
-        const senderQuery = `(${trustedDomains.map(d => `from:${d}`).join(' OR ')})`;
-
-        // Subject: specific flight-related keywords
-        const subjectQuery = `(${subjectKeywords.map(k => `subject:"${k}"`).join(' OR ')})`;
-
-        // Content: require specific booking identifiers
-        const contentQuery = `(${contentKeywords.map(k => `"${k}"`).join(' OR ')})`;
-
-        // Combined query:
-        // - Emails from trusted domains (airlines/booking sites) are always included
-        // - OR emails with flight-related subject AND booking identifiers
-        // This way, we trust airline emails even if they use different terminology
-        const searchQuery = `(${senderQuery}) OR (${subjectQuery} ${contentQuery}) after:${afterDate} before:${beforeDate}`;
-
-        console.log('Gmail search query:', searchQuery);
-
-        const response = await window.gapi.client.gmail.users.messages.list({
-          'userId': 'me',
-          'q': searchQuery,
-          'maxResults': 500
-        });
-
-        const messages = response.result.messages || [];
-        const suggestions = [];
-
-        for (let msg of messages) {
-          const details = await window.gapi.client.gmail.users.messages.get({
-            'userId': 'me', 'id': msg.id, 'format': 'full'
-          });
-          const flights = extractFlightInfo(details.result);
-          // extractFlightInfo now returns an array to handle round trips
-          if (flights && Array.isArray(flights)) {
-            flights.forEach(flight => {
-              if (flight && !suggestions.find(s => s.id === flight.id)) {
-                suggestions.push(flight);
-              }
+        const allMessageIds = new Set();
+        const allMessages = [];
+        
+        // Run searches with progress updates
+        for (let i = 0; i < searchQueries.length; i++) {
+          const query = searchQueries[i];
+          
+          setImportProgress(p => ({
+            ...p,
+            phase: 'searching',
+            currentQuery: i + 1,
+            totalQueries: searchQueries.length,
+            currentQueryText: queryLabels[i]
+          }));
+          
+          try {
+            console.log(`Search ${i + 1}/${searchQueries.length}: ${query.substring(0, 60)}...`);
+            const response = await window.gapi.client.gmail.users.messages.list({
+              'userId': 'me',
+              'q': query,
+              'maxResults': 50
             });
-          } else if (flights) {
-            // Backwards compatibility if it returns a single flight
-            if (!suggestions.find(s => s.id === flights.id)) {
-              suggestions.push(flights);
+            
+            const messages = response.result.messages || [];
+            console.log(`  → Found ${messages.length} emails`);
+            
+            for (const msg of messages) {
+              if (!allMessageIds.has(msg.id)) {
+                allMessageIds.add(msg.id);
+                allMessages.push(msg);
+              }
             }
+          } catch (e) {
+            console.log(`  → Search failed:`, e.message);
           }
         }
+        
+        console.log(`\nTotal unique emails to process: ${allMessages.length}`);
+        
+        // Update to processing phase
+        setImportProgress(p => ({
+          ...p,
+          phase: 'processing',
+          currentEmail: 0,
+          totalEmails: allMessages.length,
+          currentQueryText: 'Analyzing emails...'
+        }));
+
+        const suggestions = [];
+        const processedRoutes = new Set();
+        let jsonLdCount = 0;
+        let regexCount = 0;
+
+        for (let i = 0; i < allMessages.length; i++) {
+          const msg = allMessages[i];
+          
+          // Update progress every email
+          setImportProgress(p => ({
+            ...p,
+            currentEmail: i + 1,
+            foundFlights: suggestions.length
+          }));
+          
+          try {
+            if (i % 10 === 0) {
+              console.log(`Processing email ${i + 1}/${allMessages.length}...`);
+            }
+            
+            const details = await window.gapi.client.gmail.users.messages.get({
+              'userId': 'me', 'id': msg.id, 'format': 'full'
+            });
+            
+            const flights = extractFlightInfo(details.result);
+            
+            if (flights && Array.isArray(flights)) {
+              flights.forEach(flight => {
+                const routeKey = `${flight.origin}-${flight.destination}-${flight.date}`;
+                if (!processedRoutes.has(routeKey)) {
+                  processedRoutes.add(routeKey);
+                  suggestions.push(flight);
+                  
+                  if (flight.source === 'json-ld') jsonLdCount++;
+                  else regexCount++;
+                  
+                  console.log(`✓ Found: ${flight.origin} → ${flight.destination} | ${flight.date} | ${flight.airline || 'Unknown'} | ${flight.source}`);
+                }
+              });
+            }
+          } catch (e) {
+            // Skip failed messages
+          }
+        }
+        
+        suggestions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        console.log(`\n=== RESULTS ===`);
+        console.log(`Total flights: ${suggestions.length} (${jsonLdCount} from JSON-LD, ${regexCount} from regex)`);
+        
+        setImportProgress(p => ({...p, show: false}));
         setSuggestedFlights(suggestions);
         setShowImport(true);
       } catch (err) {
         console.error("Gmail Import Error:", err);
+        setImportProgress(p => ({...p, show: false}));
         alert("An error occurred while scanning emails.");
       } finally {
         setImporting(false);
@@ -2304,36 +2743,254 @@ const FlightTracker = () => {
       )}
 
       {/* Import Modal */}
+      {/* Gmail Import Progress Modal */}
+      {importProgress.show && (
+        <div style={modalOverlay}>
+          <div style={{
+            ...modalContent, 
+            maxWidth: '450px',
+            textAlign: 'center'
+          }}>
+            <div style={{marginBottom: '25px'}}>
+              <div style={{
+                width: '60px',
+                height: '60px',
+                margin: '0 auto 20px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #4285F4 0%, #34A853 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 0 0 0 rgba(66, 133, 244, 0.4)'
+              }}>
+                <Loader2 size={28} color="#fff" className="animate-spin" />
+              </div>
+              <h2 style={{margin: '0 0 8px 0', fontSize: '20px', fontWeight: '600'}}>
+                {importProgress.phase === 'searching' ? 'Searching Gmail...' : 'Analyzing Emails...'}
+              </h2>
+              <p style={{margin: 0, color: '#666', fontSize: '14px'}}>
+                {importProgress.currentQueryText}
+              </p>
+            </div>
+            
+            {/* Progress Bar */}
+            <div style={{
+              background: '#f0f0f0',
+              borderRadius: '10px',
+              height: '12px',
+              overflow: 'hidden',
+              marginBottom: '15px'
+            }}>
+              <div style={{
+                background: 'linear-gradient(90deg, #4285F4 0%, #34A853 100%)',
+                height: '100%',
+                borderRadius: '10px',
+                transition: 'width 0.3s ease',
+                width: importProgress.phase === 'searching' 
+                  ? `${(importProgress.currentQuery / importProgress.totalQueries) * 100}%`
+                  : `${importProgress.totalEmails > 0 ? (importProgress.currentEmail / importProgress.totalEmails) * 100 : 0}%`
+              }} />
+            </div>
+            
+            {/* Progress Stats */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '15px',
+              marginBottom: '20px'
+            }}>
+              <div style={{
+                background: '#f8f9fa',
+                padding: '12px',
+                borderRadius: '10px'
+              }}>
+                <div style={{fontSize: '24px', fontWeight: '700', color: '#4285F4'}}>
+                  {importProgress.phase === 'searching' 
+                    ? `${importProgress.currentQuery}/${importProgress.totalQueries}`
+                    : `${importProgress.currentEmail}/${importProgress.totalEmails}`
+                  }
+                </div>
+                <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>
+                  {importProgress.phase === 'searching' ? 'Queries' : 'Emails'}
+                </div>
+              </div>
+              <div style={{
+                background: '#f0fdf4',
+                padding: '12px',
+                borderRadius: '10px'
+              }}>
+                <div style={{fontSize: '24px', fontWeight: '700', color: '#16a34a'}}>
+                  {importProgress.foundFlights}
+                </div>
+                <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>
+                  Flights Found
+                </div>
+              </div>
+            </div>
+            
+            {/* Percentage */}
+            <div style={{
+              fontSize: '13px',
+              color: '#999'
+            }}>
+              {importProgress.phase === 'searching' 
+                ? `${Math.round((importProgress.currentQuery / importProgress.totalQueries) * 100)}% complete`
+                : importProgress.totalEmails > 0 
+                  ? `${Math.round((importProgress.currentEmail / importProgress.totalEmails) * 100)}% complete`
+                  : 'Starting...'
+              }
+            </div>
+          </div>
+        </div>
+      )}
+
       {showImport && (
         <div style={modalOverlay}>
-          <div style={{...modalContent, maxWidth: '600px'}}>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-              <h2>Flights Found ({suggestedFlights.length})</h2>
-              <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
+          <div style={{...modalContent, maxWidth: '650px'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
+              <h2 style={{margin: 0}}>Flights Found ({suggestedFlights.length})</h2>
+              <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+                {suggestedFlights.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => setSuggestedFlights([])}
+                      style={{
+                        padding: '6px 12px',
+                        border: '1px solid #fecaca',
+                        background: '#fff',
+                        color: '#dc2626',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: '500'
+                      }}
+                    >
+                      Clear All
+                    </button>
+                  </>
+                )}
+                <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
+              </div>
             </div>
             {suggestedFlights.length === 0 ? (
-              <div style={{textAlign:'center', padding:'20px', color:'#666'}}>
-                <AlertCircle size={30} style={{marginBottom:'10px'}}/>
-                <p>No new flight emails found.</p>
+              <div style={{textAlign:'center', padding:'30px', color:'#666'}}>
+                <AlertCircle size={40} style={{marginBottom:'15px', color:'#ccc'}}/>
+                <p style={{fontWeight:'500', marginBottom:'10px'}}>No flight emails found</p>
+                <p style={{fontSize:'13px', color:'#999', lineHeight:'1.5'}}>
+                  We searched your Gmail using multiple queries:<br/>
+                  • Gmail's reservation category<br/>
+                  • Flight confirmation keywords<br/>
+                  • Emails from known airline domains<br/><br/>
+                  <strong>Tip:</strong> Open browser console (F12) to see detailed search logs.
+                </p>
               </div>
             ) : (
-              <div style={{maxHeight: '400px', overflowY: 'auto'}}>
+              <div style={{maxHeight: '450px', overflowY: 'auto'}}>
                 {suggestedFlights.map(f => (
-                  <div key={f.id} style={{padding:'15px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div style={{flex: 1, marginRight:'15px'}}>
-                      <div style={{fontWeight:'bold'}}>{f.origin} → {f.destination}</div>
-                      <div style={{fontSize:'12px', color:'#666'}}>
+                  <div key={f.id} style={{
+                    padding:'15px', 
+                    borderBottom:'1px solid #eee', 
+                    display:'flex', 
+                    justifyContent:'space-between', 
+                    alignItems:'flex-start',
+                    gap:'12px'
+                  }}>
+                    <div style={{flex: 1}}>
+                      <div style={{fontWeight:'bold', fontSize:'16px', marginBottom:'4px'}}>
+                        {f.origin} → {f.destination}
+                      </div>
+                      <div style={{fontSize:'13px', color:'#555', marginBottom:'6px'}}>
                         {formatDate(f.date)}
-                        {f.airline && <span style={{marginLeft:'8px'}}>• {f.airline}</span>}
+                        {f.flightNumber && <span style={{marginLeft:'10px', fontWeight:'500'}}>✈ {f.flightNumber}</span>}
+                      </div>
+                      <div style={{display:'flex', gap:'6px', flexWrap:'wrap', alignItems:'center'}}>
+                        {f.airline && (
+                          <span style={{
+                            fontSize:'11px', 
+                            background:'#e8f4fd', 
+                            color:'#1e3a5f',
+                            padding:'2px 8px', 
+                            borderRadius:'10px'
+                          }}>
+                            {f.airline}
+                          </span>
+                        )}
+                        {f.confirmationNumber && (
+                          <span style={{
+                            fontSize:'11px', 
+                            background:'#fef2f2', 
+                            color:'#991b1b',
+                            padding:'2px 8px', 
+                            borderRadius:'10px'
+                          }}>
+                            PNR: {f.confirmationNumber}
+                          </span>
+                        )}
+                        {f.source === 'json-ld' && (
+                          <span style={{
+                            fontSize:'10px', 
+                            background:'#dcfce7', 
+                            color:'#166534',
+                            padding:'2px 6px', 
+                            borderRadius:'8px'
+                          }}>
+                            ✓ Verified
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <button onClick={() => handleSaveOrImport(f, true)} style={{background: '#00C851', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}>
-                      <Check size={14} /> Add
-                    </button>
+                    <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                      <button 
+                        onClick={() => handleDeleteSuggestion(f.id)}
+                        title="Remove from list"
+                        style={{
+                          background: '#fff', 
+                          color: '#dc2626', 
+                          border: '1px solid #fecaca', 
+                          padding: '8px 10px', 
+                          borderRadius: '8px', 
+                          cursor:'pointer', 
+                          display:'flex', 
+                          alignItems:'center',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.background = '#fef2f2';
+                          e.currentTarget.style.borderColor = '#dc2626';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = '#fff';
+                          e.currentTarget.style.borderColor = '#fecaca';
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleSaveOrImport(f, true)} 
+                        style={{
+                          background: '#00C851', 
+                          color: '#fff', 
+                          border: 'none', 
+                          padding: '10px 16px', 
+                          borderRadius: '8px', 
+                          cursor:'pointer', 
+                          display:'flex', 
+                          alignItems:'center', 
+                          gap:'6px',
+                          fontWeight:'500',
+                          whiteSpace:'nowrap'
+                        }}
+                      >
+                        <Check size={16} /> Add
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
+            <div style={{marginTop:'15px', paddingTop:'15px', borderTop:'1px solid #eee', fontSize:'11px', color:'#999', textAlign:'center'}}>
+              Searched using multiple Gmail queries. "Verified" = extracted from structured email data (JSON-LD).
+            </div>
           </div>
         </div>
       )}
