@@ -1085,9 +1085,9 @@ const FlightTracker = () => {
     const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
 
     // STRICTER validation - require strong evidence of being a flight ticket
-    const hasStrongFlightEvidence = /flight\s+confirmation|itinerary|e-?ticket|boarding pass/i.test(subject);
-    const hasTicketKeywords = /confirmation (?:number|code)|booking reference|ticket number|eticket|PNR|record locator/i.test(fullText);
-    const hasFlightTerms = /\b(flight|airline|departure|arrival)\b/i.test(fullText);
+    const hasStrongFlightEvidence = /flight\s+confirmation|itinerary|e-?ticket|boarding pass|booking|reservation/i.test(subject);
+    const hasTicketKeywords = /confirmation (?:number|code)|booking reference|ticket number|eticket|PNR|record locator|localizador|reserva/i.test(fullText);
+    const hasFlightTerms = /\b(flight|airline|departure|arrival|vuelo|salida|llegada)\b/i.test(fullText);
 
     // Common trusted airline/travel domains
     const trustedDomains = /united\.com|delta\.com|aa\.com|southwest\.com|jetblue\.com|alaskaair\.com|britishairways\.com|lufthansa\.com|airfrance\.com|klm\.com|emirates\.com|qatarairways\.com|singaporeair\.com|cathaypacific\.com|ana\.co\.jp|jal\.com|iberia\.com|vueling\.com|turkishairlines\.com|qantas\.com|virginatlantic\.com|aircanada\.com|spirit\.com|flyfrontier\.com|tap\.pt|sas\.se|finnair\.com|expedia\.com|booking\.com|kayak\.com|priceline\.com|orbitz\.com/i;
@@ -1096,10 +1096,20 @@ const FlightTracker = () => {
     // Filter out common false positives
     const isFalsePositive = /hotel\s+confirmation|car\s+rental|accommodation|lodging|apartment|reservation\s+request|quote\s+request|estimate|invoice\s+(?!.*flight)|receipt\s+(?!.*flight)|meeting|appointment|webinar|conference\s+(?!.*airport)/i.test(fullText);
 
-    // Require EITHER strong evidence OR trusted source + ticket keywords
+    // Relaxed validation for trusted sources
     if (isFalsePositive) return null;
-    if (!isFromTrustedSource && !hasStrongFlightEvidence) return null;
-    if (!hasTicketKeywords && !hasFlightTerms) return null;
+
+    // For trusted airline/booking domains, be more lenient
+    if (isFromTrustedSource) {
+      // Trust airline emails unless they're clearly false positives
+      // Just check for basic flight indicators
+      const hasBasicFlightIndicators = hasFlightTerms || hasTicketKeywords || /\b[A-Z]{3}\b.*\b[A-Z]{3}\b/.test(fullText);
+      if (!hasBasicFlightIndicators) return null;
+    } else {
+      // For non-trusted sources, require strong evidence
+      if (!hasStrongFlightEvidence) return null;
+      if (!hasTicketKeywords && !hasFlightTerms) return null;
+    }
 
     // Try to extract airline from email sender or content
     const airlines = [
@@ -1445,8 +1455,11 @@ const FlightTracker = () => {
         // Content: require specific booking identifiers
         const contentQuery = `(${contentKeywords.map(k => `"${k}"`).join(' OR ')})`;
 
-        // Combined query: (trusted sender OR flight subject) AND booking identifiers
-        const searchQuery = `(${senderQuery} OR ${subjectQuery}) ${contentQuery} after:${afterDate} before:${beforeDate}`;
+        // Combined query:
+        // - Emails from trusted domains (airlines/booking sites) are always included
+        // - OR emails with flight-related subject AND booking identifiers
+        // This way, we trust airline emails even if they use different terminology
+        const searchQuery = `(${senderQuery}) OR (${subjectQuery} ${contentQuery}) after:${afterDate} before:${beforeDate}`;
 
         console.log('Gmail search query:', searchQuery);
 
