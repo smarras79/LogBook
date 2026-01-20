@@ -727,7 +727,7 @@ const FlightTracker = () => {
   const [statusMsg, setStatusMsg] = useState('');
   const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null); // tracks which alliance dropdown is open
 
-  // Gmail date range state (default: 3 years ago to today)
+  // Gmail date range defaults (3 years ago to today)
   const getDefaultFromDate = () => {
     const date = new Date();
     date.setFullYear(date.getFullYear() - 3);
@@ -736,9 +736,8 @@ const FlightTracker = () => {
   const getDefaultToDate = () => {
     return new Date().toISOString().split('T')[0];
   };
-  const [gmailDateFrom, setGmailDateFrom] = useState(getDefaultFromDate());
-  const [gmailDateTo, setGmailDateTo] = useState(getDefaultToDate());
-  const [showDateRange, setShowDateRange] = useState(false);
+  const gmailDateFrom = getDefaultFromDate();
+  const gmailDateTo = getDefaultToDate();
 
   const geocoder = useRef(null);
 
@@ -1085,61 +1084,162 @@ const FlightTracker = () => {
     const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
     const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
 
-    const isTicket = /ticket number|booking ref|confirmation code|eticket|itinerary/i.test(fullText);
+    const isTicket = /ticket number|booking ref|confirmation code|eticket|itinerary|flight number/i.test(fullText);
     if (!isTicket) return null;
-
-    const originRegex = /(?:from|depart|departure|origin)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
-    const destRegex = /(?:to|arrive|arrival|destination)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
-    const simpleRouteRegex = /\b([A-Z]{3})\s*(?:to|-|->|–)\s*([A-Z]{3})\b/i;
-
-    let origin = '', destination = '';
-    const simpleMatch = fullText.match(simpleRouteRegex);
-    if (simpleMatch) {
-      origin = simpleMatch[1];
-      destination = simpleMatch[2];
-    } else {
-      const originMatch = fullText.match(originRegex);
-      const destMatch = fullText.match(destRegex);
-      if (originMatch) origin = originMatch[1];
-      if (destMatch) destination = destMatch[1];
-    }
-
-    const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/; 
-    const numMatch = fullText.match(flightNumRegex);
-    let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
 
     // Try to extract airline from email sender or content
     const airlines = [
       'United', 'Delta', 'American', 'Southwest', 'JetBlue', 'Alaska', 'Spirit', 'Frontier',
       'British Airways', 'Lufthansa', 'Air France', 'KLM', 'Emirates', 'Qatar Airways',
       'Singapore Airlines', 'Cathay Pacific', 'ANA', 'JAL', 'Turkish Airlines', 'Qantas',
-      'Virgin Atlantic', 'Air Canada', 'Aeromexico', 'LATAM', 'Iberia', 'Swiss', 'Austrian'
+      'Virgin Atlantic', 'Air Canada', 'Aeromexico', 'LATAM', 'Iberia', 'Swiss', 'Austrian',
+      'TAP', 'SAS', 'Finnair', 'Etihad', 'Avianca', 'Copa', 'Aeroflot', 'China Eastern',
+      'China Southern', 'Air China', 'EVA Air', 'Thai Airways', 'Malaysia Airlines'
     ];
     let detectedAirline = '';
     for (const airline of airlines) {
-      if (fullText.toLowerCase().includes(airline.toLowerCase()) || 
+      if (fullText.toLowerCase().includes(airline.toLowerCase()) ||
           from.toLowerCase().includes(airline.toLowerCase())) {
         detectedAirline = airline;
         break;
       }
     }
 
-    if (!origin || !destination) return null;
+    // Check if this is a round trip
+    const isRoundTrip = /round.?trip|return|outbound.*inbound|departure.*return/i.test(fullText);
 
-    const flightDate = new Date(dateHeader);
-    const formattedDate = flightDate.toISOString().split('T')[0];
+    // Extract all airport codes (3-letter IATA codes)
+    const airportMatches = fullText.match(/\b[A-Z]{3}\b/g) || [];
+    const uniqueAirports = [...new Set(airportMatches)];
 
-    return {
-      id: message.id,
-      origin: origin.toUpperCase(),
-      destination: destination.toUpperCase(),
-      date: formattedDate,
-      flightNumber: flightNum,
-      airline: detectedAirline,
-      aircraftType: 'Unknown',
-      serviceClass: 'Economy',
-      snippet: message.snippet.substring(0, 80) + "..."
-    };
+    // Extract dates - look for various date patterns
+    const datePatterns = [
+      /\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\b/g,  // MM/DD/YYYY or DD-MM-YYYY
+      /\b([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})\b/g,  // Month DD, YYYY
+      /\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b/g  // DD Month YYYY
+    ];
+
+    const extractedDates = [];
+    datePatterns.forEach(pattern => {
+      const matches = fullText.match(pattern);
+      if (matches) extractedDates.push(...matches);
+    });
+
+    // Try to find route patterns
+    const routeRegex = /\b([A-Z]{3})\s*(?:to|-|>|→|–)\s*([A-Z]{3})\b/gi;
+    const routeMatches = [...fullText.matchAll(routeRegex)];
+
+    let flights = [];
+
+    if (routeMatches.length >= 2 && isRoundTrip) {
+      // Found multiple routes - likely outbound and return
+      const outbound = routeMatches[0];
+      const returnFlight = routeMatches[1];
+
+      const outboundOrigin = outbound[1].toUpperCase();
+      const outboundDest = outbound[2].toUpperCase();
+      const returnOrigin = returnFlight[1].toUpperCase();
+      const returnDest = returnFlight[2].toUpperCase();
+
+      // Create outbound flight
+      flights.push({
+        id: `${message.id}-outbound`,
+        origin: outboundOrigin,
+        destination: outboundDest,
+        date: extractedDates[0] ? new Date(extractedDates[0]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
+        flightNumber: '',
+        airline: detectedAirline,
+        aircraftType: 'Unknown',
+        serviceClass: 'Economy',
+        snippet: `Outbound: ${outboundOrigin} → ${outboundDest}`
+      });
+
+      // Create return flight
+      flights.push({
+        id: `${message.id}-return`,
+        origin: returnOrigin,
+        destination: returnDest,
+        date: extractedDates[1] ? new Date(extractedDates[1]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
+        flightNumber: '',
+        airline: detectedAirline,
+        aircraftType: 'Unknown',
+        serviceClass: 'Economy',
+        snippet: `Return: ${returnOrigin} → ${returnDest}`
+      });
+    } else if (routeMatches.length === 1) {
+      // Single route found
+      const route = routeMatches[0];
+      const origin = route[1].toUpperCase();
+      const destination = route[2].toUpperCase();
+
+      const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/;
+      const numMatch = fullText.match(flightNumRegex);
+      let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
+
+      flights.push({
+        id: message.id,
+        origin,
+        destination,
+        date: extractedDates[0] ? new Date(extractedDates[0]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
+        flightNumber: flightNum,
+        airline: detectedAirline,
+        aircraftType: 'Unknown',
+        serviceClass: 'Economy',
+        snippet: message.snippet.substring(0, 80) + "..."
+      });
+
+      // If round trip but only one route found, create return with reversed route
+      if (isRoundTrip && extractedDates.length >= 2) {
+        flights.push({
+          id: `${message.id}-return`,
+          origin: destination,
+          destination: origin,
+          date: new Date(extractedDates[1]).toISOString().split('T')[0],
+          flightNumber: '',
+          airline: detectedAirline,
+          aircraftType: 'Unknown',
+          serviceClass: 'Economy',
+          snippet: `Return: ${destination} → ${origin}`
+        });
+      }
+    } else if (uniqueAirports.length >= 2) {
+      // Fallback: use first two unique airports
+      const origin = uniqueAirports[0];
+      const destination = uniqueAirports[1];
+
+      const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/;
+      const numMatch = fullText.match(flightNumRegex);
+      let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
+
+      flights.push({
+        id: message.id,
+        origin,
+        destination,
+        date: extractedDates[0] ? new Date(extractedDates[0]).toISOString().split('T')[0] : new Date(dateHeader).toISOString().split('T')[0],
+        flightNumber: flightNum,
+        airline: detectedAirline,
+        aircraftType: 'Unknown',
+        serviceClass: 'Economy',
+        snippet: message.snippet.substring(0, 80) + "..."
+      });
+
+      // If round trip, create return flight
+      if (isRoundTrip && extractedDates.length >= 2) {
+        flights.push({
+          id: `${message.id}-return`,
+          origin: destination,
+          destination: origin,
+          date: new Date(extractedDates[1]).toISOString().split('T')[0],
+          flightNumber: '',
+          airline: detectedAirline,
+          aircraftType: 'Unknown',
+          serviceClass: 'Economy',
+          snippet: `Return: ${destination} → ${origin}`
+        });
+      }
+    }
+
+    return flights.length > 0 ? flights : null;
   };
 
   const handleGmailImport = () => {
@@ -1150,27 +1250,63 @@ const FlightTracker = () => {
         alert("Auth failed.");
         return;
       }
+
+      // Show date range picker modal after OAuth
+      const showDateRangePicker = () => {
+        return new Promise((resolve) => {
+          const modal = document.createElement('div');
+          modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
+
+          const content = document.createElement('div');
+          content.style.cssText = 'background:#fff;padding:30px;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,0.2);max-width:400px;width:90%;';
+          content.innerHTML = `
+            <h2 style="margin:0 0 20px 0;font-size:20px;font-weight:600;">Select Date Range</h2>
+            <div style="margin-bottom:15px;">
+              <label style="display:block;margin-bottom:5px;font-size:13px;font-weight:600;">From:</label>
+              <input type="date" id="dateFrom" value="${gmailDateFrom}" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"/>
+            </div>
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:5px;font-size:13px;font-weight:600;">To:</label>
+              <input type="date" id="dateTo" value="${gmailDateTo}" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"/>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button id="cancelBtn" style="padding:10px 20px;border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Cancel</button>
+              <button id="searchBtn" style="padding:10px 20px;border:none;background:#4285F4;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Search</button>
+            </div>
+          `;
+
+          modal.appendChild(content);
+          document.body.appendChild(modal);
+
+          document.getElementById('cancelBtn').onclick = () => {
+            document.body.removeChild(modal);
+            resolve(null);
+          };
+
+          document.getElementById('searchBtn').onclick = () => {
+            const from = document.getElementById('dateFrom').value;
+            const to = document.getElementById('dateTo').value;
+            document.body.removeChild(modal);
+            resolve({ from, to });
+          };
+        });
+      };
+
+      const dateRange = await showDateRangePicker();
+      if (!dateRange) {
+        setImporting(false);
+        return;
+      }
+
       try {
         // Build date range query (Gmail format: YYYY/MM/DD)
         const formatDateForGmail = (dateStr) => dateStr.replace(/-/g, '/');
-        const afterDate = formatDateForGmail(gmailDateFrom);
-        const beforeDate = formatDateForGmail(gmailDateTo);
+        const afterDate = formatDateForGmail(dateRange.from);
+        const beforeDate = formatDateForGmail(dateRange.to);
 
-        // Common airline domains for filtering (OR logic)
-        const airlineDomains = [
-          'united.com', 'delta.com', 'aa.com', 'southwest.com', 'jetblue.com',
-          'alaskaair.com', 'spirit.com', 'flyfrontier.com', 'britishairways.com',
-          'lufthansa.com', 'airfrance.com', 'klm.com', 'emirates.com', 'qatarairways.com',
-          'singaporeair.com', 'cathaypacific.com', 'ana.co.jp', 'jal.com',
-          'turkishairlines.com', 'qantas.com', 'virginatlantic.com', 'aircanada.com',
-          'aeromexico.com', 'latam.com', 'iberia.com', 'swiss.com', 'austrian.com',
-          'etihad.com', 'tap.pt', 'sas.se', 'finnair.com', 'airfrance.fr',
-          'booking.com', 'expedia.com', 'kayak.com', 'priceline.com', 'orbitz.com'
-        ];
-
-        // Build search query with OR logic for subject keywords and sender domains
-        const subjectKeywords = ['flight', 'confirmation', 'ticket', 'itinerary', 'boarding', 'eticket'];
-        const contentKeywords = ['ticket number', 'booking reference', 'confirmation code', 'eticket'];
+        // Build search query with broad matching (less restrictive to reduce false negatives)
+        const subjectKeywords = ['flight', 'confirmation', 'ticket', 'itinerary', 'boarding', 'eticket', 'reservation'];
+        const contentKeywords = ['ticket number', 'booking reference', 'confirmation code', 'eticket', 'flight number', 'departure', 'arrival'];
 
         // Subject: at least one keyword (OR logic)
         const subjectQuery = `(${subjectKeywords.map(k => `subject:${k}`).join(' OR ')})`;
@@ -1178,18 +1314,15 @@ const FlightTracker = () => {
         // Content: at least one keyword (OR logic)
         const contentQuery = `(${contentKeywords.map(k => `"${k}"`).join(' OR ')})`;
 
-        // Sender: at least one domain (OR logic)
-        const senderQuery = `(${airlineDomains.map(d => `from:${d}`).join(' OR ')})`;
-
-        // Combined query: (subject keywords OR content keywords) AND sender domains AND date range
-        const searchQuery = `${subjectQuery} ${contentQuery} ${senderQuery} after:${afterDate} before:${beforeDate}`;
+        // Combined query: subject OR content keywords with date range (removed sender domain requirement)
+        const searchQuery = `(${subjectQuery} OR ${contentQuery}) after:${afterDate} before:${beforeDate}`;
 
         console.log('Gmail search query:', searchQuery);
 
         const response = await window.gapi.client.gmail.users.messages.list({
           'userId': 'me',
           'q': searchQuery,
-          'maxResults': 500 // Increased limit, date range controls the scope
+          'maxResults': 500
         });
 
         const messages = response.result.messages || [];
@@ -1199,9 +1332,19 @@ const FlightTracker = () => {
           const details = await window.gapi.client.gmail.users.messages.get({
             'userId': 'me', 'id': msg.id, 'format': 'full'
           });
-          const flight = extractFlightInfo(details.result);
-          if (flight && !suggestions.find(s => s.id === flight.id)) {
-            suggestions.push(flight);
+          const flights = extractFlightInfo(details.result);
+          // extractFlightInfo now returns an array to handle round trips
+          if (flights && Array.isArray(flights)) {
+            flights.forEach(flight => {
+              if (flight && !suggestions.find(s => s.id === flight.id)) {
+                suggestions.push(flight);
+              }
+            });
+          } else if (flights) {
+            // Backwards compatibility if it returns a single flight
+            if (!suggestions.find(s => s.id === flights.id)) {
+              suggestions.push(flights);
+            }
           }
         }
         setSuggestedFlights(suggestions);
@@ -1816,44 +1959,14 @@ const FlightTracker = () => {
             </div>
           )}
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
-            <button
-              onClick={handleGmailImport}
-              disabled={!gapiInited || importing}
-              style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
-            >
-              {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
-              {importing ? "Scanning..." : "Sync Gmail"}
-            </button>
-            <button
-              onClick={() => setShowDateRange(!showDateRange)}
-              style={{ background: 'transparent', color: '#666', border: '1px solid #ddd', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}
-            >
-              {showDateRange ? '▲' : '▼'} Date Range
-            </button>
-            {showDateRange && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#f9f9f9', padding: '12px', borderRadius: '8px', border: '1px solid #ddd' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '600', minWidth: '50px' }}>From:</label>
-                  <input
-                    type="date"
-                    value={gmailDateFrom}
-                    onChange={(e) => setGmailDateFrom(e.target.value)}
-                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <label style={{ fontSize: '12px', fontWeight: '600', minWidth: '50px' }}>To:</label>
-                  <input
-                    type="date"
-                    value={gmailDateTo}
-                    onChange={(e) => setGmailDateTo(e.target.value)}
-                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={handleGmailImport}
+            disabled={!gapiInited || importing}
+            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
+          >
+            {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
+            {importing ? "Scanning..." : "Sync Gmail"}
+          </button>
           <button onClick={() => { 
             setEditingFlight(null); 
             setFormData({ 
@@ -2739,29 +2852,30 @@ const FlightTracker = () => {
                         </div>
                       )}
                       
-                      {/* Common badges */}
+                      {/* Common badges (only for single-leg flights) */}
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                         {f.aircraftType && f.aircraftType !== 'Unknown' && (
                           <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
                             {f.aircraftType}
                           </span>
                         )}
-                        {f.serviceClass && (
-                          <span style={{ 
-                            fontSize: '12px', 
-                            color: f.serviceClass === 'Economy' ? '#8b6914' : 
-                                   f.serviceClass === 'Premium Economy' ? '#166534' : 
-                                   f.serviceClass === 'Business' ? '#1e40af' : 
+                        {/* Only show serviceClass badge for single-leg flights (multi-leg shows it above) */}
+                        {!hasMultipleLegs && f.serviceClass && (
+                          <span style={{
+                            fontSize: '12px',
+                            color: f.serviceClass === 'Economy' ? '#8b6914' :
+                                   f.serviceClass === 'Premium Economy' ? '#166534' :
+                                   f.serviceClass === 'Business' ? '#1e40af' :
                                    '#854d0e',
-                            background: f.serviceClass === 'Economy' ? '#fef3c7' : 
-                                        f.serviceClass === 'Premium Economy' ? '#dcfce7' : 
-                                        f.serviceClass === 'Business' ? '#dbeafe' : 
+                            background: f.serviceClass === 'Economy' ? '#fef3c7' :
+                                        f.serviceClass === 'Premium Economy' ? '#dcfce7' :
+                                        f.serviceClass === 'Business' ? '#dbeafe' :
                                         '#fef9c3',
-                            padding: '3px 8px', 
+                            padding: '3px 8px',
                             borderRadius: '6px',
                             fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
                           }}>
-                            {f.serviceClass === 'Economy' ? '🐔 Chicken class' : 
+                            {f.serviceClass === 'Economy' ? '🐔 Chicken class' :
                              f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
                              f.serviceClass === 'Business' ? '💼 Business' :
                              '👑 First'}
