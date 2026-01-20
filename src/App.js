@@ -723,9 +723,23 @@ const FlightTracker = () => {
   const [gapiInited, setGapiInited] = useState(false);
   const [tokenClient, setTokenClient] = useState(null);
   const [editingFlight, setEditingFlight] = useState(null);
-  const [isVerifying, setIsVerifying] = useState(false); 
+  const [isVerifying, setIsVerifying] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null); // tracks which alliance dropdown is open
+
+  // Gmail date range state (default: 3 years ago to today)
+  const getDefaultFromDate = () => {
+    const date = new Date();
+    date.setFullYear(date.getFullYear() - 3);
+    return date.toISOString().split('T')[0];
+  };
+  const getDefaultToDate = () => {
+    return new Date().toISOString().split('T')[0];
+  };
+  const [gmailDateFrom, setGmailDateFrom] = useState(getDefaultFromDate());
+  const [gmailDateTo, setGmailDateTo] = useState(getDefaultToDate());
+  const [showDateRange, setShowDateRange] = useState(false);
+
   const geocoder = useRef(null);
 
   const [formData, setFormData] = useState({
@@ -1137,18 +1151,53 @@ const FlightTracker = () => {
         return;
       }
       try {
+        // Build date range query (Gmail format: YYYY/MM/DD)
+        const formatDateForGmail = (dateStr) => dateStr.replace(/-/g, '/');
+        const afterDate = formatDateForGmail(gmailDateFrom);
+        const beforeDate = formatDateForGmail(gmailDateTo);
+
+        // Common airline domains for filtering (OR logic)
+        const airlineDomains = [
+          'united.com', 'delta.com', 'aa.com', 'southwest.com', 'jetblue.com',
+          'alaskaair.com', 'spirit.com', 'flyfrontier.com', 'britishairways.com',
+          'lufthansa.com', 'airfrance.com', 'klm.com', 'emirates.com', 'qatarairways.com',
+          'singaporeair.com', 'cathaypacific.com', 'ana.co.jp', 'jal.com',
+          'turkishairlines.com', 'qantas.com', 'virginatlantic.com', 'aircanada.com',
+          'aeromexico.com', 'latam.com', 'iberia.com', 'swiss.com', 'austrian.com',
+          'etihad.com', 'tap.pt', 'sas.se', 'finnair.com', 'airfrance.fr',
+          'booking.com', 'expedia.com', 'kayak.com', 'priceline.com', 'orbitz.com'
+        ];
+
+        // Build search query with OR logic for subject keywords and sender domains
+        const subjectKeywords = ['flight', 'confirmation', 'ticket', 'itinerary', 'boarding', 'eticket'];
+        const contentKeywords = ['ticket number', 'booking reference', 'confirmation code', 'eticket'];
+
+        // Subject: at least one keyword (OR logic)
+        const subjectQuery = `(${subjectKeywords.map(k => `subject:${k}`).join(' OR ')})`;
+
+        // Content: at least one keyword (OR logic)
+        const contentQuery = `(${contentKeywords.map(k => `"${k}"`).join(' OR ')})`;
+
+        // Sender: at least one domain (OR logic)
+        const senderQuery = `(${airlineDomains.map(d => `from:${d}`).join(' OR ')})`;
+
+        // Combined query: (subject keywords OR content keywords) AND sender domains AND date range
+        const searchQuery = `${subjectQuery} ${contentQuery} ${senderQuery} after:${afterDate} before:${beforeDate}`;
+
+        console.log('Gmail search query:', searchQuery);
+
         const response = await window.gapi.client.gmail.users.messages.list({
           'userId': 'me',
-          'q': 'subject:(flight OR confirmation OR ticket) AND ("ticket number" OR "booking reference" OR "eticket")',
-          'maxResults': 15
+          'q': searchQuery,
+          'maxResults': 500 // Increased limit, date range controls the scope
         });
 
         const messages = response.result.messages || [];
         const suggestions = [];
 
         for (let msg of messages) {
-          const details = await window.gapi.client.gmail.users.messages.get({ 
-            'userId': 'me', 'id': msg.id, 'format': 'full' 
+          const details = await window.gapi.client.gmail.users.messages.get({
+            'userId': 'me', 'id': msg.id, 'format': 'full'
           });
           const flight = extractFlightInfo(details.result);
           if (flight && !suggestions.find(s => s.id === flight.id)) {
@@ -1767,14 +1816,44 @@ const FlightTracker = () => {
             </div>
           )}
           
-          <button 
-            onClick={handleGmailImport} 
-            disabled={!gapiInited || importing}
-            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
-          >
-            {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
-            {importing ? "Scanning..." : "Sync Gmail"}
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+            <button
+              onClick={handleGmailImport}
+              disabled={!gapiInited || importing}
+              style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
+            >
+              {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
+              {importing ? "Scanning..." : "Sync Gmail"}
+            </button>
+            <button
+              onClick={() => setShowDateRange(!showDateRange)}
+              style={{ background: 'transparent', color: '#666', border: '1px solid #ddd', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}
+            >
+              {showDateRange ? '▲' : '▼'} Date Range
+            </button>
+            {showDateRange && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#f9f9f9', padding: '12px', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', minWidth: '50px' }}>From:</label>
+                  <input
+                    type="date"
+                    value={gmailDateFrom}
+                    onChange={(e) => setGmailDateFrom(e.target.value)}
+                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', minWidth: '50px' }}>To:</label>
+                  <input
+                    type="date"
+                    value={gmailDateTo}
+                    onChange={(e) => setGmailDateTo(e.target.value)}
+                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '12px' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={() => { 
             setEditingFlight(null); 
             setFormData({ 
