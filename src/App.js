@@ -215,7 +215,7 @@ const searchAirports = (query) => {
   ).slice(0, 8); // Limit to 8 suggestions
 };
 
-const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
+const serviceClasses = ['Chicken Class', 'Premium Economy', 'Business', 'First'];
 
 // --- AIRLINE ALLIANCES DATABASE ---
 const AIRLINE_ALLIANCES = {
