@@ -808,6 +808,11 @@ const FlightTracker = () => {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   
+  // User nickname state
+  const [nickname, setNickname] = useState('');
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState('');
+  
   // Progress tracking for Gmail import
   const [importProgress, setImportProgress] = useState({
     show: false,
@@ -873,15 +878,18 @@ const FlightTracker = () => {
         if (userDoc.exists()) {
           setFlights(userDoc.data().flights || []);
           setContestOptIn(userDoc.data().contestOptIn || false);
+          setNickname(userDoc.data().nickname || '');
         } else {
           // Create user document if it doesn't exist
-          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false });
+          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false, nickname: '' });
           setFlights([]);
           setContestOptIn(false);
+          setNickname('');
         }
       } else {
         setAuthUser(null);
         setContestOptIn(false);
+        setNickname('');
         // Fall back to localStorage for non-authenticated users
         const localFlights = localStorage.getItem('flights-data');
         setFlights(localFlights ? JSON.parse(localFlights) : []);
@@ -929,7 +937,7 @@ const FlightTracker = () => {
         const publicStatsRef = doc(db, 'publicStats', authUser.uid);
         try {
           await setDoc(publicStatsRef, {
-            displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+            displayName: nickname || authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
             email: authUser.email,
             ...stats,
             updatedAt: new Date().toISOString()
@@ -940,7 +948,7 @@ const FlightTracker = () => {
       }
     };
     updatePublicStats();
-  }, [flights, contestOptIn, authUser, authLoading, contestLoading]);
+  }, [flights, contestOptIn, authUser, authLoading, contestLoading, nickname]);
 
   // Handle contest opt-in toggle
   const handleContestOptInToggle = async (newValue) => {
@@ -959,7 +967,7 @@ const FlightTracker = () => {
         // Add stats to public collection
         const stats = calculateUserStats(flights);
         await setDoc(publicStatsRef, {
-          displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+          displayName: nickname || authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
           email: authUser.email,
           ...stats,
           updatedAt: new Date().toISOString()
@@ -1031,6 +1039,43 @@ const FlightTracker = () => {
       fetchLeaderboard();
     }
   }, [showLeaderboard, authUser]);
+
+  // Handle nickname save
+  const handleSaveNickname = async () => {
+    if (!authUser) return;
+    
+    const trimmedNickname = nicknameInput.trim();
+    const userDocRef = doc(db, 'users', authUser.uid);
+    
+    try {
+      await updateDoc(userDocRef, { nickname: trimmedNickname });
+      setNickname(trimmedNickname);
+      setEditingNickname(false);
+      
+      // Also update public stats if opted in
+      if (contestOptIn) {
+        const publicStatsRef = doc(db, 'publicStats', authUser.uid);
+        const stats = calculateUserStats(flights);
+        await setDoc(publicStatsRef, {
+          displayName: trimmedNickname || authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+          email: authUser.email,
+          ...stats,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      console.error('Error saving nickname:', error);
+      alert('Failed to save nickname. Please try again.');
+    }
+  };
+
+  // Get display name (nickname or email prefix)
+  const getDisplayName = () => {
+    if (nickname) return nickname;
+    if (authUser?.displayName) return authUser.displayName;
+    if (authUser?.email) return authUser.email.split('@')[0];
+    return 'User';
+  };
 
   useEffect(() => {
     const session = localStorage.getItem('user-profile');
@@ -2798,21 +2843,95 @@ const FlightTracker = () => {
             <Loader2 className="animate-spin" size={20} style={{ color: '#888' }} />
           ) : authUser ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '8px', 
-                padding: '8px 12px', 
-                background: '#f0fdf4', 
-                borderRadius: '20px',
-                fontSize: '13px',
-                color: '#166534'
-              }}>
-                <User size={16} />
-                <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {authUser.email}
-                </span>
-              </div>
+              {editingNickname ? (
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  padding: '4px 8px', 
+                  background: '#f0fdf4', 
+                  borderRadius: '20px'
+                }}>
+                  <input
+                    type="text"
+                    value={nicknameInput}
+                    onChange={(e) => setNicknameInput(e.target.value)}
+                    placeholder="Enter nickname"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveNickname();
+                      if (e.key === 'Escape') {
+                        setEditingNickname(false);
+                        setNicknameInput(nickname);
+                      }
+                    }}
+                    style={{
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      fontSize: '13px',
+                      width: '120px',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    onClick={handleSaveNickname}
+                    style={{
+                      background: '#10b981',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingNickname(false);
+                      setNicknameInput(nickname);
+                    }}
+                    style={{
+                      background: '#f3f4f6',
+                      color: '#666',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div 
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    padding: '8px 12px', 
+                    background: '#f0fdf4', 
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    color: '#166534',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setNicknameInput(nickname || '');
+                    setEditingNickname(true);
+                  }}
+                  title="Click to edit nickname"
+                >
+                  <User size={16} />
+                  <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getDisplayName()}
+                  </span>
+                  <Edit2 size={12} style={{ opacity: 0.6 }} />
+                </div>
+              )}
               <button 
                 onClick={handleLogout}
                 style={{ 
@@ -4745,7 +4864,7 @@ const FlightTracker = () => {
              ) : (
                 <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
                   {/* Route Section with Autocomplete */}
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     {/* Origin Input with Autocomplete */}
                     <div style={{ flex: 1, position: 'relative' }}>
                       <input 
@@ -4816,12 +4935,13 @@ const FlightTracker = () => {
                         background: '#f3f4f6',
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
-                        padding: '10px',
+                        width: '42px',
+                        height: '42px',
+                        minWidth: '42px',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        alignSelf: 'center',
                         flexShrink: 0,
                         transition: 'all 0.2s ease'
                       }}
