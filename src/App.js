@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
-  LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard
+  LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight
 } from 'lucide-react';
 
 // Firebase imports
@@ -215,7 +215,7 @@ const searchAirports = (query) => {
   ).slice(0, 8); // Limit to 8 suggestions
 };
 
-const serviceClasses = ['Chicken Class', 'Premium Economy', 'Business', 'First'];
+const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
 
 // --- AIRLINE ALLIANCES DATABASE ---
 const AIRLINE_ALLIANCES = {
@@ -780,7 +780,9 @@ const decodeEmailBody = (payload) => {
 const formatDate = (dateString) => {
   if (!dateString) return "";
   const [year, month, day] = dateString.split('-');
-  return `${month}-${day}-${year}`;
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthIndex = parseInt(month, 10) - 1;
+  return `${monthNames[monthIndex]} ${parseInt(day, 10)}, ${year}`;
 };
 
 const FlightTracker = () => {
@@ -844,13 +846,13 @@ const FlightTracker = () => {
     date: '', 
     aircraftType: '', 
     airline: '', 
-    serviceClass: 'Chicken class', 
+    serviceClass: 'Economy', 
     checkLandmarks: false,
     hasLayover: false,
     viaAirports: [''], // Array of connection airport codes
     legAirlines: ['', ''], // Airlines for each leg
     legAircraftTypes: ['', ''], // Aircraft for each leg
-    legServiceClasses: ['Chicken Class', 'Economy'], // Service class for each leg
+    legServiceClasses: ['Economy', 'Economy'], // Service class for each leg
     paymentType: 'money', // 'money' or 'miles'
     paymentAmount: ''
   });
@@ -1351,7 +1353,7 @@ const FlightTracker = () => {
                   flightNumber: (flight.airline?.iataCode || '') + (flight.flightNumber || ''),
                   airline: flight.airline?.name || '',
                   aircraftType: flight.aircraft?.name || flight.aircraft?.model || 'Unknown',
-                  serviceClass: item.reservedTicket?.ticketedSeat?.seatingType || 'Chicken Class',
+                  serviceClass: item.reservedTicket?.ticketedSeat?.seatingType || 'Economy',
                   confirmationNumber: item.reservationNumber || '',
                   snippet: `${departureAirport.name || departureAirport.iataCode} → ${arrivalAirport.name || arrivalAirport.iataCode}`,
                   source: 'json-ld'
@@ -1373,7 +1375,7 @@ const FlightTracker = () => {
                   flightNumber: (item.airline?.iataCode || '') + (item.flightNumber || ''),
                   airline: item.airline?.name || '',
                   aircraftType: item.aircraft?.name || 'Unknown',
-                  serviceClass: 'Chicken Class',
+                  serviceClass: 'Economy',
                   confirmationNumber: '',
                   snippet: `${departureAirport.name || departureAirport.iataCode} → ${arrivalAirport.name || arrivalAirport.iataCode}`,
                   source: 'json-ld'
@@ -1648,7 +1650,7 @@ const FlightTracker = () => {
           flightNumber: seg.flightNumber,
           airline: detectedAirline,
           aircraftType: 'Unknown',
-          serviceClass: 'Chicken Class',
+          serviceClass: 'Economy',
           confirmationNumber,
           snippet: `${seg.origin} → ${seg.destination}`,
           source: 'multi-segment'
@@ -1846,7 +1848,7 @@ const FlightTracker = () => {
       flightNumber,
       airline: detectedAirline,
       aircraftType: 'Unknown',
-      serviceClass: 'Chicken Class',
+      serviceClass: 'Economy',
       confirmationNumber,
       snippet: message.snippet?.substring(0, 80) + '...',
       source: 'regex-fallback'
@@ -2046,6 +2048,61 @@ const FlightTracker = () => {
         let jsonLdCount = 0;
         let regexCount = 0;
 
+        // Helper function to detect and group round trips
+        const groupRoundTrips = (flights) => {
+          if (!flights || flights.length < 2) return flights;
+          
+          const result = [];
+          const used = new Set();
+          
+          for (let i = 0; i < flights.length; i++) {
+            if (used.has(i)) continue;
+            
+            const outbound = flights[i];
+            let returnFlight = null;
+            let returnIndex = -1;
+            
+            // Look for a return flight (same confirmation, reversed route)
+            for (let j = i + 1; j < flights.length; j++) {
+              if (used.has(j)) continue;
+              
+              const candidate = flights[j];
+              const sameConfirmation = outbound.confirmationNumber && 
+                                       outbound.confirmationNumber === candidate.confirmationNumber;
+              const isReversed = outbound.origin === candidate.destination && 
+                                outbound.destination === candidate.origin;
+              const returnDateAfter = !outbound.date || !candidate.date || 
+                                      new Date(candidate.date) >= new Date(outbound.date);
+              
+              if ((sameConfirmation || isReversed) && isReversed && returnDateAfter) {
+                returnFlight = candidate;
+                returnIndex = j;
+                break;
+              }
+            }
+            
+            if (returnFlight) {
+              // Mark as round trip
+              used.add(i);
+              used.add(returnIndex);
+              
+              result.push({
+                ...outbound,
+                id: `${outbound.id}-rt`,
+                isRoundTrip: true,
+                outboundFlight: outbound,
+                returnFlight: returnFlight,
+                snippet: `${outbound.origin} ⇄ ${outbound.destination} (Round Trip)`,
+                returnDate: returnFlight.date
+              });
+            } else {
+              result.push(outbound);
+            }
+          }
+          
+          return result;
+        };
+
         for (let i = 0; i < allMessages.length; i++) {
           const msg = allMessages[i];
           
@@ -2065,11 +2122,18 @@ const FlightTracker = () => {
               'userId': 'me', 'id': msg.id, 'format': 'full'
             });
             
-            const flights = extractFlightInfo(details.result);
+            let flights = extractFlightInfo(details.result);
+            
+            // Group round trips within the same email
+            if (flights && Array.isArray(flights) && flights.length >= 2) {
+              flights = groupRoundTrips(flights);
+            }
             
             if (flights && Array.isArray(flights)) {
               flights.forEach(flight => {
-                const routeKey = `${flight.origin}-${flight.destination}-${flight.date}`;
+                const routeKey = flight.isRoundTrip 
+                  ? `${flight.origin}-${flight.destination}-RT-${flight.date}`
+                  : `${flight.origin}-${flight.destination}-${flight.date}`;
                 if (!processedRoutes.has(routeKey)) {
                   processedRoutes.add(routeKey);
                   suggestions.push(flight);
@@ -2077,7 +2141,11 @@ const FlightTracker = () => {
                   if (flight.source === 'json-ld') jsonLdCount++;
                   else regexCount++;
                   
-                  console.log(`✓ Found: ${flight.origin} → ${flight.destination} | ${flight.date} | ${flight.airline || 'Unknown'} | ${flight.source}`);
+                  if (flight.isRoundTrip) {
+                    console.log(`✓ Found Round Trip: ${flight.origin} ⇄ ${flight.destination} | ${flight.date} - ${flight.returnDate} | ${flight.airline || 'Unknown'} | ${flight.source}`);
+                  } else {
+                    console.log(`✓ Found: ${flight.origin} → ${flight.destination} | ${flight.date} | ${flight.airline || 'Unknown'} | ${flight.source}`);
+                  }
                 }
               });
             }
@@ -2108,6 +2176,45 @@ const FlightTracker = () => {
 
   // --- SAVE & IMPORT LOGIC ---
   const handleSaveOrImport = async (flightData, isImport = false) => {
+    // Handle round trips by adding both flights
+    if (flightData.isRoundTrip && isImport) {
+      setIsVerifying(true);
+      setStatusMsg('Adding outbound flight...');
+      
+      try {
+        // Add outbound flight
+        const outbound = flightData.outboundFlight;
+        const outboundId = Date.now();
+        await handleSaveOrImportSingle({ ...outbound, id: outboundId }, true, true);
+        
+        // Small delay to ensure unique ID
+        await new Promise(r => setTimeout(r, 50));
+        
+        // Add return flight
+        setStatusMsg('Adding return flight...');
+        const returnFlight = flightData.returnFlight;
+        const returnId = Date.now();
+        await handleSaveOrImportSingle({ ...returnFlight, id: returnId }, true, true);
+        
+        // Remove from suggestions
+        setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
+        
+        setIsVerifying(false);
+        setStatusMsg('');
+      } catch (e) {
+        console.error('Error adding round trip:', e);
+        setIsVerifying(false);
+        setStatusMsg('');
+        alert('Error adding round trip. Check console for details.');
+      }
+      return;
+    }
+    
+    // Regular single flight
+    await handleSaveOrImportSingle(flightData, isImport, false);
+  };
+
+  const handleSaveOrImportSingle = async (flightData, isImport = false, skipStatusReset = false) => {
     setIsVerifying(true);
     setStatusMsg('Verifying Airports...');
     try {
@@ -2172,7 +2279,7 @@ const FlightTracker = () => {
                     destCity: legTo.city,
                     airline: legAirlines[i] || flightData.airline || '',
                     aircraftType: legAircraftTypes[i] || flightData.aircraftType || '',
-                    serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Chicken Class',
+                    serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Economy',
                     distance: legDist,
                     featuresCrossed: legFeatures
                 });
@@ -2219,7 +2326,7 @@ const FlightTracker = () => {
                 destCity: to.city,
                 airline: flightData.airline || '',
                 aircraftType: flightData.aircraftType || '',
-                serviceClass: flightData.serviceClass || 'Chicken Class',
+                serviceClass: flightData.serviceClass || 'Economy',
                 distance: dist,
                 featuresCrossed: features
             });
@@ -2254,18 +2361,23 @@ const FlightTracker = () => {
         setEditingFlight(null);
         setFormData({ 
             origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-            serviceClass: 'Chicken Class', checkLandmarks: false, hasLayover: false,
-            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Chicken Class', 'Chicken Class'],
+            serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
             paymentType: 'money', paymentAmount: ''
         });
         setAirportSuggestions([]);
         setActiveAirportField(null);
     } catch (e) {
         console.error(e);
+        if (skipStatusReset) {
+            throw e; // Rethrow to let parent handle it
+        }
         alert("Error saving flight. Check console for details.");
     } finally {
-        setIsVerifying(false);
-        setStatusMsg('');
+        if (!skipStatusReset) {
+            setIsVerifying(false);
+            setStatusMsg('');
+        }
     }
   };
 
@@ -2322,8 +2434,8 @@ const FlightTracker = () => {
   const getCarbonEstimate = (distance, serviceClass) => {
     const baseRatePerMile = 0.14; // kg CO2 per passenger-mile for economy
     const classMultipliers = {
-      'Chicken Class': 1.0,
-      'Premium Chicken Class': 1.5,
+      'Economy': 1.0,
+      'Premium Economy': 1.5,
       'Business': 2.5,
       'First': 4.0
     };
@@ -2342,11 +2454,11 @@ const FlightTracker = () => {
     if (f.legs && f.legs.length > 1) {
       // Multi-leg trip: calculate carbon per leg with its own service class
       return sum + f.legs.reduce((legSum, leg) => {
-        return legSum + getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Chicken Class');
+        return legSum + getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Economy');
       }, 0);
     } else {
       // Single leg trip
-      return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Chicken Class');
+      return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
     }
   }, 0);
   const totalCarbonTons = (totalCarbonKg / 1000).toFixed(2);
@@ -2434,7 +2546,7 @@ const FlightTracker = () => {
     if (f.legs && f.legs.length > 1) {
       // Multi-leg trip: count each leg's service class
       f.legs.forEach(leg => {
-        const cls = leg.serviceClass || 'Chicken Class';
+        const cls = leg.serviceClass || 'Economy';
         classStats[cls] = (classStats[cls] || 0) + 1;
       });
     } else if (f.serviceClass) {
@@ -2442,7 +2554,7 @@ const FlightTracker = () => {
       classStats[f.serviceClass] = (classStats[f.serviceClass] || 0) + 1;
     }
   });
-  const classOrder = ['First', 'Business', 'Premium Chicken Class', 'Chicken Class'];
+  const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
   const sortedClasses = Object.entries(classStats).sort((a, b) => {
     return classOrder.indexOf(a[0]) - classOrder.indexOf(b[0]);
   });
@@ -2453,13 +2565,13 @@ const FlightTracker = () => {
     if (f.legs && f.legs.length > 1) {
       // Multi-leg trip: calculate carbon per leg with its own service class
       f.legs.forEach(leg => {
-        const cls = leg.serviceClass || 'Chicken Class';
+        const cls = leg.serviceClass || 'Economy';
         const carbon = getCarbonEstimate(leg.distance || 0, cls);
         carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
       });
     } else {
       // Single leg trip
-      const cls = f.serviceClass || 'Chicken Class';
+      const cls = f.serviceClass || 'Economy';
       const carbon = getCarbonEstimate(f.distance || 0, cls);
       carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
     }
@@ -2523,14 +2635,14 @@ const FlightTracker = () => {
       const viaAirports = flight.legs.slice(1, -1).map(leg => leg.origin);
       const legAirlines = flight.legs.map(leg => leg.airline || '');
       const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
-      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Chicken Class');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
       
       setFormData({
         origin: flight.origin,
         destination: flight.destination,
         airline: '',
         aircraftType: '',
-        serviceClass: 'Chicken Class',
+        serviceClass: 'Economy',
         date: '', // Clear date so user must enter new one
         checkLandmarks: false,
         hasLayover: true,
@@ -2546,14 +2658,67 @@ const FlightTracker = () => {
         destination: flight.destination,
         airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
-        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Chicken Class',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
         date: '', // Clear date so user must enter new one
         checkLandmarks: false,
         hasLayover: false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
-        legServiceClasses: ['Chicken Class', 'Chicken Class'],
+        legServiceClasses: ['Economy', 'Economy'],
+        paymentType: 'money',
+        paymentAmount: ''
+      });
+    }
+    setShowForm(true);
+  };
+
+  // Handler to create a return flight (reverse origin and destination)
+  const handleReverseFlight = (flight) => {
+    setEditingFlight(null); // Not editing, creating new
+    
+    // Check if flight has multiple legs
+    const hasMultipleLegs = flight.legs && flight.legs.length > 1;
+    
+    if (hasMultipleLegs) {
+      // Reverse the entire route: destination becomes origin, via airports are reversed
+      const reversedLegs = [...flight.legs].reverse();
+      const viaAirports = reversedLegs.slice(1, -1).map(leg => leg.destination);
+      const legAirlines = reversedLegs.map(leg => leg.airline || '');
+      const legAircraftTypes = reversedLegs.map(leg => leg.aircraftType || '');
+      const legServiceClasses = reversedLegs.map(leg => leg.serviceClass || 'Economy');
+      
+      setFormData({
+        origin: flight.destination, // Swap
+        destination: flight.origin, // Swap
+        airline: '',
+        aircraftType: '',
+        serviceClass: 'Economy',
+        date: '', // Clear date so user must enter new one
+        checkLandmarks: false,
+        hasLayover: true,
+        viaAirports: viaAirports.length > 0 ? viaAirports : [''],
+        legAirlines: legAirlines,
+        legAircraftTypes: legAircraftTypes,
+        legServiceClasses: legServiceClasses,
+        paymentType: 'money',
+        paymentAmount: ''
+      });
+    } else {
+      const singleLeg = flight.legs && flight.legs[0];
+      setFormData({
+        origin: flight.destination, // Swap
+        destination: flight.origin, // Swap
+        airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
+        aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        date: '', // Clear date so user must enter new one
+        checkLandmarks: false,
+        hasLayover: false,
+        viaAirports: [''],
+        legAirlines: ['', ''],
+        legAircraftTypes: ['', ''],
+        legServiceClasses: ['Economy', 'Economy'],
         paymentType: 'money',
         paymentAmount: ''
       });
@@ -2576,14 +2741,14 @@ const FlightTracker = () => {
       }
       const legAirlines = flight.legs.map(leg => leg.airline || '');
       const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
-      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Chicken Class');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
       
       setFormData({
         origin: flight.origin,
         destination: flight.destination,
         airline: '',
         aircraftType: '',
-        serviceClass: 'Chicken Class',
+        serviceClass: 'Economy',
         date: flight.date || '',
         checkLandmarks: false,
         hasLayover: true,
@@ -2601,14 +2766,14 @@ const FlightTracker = () => {
         destination: flight.destination,
         airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
-        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Chicken Class',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
         date: flight.date || '',
         checkLandmarks: false,
         hasLayover: false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
-        legServiceClasses: ['Chicken Class', 'Chicken Class'],
+        legServiceClasses: ['Economy', 'Economy'],
         paymentType: flight.paymentType || 'money',
         paymentAmount: flight.paymentAmount || ''
       });
@@ -2717,8 +2882,8 @@ const FlightTracker = () => {
             setEditingFlight(null); 
             setFormData({ 
               origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-              serviceClass: 'Chicken Class', checkLandmarks: false, hasLayover: false,
-              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Chicken Class', 'Chicken Class'],
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
               paymentType: 'money', paymentAmount: ''
             });
             setAirportSuggestions([]);
@@ -3036,15 +3201,39 @@ const FlightTracker = () => {
                     display:'flex', 
                     justifyContent:'space-between', 
                     alignItems:'flex-start',
-                    gap:'12px'
+                    gap:'12px',
+                    background: f.isRoundTrip ? '#f0fdf4' : 'transparent'
                   }}>
                     <div style={{flex: 1}}>
-                      <div style={{fontWeight:'bold', fontSize:'16px', marginBottom:'4px'}}>
-                        {f.origin} → {f.destination}
+                      <div style={{fontWeight:'bold', fontSize:'16px', marginBottom:'4px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                        {f.isRoundTrip ? (
+                          <>
+                            {f.origin} ⇄ {f.destination}
+                            <span style={{
+                              fontSize: '10px',
+                              background: '#16a34a',
+                              color: '#fff',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              fontWeight: '600'
+                            }}>
+                              Round Trip
+                            </span>
+                          </>
+                        ) : (
+                          <>{f.origin} → {f.destination}</>
+                        )}
                       </div>
                       <div style={{fontSize:'13px', color:'#555', marginBottom:'6px'}}>
-                        {formatDate(f.date)}
-                        {f.flightNumber && <span style={{marginLeft:'10px', fontWeight:'500'}}>✈ {f.flightNumber}</span>}
+                        {f.isRoundTrip ? (
+                          <>
+                            <span>Outbound: {formatDate(f.date)}</span>
+                            <span style={{marginLeft: '12px'}}>Return: {formatDate(f.returnDate)}</span>
+                          </>
+                        ) : (
+                          formatDate(f.date)
+                        )}
+                        {f.flightNumber && !f.isRoundTrip && <span style={{marginLeft:'10px', fontWeight:'500'}}>✈ {f.flightNumber}</span>}
                       </div>
                       <div style={{display:'flex', gap:'6px', flexWrap:'wrap', alignItems:'center'}}>
                         {f.airline && (
@@ -3111,7 +3300,7 @@ const FlightTracker = () => {
                       <button 
                         onClick={() => handleSaveOrImport(f, true)} 
                         style={{
-                          background: '#00C851', 
+                          background: f.isRoundTrip ? '#16a34a' : '#00C851', 
                           color: '#fff', 
                           border: 'none', 
                           padding: '10px 16px', 
@@ -3124,7 +3313,7 @@ const FlightTracker = () => {
                           whiteSpace:'nowrap'
                         }}
                       >
-                        <Check size={16} /> Add
+                        <Check size={16} /> {f.isRoundTrip ? 'Add Both' : 'Add'}
                       </button>
                     </div>
                   </div>
@@ -3585,12 +3774,12 @@ const FlightTracker = () => {
           <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
             <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
             {sortedClasses.map(([name, count]) => {
-              const barColor = name === 'Chicken Class' ? '#d97706' : 
-                               name === 'Premium Chicken Class' ? '#16a34a' : 
+              const barColor = name === 'Economy' ? '#d97706' : 
+                               name === 'Premium Economy' ? '#16a34a' : 
                                name === 'Business' ? '#2563eb' : 
                                '#ca8a04'; /* First - gold */
-              const displayName = name === 'Chicken Class' ? '🐔 Chicken class' : 
-                                  name === 'Premium Chicken Class' ? '💺 Premium Chicken Class' :
+              const displayName = name === 'Economy' ? '🐔 Chicken class' : 
+                                  name === 'Premium Economy' ? '💺 Premium Economy' :
                                   name === 'Business' ? '💼 Business' :
                                   '👑 First';
               return (
@@ -3851,12 +4040,12 @@ const FlightTracker = () => {
             
             <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>Your breakdown by class:</div>
             {sortedCarbonByClass.map(([name, carbonKg]) => {
-              const barColor = name === 'Chicken Class' ? '#d97706' : 
-                               name === 'Premium Chicken Class' ? '#16a34a' : 
+              const barColor = name === 'Economy' ? '#d97706' : 
+                               name === 'Premium Economy' ? '#16a34a' : 
                                name === 'Business' ? '#2563eb' : 
                                '#ca8a04';
-              const displayName = name === 'Chicken Class' ? '🐔 Chicken' : 
-                                  name === 'Premium Chicken Class' ? '💺 Prem Eco' :
+              const displayName = name === 'Economy' ? '🐔 Chicken' : 
+                                  name === 'Premium Economy' ? '💺 Prem Eco' :
                                   name === 'Business' ? '💼 Business' :
                                   '👑 First';
               return (
@@ -3902,6 +4091,12 @@ const FlightTracker = () => {
                     </span>
                   );
                 })()}
+                <ArrowLeftRight 
+                  size={16} 
+                  style={{ cursor: 'pointer', color: '#666' }} 
+                  title="Add return flight (reverse route)"
+                  onClick={() => handleReverseFlight(group.flights[0])} 
+                />
                 <Copy 
                   size={16} 
                   style={{ cursor: 'pointer', color: '#666' }} 
@@ -3925,7 +4120,7 @@ const FlightTracker = () => {
             {/* Individual Flights List */}
             <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
               {group.flights.map((f, idx) => {
-                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Chicken Class');
+                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
                 const drivingCO2 = (f.distance || 0) * 0.21;
                 const co2Diff = drivingCO2 - flightCO2;
                 const hasMultipleLegs = f.legs && f.legs.length > 1;
@@ -3969,35 +4164,35 @@ const FlightTracker = () => {
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           {/* Multi-leg aggregated service class badge */}
                           {(() => {
-                            const classes = f.legs.map(leg => leg.serviceClass || 'Chicken Class');
+                            const classes = f.legs.map(leg => leg.serviceClass || 'Economy');
                             const uniqueClasses = [...new Set(classes)];
-                            const classOrder = ['First', 'Business', 'Premium Chicken Class', 'Chicken Class'];
-                            const bestClass = classOrder.find(c => uniqueClasses.includes(c)) || 'Chicken Class';
+                            const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
+                            const bestClass = classOrder.find(c => uniqueClasses.includes(c)) || 'Economy';
                             const displayClass = uniqueClasses.length > 1 ? bestClass : bestClass;
                             return (
                               <span style={{ 
                                 fontSize: '11px', 
-                                color: bestClass === 'Chicken Class' ? '#8b6914' : 
-                                       bestClass === 'Premium Chicken Class' ? '#166534' : 
+                                color: bestClass === 'Economy' ? '#8b6914' : 
+                                       bestClass === 'Premium Economy' ? '#166534' : 
                                        bestClass === 'Business' ? '#1e40af' : 
                                        '#854d0e',
-                                background: bestClass === 'Chicken Class' ? '#fef3c7' : 
-                                            bestClass === 'Premium Chicken Class' ? '#dcfce7' : 
+                                background: bestClass === 'Economy' ? '#fef3c7' : 
+                                            bestClass === 'Premium Economy' ? '#dcfce7' : 
                                             bestClass === 'Business' ? '#dbeafe' : 
                                             '#fef9c3',
                                 padding: '3px 8px', 
                                 borderRadius: '6px',
                                 fontWeight: bestClass === 'First' ? '600' : 'normal'
                               }}>
-                                {bestClass === 'Chicken Class' ? '🐔' : bestClass === 'Premium Chicken Class' ? '💺' : bestClass === 'Business' ? '💼' : '👑'}
-                                {uniqueClasses.length > 1 ? ' Mixed' : ` ${bestClass === 'Chicken Class' ? 'Chicken class' : bestClass}`}
+                                {bestClass === 'Economy' ? '🐔' : bestClass === 'Premium Economy' ? '💺' : bestClass === 'Business' ? '💼' : '👑'}
+                                {uniqueClasses.length > 1 ? ' Mixed' : ` ${bestClass === 'Economy' ? 'Chicken class' : bestClass}`}
                               </span>
                             );
                           })()}
                           {/* Multi-leg CO2 badge */}
                           {(() => {
                             const totalLegCO2 = f.legs.reduce((sum, leg) => 
-                              sum + Math.round(getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Chicken Class')), 0
+                              sum + Math.round(getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Economy')), 0
                             );
                             const totalDrivingCO2 = f.distance * 0.21;
                             const co2Diff = totalDrivingCO2 - totalLegCO2;
@@ -4195,20 +4390,20 @@ const FlightTracker = () => {
                         {!hasMultipleLegs && f.serviceClass && (
                           <span style={{
                             fontSize: '12px',
-                            color: f.serviceClass === 'Chicken Class' ? '#8b6914' :
-                                   f.serviceClass === 'Premium Chicken Class' ? '#166534' :
+                            color: f.serviceClass === 'Economy' ? '#8b6914' :
+                                   f.serviceClass === 'Premium Economy' ? '#166534' :
                                    f.serviceClass === 'Business' ? '#1e40af' :
                                    '#854d0e',
-                            background: f.serviceClass === 'Chicken Class' ? '#fef3c7' :
-                                        f.serviceClass === 'Premium Chicken Class' ? '#dcfce7' :
+                            background: f.serviceClass === 'Economy' ? '#fef3c7' :
+                                        f.serviceClass === 'Premium Economy' ? '#dcfce7' :
                                         f.serviceClass === 'Business' ? '#dbeafe' :
                                         '#fef9c3',
                             padding: '3px 8px',
                             borderRadius: '6px',
                             fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
                           }}>
-                            {f.serviceClass === 'Chicken Class' ? '🐔 Chicken class' :
-                             f.serviceClass === 'Premium Chicken Class' ? '💺 Premium Chicken Class' :
+                            {f.serviceClass === 'Economy' ? '🐔 Chicken class' :
+                             f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
                              f.serviceClass === 'Business' ? '💼 Business' :
                              '👑 First'}
                           </span>
@@ -4260,6 +4455,12 @@ const FlightTracker = () => {
                     
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <ArrowLeftRight 
+                        size={14} 
+                        style={{ cursor: 'pointer', color: '#888' }} 
+                        title="Add return flight (reverse route)"
+                        onClick={() => handleReverseFlight(f)} 
+                      />
                       <Copy 
                         size={14} 
                         style={{ cursor: 'pointer', color: '#888' }} 
@@ -4471,23 +4672,23 @@ const FlightTracker = () => {
                             {leg.serviceClass && (
                               <span style={{ 
                                 fontSize: '10px', 
-                                color: leg.serviceClass === 'Chicken Class' ? '#8b6914' : 
-                                       leg.serviceClass === 'Premium Chicken Class' ? '#166534' : 
+                                color: leg.serviceClass === 'Economy' ? '#8b6914' : 
+                                       leg.serviceClass === 'Premium Economy' ? '#166534' : 
                                        leg.serviceClass === 'Business' ? '#1e40af' : 
                                        '#854d0e',
-                                background: leg.serviceClass === 'Chicken Class' ? '#fef3c7' : 
-                                            leg.serviceClass === 'Premium Chicken Class' ? '#dcfce7' : 
+                                background: leg.serviceClass === 'Economy' ? '#fef3c7' : 
+                                            leg.serviceClass === 'Premium Economy' ? '#dcfce7' : 
                                             leg.serviceClass === 'Business' ? '#dbeafe' : 
                                             '#fef9c3',
                                 padding: '2px 6px', 
                                 borderRadius: '6px',
                                 fontWeight: leg.serviceClass === 'First' ? '600' : 'normal'
                               }}>
-                                {leg.serviceClass === 'Chicken Class' ? '🐔' : 
-                                 leg.serviceClass === 'Premium Chicken Class' ? '💺' :
+                                {leg.serviceClass === 'Economy' ? '🐔' : 
+                                 leg.serviceClass === 'Premium Economy' ? '💺' :
                                  leg.serviceClass === 'Business' ? '💼' :
-                                 '👑'} {leg.serviceClass === 'Chicken Class' ? 'Eco' : 
-                                        leg.serviceClass === 'Premium Chicken Class' ? 'Prem' : 
+                                 '👑'} {leg.serviceClass === 'Economy' ? 'Chicken' : 
+                                        leg.serviceClass === 'Premium Economy' ? 'Prem' : 
                                         leg.serviceClass === 'Business' ? 'Biz' : 'First'}
                               </span>
                             )}
@@ -4527,8 +4728,8 @@ const FlightTracker = () => {
                  setEditingFlight(null);
                  setFormData({ 
                    origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-                   serviceClass: 'Chicken Class', checkLandmarks: false, hasLayover: false,
-                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Chicken Class', 'Chicken Class'],
+                   serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
                    paymentType: 'money', paymentAmount: ''
                  });
                  setAirportSuggestions([]);
@@ -4544,7 +4745,7 @@ const FlightTracker = () => {
              ) : (
                 <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
                   {/* Route Section with Autocomplete */}
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                     {/* Origin Input with Autocomplete */}
                     <div style={{ flex: 1, position: 'relative' }}>
                       <input 
@@ -4598,7 +4799,43 @@ const FlightTracker = () => {
                       )}
                     </div>
                     
-                    <span style={{ color: '#888', fontSize: '20px', paddingTop: '10px' }}>→</span>
+                    {/* Swap Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData({
+                          ...formData, 
+                          origin: formData.destination, 
+                          destination: formData.origin
+                        });
+                        setAirportSuggestions([]);
+                        setActiveAirportField(null);
+                      }}
+                      title="Swap origin and destination"
+                      style={{
+                        background: '#f3f4f6',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '10px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        alignSelf: 'center',
+                        flexShrink: 0,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = '#e5e7eb';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = '#f3f4f6';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                      }}
+                    >
+                      <ArrowLeftRight size={18} color="#6b7280" />
+                    </button>
                     
                     {/* Destination Input with Autocomplete */}
                     <div style={{ flex: 1, position: 'relative' }}>
@@ -4678,7 +4915,7 @@ const FlightTracker = () => {
                           viaAirports: hasLayover ? [''] : [''],
                           legAirlines: hasLayover ? ['', ''] : ['', ''],
                           legAircraftTypes: hasLayover ? ['', ''] : ['', ''],
-                          legServiceClasses: hasLayover ? ['Chicken Class', 'Chicken Class'] : ['Chicken Class', 'Chicken Class'],
+                          legServiceClasses: hasLayover ? ['Economy', 'Economy'] : ['Economy', 'Economy'],
                           airline: hasLayover ? '' : formData.airline
                         });
                       }}
@@ -4717,7 +4954,7 @@ const FlightTracker = () => {
                                 while (newLegAirlines.length < newVias.length + 1) {
                                   newLegAirlines.push('');
                                   newLegAircraftTypes.push('');
-                                  newLegServiceClasses.push('Chicken Class');
+                                  newLegServiceClasses.push('Economy');
                                 }
                                 setFormData({
                                   ...formData, 
@@ -4812,7 +5049,7 @@ const FlightTracker = () => {
                             viaAirports: [...formData.viaAirports, ''],
                             legAirlines: [...formData.legAirlines, ''],
                             legAircraftTypes: [...formData.legAircraftTypes, ''],
-                            legServiceClasses: [...formData.legServiceClasses, 'Chicken Class']
+                            legServiceClasses: [...formData.legServiceClasses, 'Economy']
                           });
                         }}
                         style={{ 
@@ -4909,7 +5146,7 @@ const FlightTracker = () => {
                             </div>
                             <div style={{ marginTop: '8px' }}>
                               <select 
-                                value={formData.legServiceClasses[i] || 'Chicken Class'} 
+                                value={formData.legServiceClasses[i] || 'Economy'} 
                                 onChange={e => {
                                   const newLegServiceClasses = [...formData.legServiceClasses];
                                   newLegServiceClasses[i] = e.target.value;
@@ -4918,7 +5155,11 @@ const FlightTracker = () => {
                                 style={{...inputStyle, fontSize: '13px', padding: '10px', width: '100%'}}
                               >
                                 {serviceClasses.map(cls => (
-                                  <option key={cls} value={cls}>{cls}</option>
+                                  <option key={cls} value={cls}>
+                                    {cls === 'Economy' ? '🐔 Chicken class' : 
+                                     cls === 'Premium Economy' ? '💺 Premium Economy' :
+                                     cls === 'Business' ? '💼 Business' : '👑 First'}
+                                  </option>
                                 ))}
                               </select>
                             </div>
@@ -4946,7 +5187,11 @@ const FlightTracker = () => {
                         style={inputStyle}
                       >
                         {serviceClasses.map(cls => (
-                          <option key={cls} value={cls}>{cls}</option>
+                          <option key={cls} value={cls}>
+                            {cls === 'Economy' ? '🐔 Chicken class' : 
+                             cls === 'Premium Economy' ? '💺 Premium Economy' :
+                             cls === 'Business' ? '💼 Business' : '👑 First'}
+                          </option>
                         ))}
                       </select>
                     </>
