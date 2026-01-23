@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/LogBook/static/js/main.2b7e5790.js",
+    "main.js": "/LogBook/static/js/main.c22adf12.js",
     "index.html": "/LogBook/index.html",
-    "main.2b7e5790.js.map": "/LogBook/static/js/main.2b7e5790.js.map"
+    "main.c22adf12.js.map": "/LogBook/static/js/main.c22adf12.js.map"
   },
   "entrypoints": [
-    "static/js/main.2b7e5790.js"
+    "static/js/main.c22adf12.js"
   ]
 }
