@@ -22,7 +22,11 @@ import {
   setDoc, 
   getDoc, 
   updateDoc,
-  onSnapshot 
+  onSnapshot,
+  collection,
+  query,
+  where,
+  getDocs
 } from 'firebase/firestore';
 // Firebase configuration - Replace with your own config from Firebase Console
 const firebaseConfig = {
@@ -795,6 +799,13 @@ const FlightTracker = () => {
   const [importing, setImporting] = useState(false);
   const [suggestedFlights, setSuggestedFlights] = useState([]);
   
+  // Contest opt-in state
+  const [contestOptIn, setContestOptIn] = useState(false);
+  const [contestLoading, setContestLoading] = useState(false);
+  const [leaderboardData, setLeaderboardData] = useState([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  
   // Progress tracking for Gmail import
   const [importProgress, setImportProgress] = useState({
     show: false,
@@ -859,13 +870,16 @@ const FlightTracker = () => {
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
           setFlights(userDoc.data().flights || []);
+          setContestOptIn(userDoc.data().contestOptIn || false);
         } else {
           // Create user document if it doesn't exist
-          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString() });
+          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false });
           setFlights([]);
+          setContestOptIn(false);
         }
       } else {
         setAuthUser(null);
+        setContestOptIn(false);
         // Fall back to localStorage for non-authenticated users
         const localFlights = localStorage.getItem('flights-data');
         setFlights(localFlights ? JSON.parse(localFlights) : []);
@@ -886,6 +900,135 @@ const FlightTracker = () => {
       localStorage.setItem('flights-data', JSON.stringify(flights));
     }
   }, [flights, authUser, authLoading]);
+
+  // Calculate user stats for contest
+  const calculateUserStats = (userFlights) => {
+    const totalMiles = userFlights.reduce((sum, f) => sum + (f.distance || 0), 0);
+    const totalFlightLegs = userFlights.reduce((count, f) => {
+      return count + (f.legs && f.legs.length > 1 ? f.legs.length : 1);
+    }, 0);
+    const uniqueCountries = [...new Set(userFlights.flatMap(f => [f.originCountry, f.destCountry].filter(Boolean)))].length;
+    const uniqueAirports = [...new Set(userFlights.flatMap(f => [f.origin, f.destination]))].length;
+    
+    return {
+      totalMiles,
+      totalFlights: totalFlightLegs,
+      uniqueCountries,
+      uniqueAirports
+    };
+  };
+
+  // Update public stats when opted in and flights change
+  useEffect(() => {
+    const updatePublicStats = async () => {
+      // Don't run during toggle operation or if not opted in
+      if (authUser && contestOptIn && !authLoading && !contestLoading) {
+        const stats = calculateUserStats(flights);
+        const publicStatsRef = doc(db, 'publicStats', authUser.uid);
+        try {
+          await setDoc(publicStatsRef, {
+            displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+            email: authUser.email,
+            ...stats,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('Error updating public stats:', error);
+        }
+      }
+    };
+    updatePublicStats();
+  }, [flights, contestOptIn, authUser, authLoading, contestLoading]);
+
+  // Handle contest opt-in toggle
+  const handleContestOptInToggle = async (newValue) => {
+    if (!authUser || contestLoading) return;
+    
+    setContestLoading(true);
+    const userDocRef = doc(db, 'users', authUser.uid);
+    
+    try {
+      // First update the user's preference
+      await updateDoc(userDocRef, { contestOptIn: newValue });
+      
+      // Then update public stats
+      const publicStatsRef = doc(db, 'publicStats', authUser.uid);
+      if (newValue) {
+        // Add stats to public collection
+        const stats = calculateUserStats(flights);
+        await setDoc(publicStatsRef, {
+          displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+          email: authUser.email,
+          ...stats,
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        // Remove from public collection by setting opted out flag
+        await setDoc(publicStatsRef, { optedOut: true, updatedAt: new Date().toISOString() });
+      }
+      
+      // Only update local state after successful Firebase writes
+      setContestOptIn(newValue);
+    } catch (error) {
+      console.error('Error updating contest opt-in:', error);
+      alert('Failed to update contest preference. Please check your connection and try again.');
+      // Don't change local state on error
+    } finally {
+      setContestLoading(false);
+    }
+  };
+
+  // Fetch leaderboard data
+  const fetchLeaderboard = async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const publicStatsRef = collection(db, 'publicStats');
+      const snapshot = await getDocs(publicStatsRef);
+      const leaderboard = [];
+      
+      console.log('Fetching leaderboard, found documents:', snapshot.size);
+      
+      snapshot.forEach((docSnapshot) => {
+        const data = docSnapshot.data();
+        console.log('Document:', docSnapshot.id, data);
+        
+        // Only exclude if explicitly opted out, include all others with any miles
+        const isOptedOut = data.optedOut === true;
+        const hasMiles = data.totalMiles !== undefined && data.totalMiles !== null;
+        
+        if (!isOptedOut && hasMiles) {
+          leaderboard.push({
+            id: docSnapshot.id,
+            ...data,
+            totalMiles: data.totalMiles || 0,
+            totalFlights: data.totalFlights || 0,
+            uniqueCountries: data.uniqueCountries || 0,
+            uniqueAirports: data.uniqueAirports || 0,
+            isCurrentUser: authUser && docSnapshot.id === authUser.uid
+          });
+        }
+      });
+      
+      console.log('Filtered leaderboard entries:', leaderboard.length);
+      
+      // Sort by total miles descending
+      leaderboard.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
+      setLeaderboardData(leaderboard);
+    } catch (error) {
+      console.error('Error fetching leaderboard:', error);
+      // Show the error to user for debugging
+      alert('Error loading leaderboard: ' + error.message);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  };
+
+  // Fetch leaderboard when showing it
+  useEffect(() => {
+    if (showLeaderboard) {
+      fetchLeaderboard();
+    }
+  }, [showLeaderboard, authUser]);
 
   useEffect(() => {
     const session = localStorage.getItem('user-profile');
@@ -2991,6 +3134,374 @@ const FlightTracker = () => {
             <div style={{marginTop:'15px', paddingTop:'15px', borderTop:'1px solid #eee', fontSize:'11px', color:'#999', textAlign:'center'}}>
               Searched using multiple Gmail queries. "Verified" = extracted from structured email data (JSON-LD).
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contest Opt-In Section */}
+      {authUser && (
+        <div style={{
+          background: contestOptIn ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : '#f8fafc',
+          border: contestOptIn ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+          borderRadius: '16px',
+          padding: '20px 24px',
+          marginBottom: '30px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '280px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: contestOptIn ? '#f59e0b' : '#94a3b8',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Trophy size={24} color="#fff" />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                Global Travel Contest
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                {contestOptIn 
+                  ? "You're competing! Your stats are visible on the leaderboard."
+                  : "Join to compare your travel stats with other explorers worldwide."
+                }
+              </p>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: contestLoading ? 'wait' : 'pointer',
+              padding: '10px 16px',
+              background: contestOptIn ? '#fff' : '#f1f5f9',
+              borderRadius: '10px',
+              border: contestOptIn ? '2px solid #f59e0b' : '2px solid transparent',
+              transition: 'all 0.2s ease',
+              opacity: contestLoading ? 0.7 : 1
+            }}>
+              {contestLoading ? (
+                <Loader2 className="animate-spin" size={20} style={{ color: '#f59e0b' }} />
+              ) : (
+                <input
+                  type="checkbox"
+                  checked={contestOptIn}
+                  onChange={(e) => handleContestOptInToggle(e.target.checked)}
+                  style={{
+                    width: '20px',
+                    height: '20px',
+                    cursor: 'pointer',
+                    accentColor: '#f59e0b'
+                  }}
+                />
+              )}
+              <span style={{ 
+                fontWeight: '600', 
+                fontSize: '14px', 
+                color: contestOptIn ? '#92400e' : '#475569' 
+              }}>
+                {contestLoading ? 'Updating...' : (contestOptIn ? 'Opted In' : 'Opt In')}
+              </span>
+            </label>
+            
+            <button
+              onClick={() => setShowLeaderboard(true)}
+              style={{
+                background: '#000',
+                color: '#fff',
+                border: 'none',
+                padding: '12px 20px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <Users size={18} />
+              View Leaderboard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Leaderboard Modal */}
+      {showLeaderboard && (
+        <div style={modalOverlay}>
+          <div style={{
+            ...modalContent,
+            maxWidth: '600px',
+            maxHeight: '80vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '20px',
+              paddingBottom: '15px',
+              borderBottom: '1px solid #eee'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Trophy size={20} color="#fff" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '20px' }}>Global Leaderboard</h2>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#888' }}>
+                    {leaderboardData.length} explorer{leaderboardData.length !== 1 ? 's' : ''} competing
+                  </p>
+                </div>
+              </div>
+              <X style={{ cursor: 'pointer' }} onClick={() => setShowLeaderboard(false)} />
+            </div>
+
+            {loadingLeaderboard ? (
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                padding: '60px 20px',
+                color: '#888' 
+              }}>
+                <Loader2 className="animate-spin" size={32} style={{ marginBottom: '12px' }} />
+                <span>Loading leaderboard...</span>
+              </div>
+            ) : leaderboardData.length === 0 ? (
+              <div style={{ 
+                textAlign: 'center', 
+                padding: '60px 20px', 
+                color: '#666' 
+              }}>
+                <Users size={48} style={{ marginBottom: '16px', color: '#ccc' }} />
+                <h3 style={{ margin: '0 0 8px 0' }}>No competitors yet</h3>
+                <p style={{ fontSize: '14px', color: '#888', margin: 0 }}>
+                  Be the first to opt in and claim the top spot!
+                </p>
+              </div>
+            ) : (
+              <div style={{ 
+                flex: 1, 
+                overflowY: 'auto',
+                marginRight: '-10px',
+                paddingRight: '10px'
+              }}>
+                {/* Leaderboard Header */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '50px 1fr 100px 80px 80px',
+                  gap: '12px',
+                  padding: '10px 16px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  marginBottom: '8px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#64748b',
+                  textTransform: 'uppercase',
+                  position: 'sticky',
+                  top: 0
+                }}>
+                  <span>Rank</span>
+                  <span>Explorer</span>
+                  <span style={{ textAlign: 'right' }}>Miles</span>
+                  <span style={{ textAlign: 'right' }}>Flights</span>
+                  <span style={{ textAlign: 'right' }}>Countries</span>
+                </div>
+
+                {/* Leaderboard Entries */}
+                {leaderboardData.map((entry, index) => {
+                  const rank = index + 1;
+                  const isTop3 = rank <= 3;
+                  const medalColors = ['#fbbf24', '#9ca3af', '#cd7f32'];
+                  
+                  return (
+                    <div
+                      key={entry.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '50px 1fr 100px 80px 80px',
+                        gap: '12px',
+                        padding: '14px 16px',
+                        background: entry.isCurrentUser 
+                          ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)' 
+                          : isTop3 ? '#fffbeb' : '#fff',
+                        borderRadius: '10px',
+                        marginBottom: '6px',
+                        border: entry.isCurrentUser 
+                          ? '2px solid #10b981' 
+                          : isTop3 ? '1px solid #fde68a' : '1px solid #f1f5f9',
+                        alignItems: 'center',
+                        transition: 'transform 0.1s ease',
+                        cursor: 'default'
+                      }}
+                    >
+                      {/* Rank */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        {isTop3 ? (
+                          <div style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            background: medalColors[rank - 1],
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            fontWeight: '700',
+                            fontSize: '12px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                          }}>
+                            {rank}
+                          </div>
+                        ) : (
+                          <span style={{ 
+                            fontWeight: '600', 
+                            color: '#64748b',
+                            fontSize: '14px'
+                          }}>
+                            {rank}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Name */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          background: entry.isCurrentUser ? '#10b981' : '#e2e8f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: entry.isCurrentUser ? '#fff' : '#64748b',
+                          fontWeight: '600',
+                          fontSize: '13px'
+                        }}>
+                          {entry.displayName?.charAt(0).toUpperCase() || '?'}
+                        </div>
+                        <div>
+                          <div style={{ 
+                            fontWeight: '600', 
+                            fontSize: '14px',
+                            color: entry.isCurrentUser ? '#059669' : '#1e293b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}>
+                            {entry.displayName}
+                            {entry.isCurrentUser && (
+                              <span style={{
+                                fontSize: '10px',
+                                background: '#10b981',
+                                color: '#fff',
+                                padding: '2px 6px',
+                                borderRadius: '4px'
+                              }}>
+                                YOU
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Miles */}
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: '700', 
+                        fontSize: '14px',
+                        color: isTop3 ? '#b45309' : '#1e293b'
+                      }}>
+                        {entry.totalMiles?.toLocaleString() || 0}
+                      </div>
+
+                      {/* Flights */}
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontSize: '14px',
+                        color: '#64748b'
+                      }}>
+                        {entry.totalFlights || 0}
+                      </div>
+
+                      {/* Countries */}
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontSize: '14px',
+                        color: '#64748b'
+                      }}>
+                        {entry.uniqueCountries || 0}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Footer with opt-in prompt for non-participants */}
+            {!contestOptIn && authUser && !contestLoading && (
+              <div style={{
+                marginTop: '20px',
+                paddingTop: '20px',
+                borderTop: '1px solid #eee',
+                textAlign: 'center'
+              }}>
+                <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px 0' }}>
+                  Want to join the competition?
+                </p>
+                <button
+                  onClick={async () => {
+                    await handleContestOptInToggle(true);
+                    fetchLeaderboard(); // Refresh leaderboard after opting in
+                  }}
+                  disabled={contestLoading}
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '12px 24px',
+                    borderRadius: '10px',
+                    cursor: contestLoading ? 'wait' : 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <Trophy size={18} />
+                  Opt In Now
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
