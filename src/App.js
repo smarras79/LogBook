@@ -844,13 +844,13 @@ const FlightTracker = () => {
     date: '', 
     aircraftType: '', 
     airline: '', 
-    serviceClass: 'Economy', 
+    serviceClass: 'Chicken class', 
     checkLandmarks: false,
     hasLayover: false,
     viaAirports: [''], // Array of connection airport codes
     legAirlines: ['', ''], // Airlines for each leg
     legAircraftTypes: ['', ''], // Aircraft for each leg
-    legServiceClasses: ['Economy', 'Economy'], // Service class for each leg
+    legServiceClasses: ['Chicken Class', 'Economy'], // Service class for each leg
     paymentType: 'money', // 'money' or 'miles'
     paymentAmount: ''
   });
@@ -1351,7 +1351,7 @@ const FlightTracker = () => {
                   flightNumber: (flight.airline?.iataCode || '') + (flight.flightNumber || ''),
                   airline: flight.airline?.name || '',
                   aircraftType: flight.aircraft?.name || flight.aircraft?.model || 'Unknown',
-                  serviceClass: item.reservedTicket?.ticketedSeat?.seatingType || 'Economy',
+                  serviceClass: item.reservedTicket?.ticketedSeat?.seatingType || 'Chicken Class',
                   confirmationNumber: item.reservationNumber || '',
                   snippet: `${departureAirport.name || departureAirport.iataCode} → ${arrivalAirport.name || arrivalAirport.iataCode}`,
                   source: 'json-ld'
@@ -1373,7 +1373,7 @@ const FlightTracker = () => {
                   flightNumber: (item.airline?.iataCode || '') + (item.flightNumber || ''),
                   airline: item.airline?.name || '',
                   aircraftType: item.aircraft?.name || 'Unknown',
-                  serviceClass: 'Economy',
+                  serviceClass: 'Chicken Class',
                   confirmationNumber: '',
                   snippet: `${departureAirport.name || departureAirport.iataCode} → ${arrivalAirport.name || arrivalAirport.iataCode}`,
                   source: 'json-ld'
@@ -1648,7 +1648,7 @@ const FlightTracker = () => {
           flightNumber: seg.flightNumber,
           airline: detectedAirline,
           aircraftType: 'Unknown',
-          serviceClass: 'Economy',
+          serviceClass: 'Chicken Class',
           confirmationNumber,
           snippet: `${seg.origin} → ${seg.destination}`,
           source: 'multi-segment'
@@ -1846,7 +1846,7 @@ const FlightTracker = () => {
       flightNumber,
       airline: detectedAirline,
       aircraftType: 'Unknown',
-      serviceClass: 'Economy',
+      serviceClass: 'Chicken Class',
       confirmationNumber,
       snippet: message.snippet?.substring(0, 80) + '...',
       source: 'regex-fallback'
@@ -2172,7 +2172,7 @@ const FlightTracker = () => {
                     destCity: legTo.city,
                     airline: legAirlines[i] || flightData.airline || '',
                     aircraftType: legAircraftTypes[i] || flightData.aircraftType || '',
-                    serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Economy',
+                    serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Chicken Class',
                     distance: legDist,
                     featuresCrossed: legFeatures
                 });
@@ -2219,7 +2219,7 @@ const FlightTracker = () => {
                 destCity: to.city,
                 airline: flightData.airline || '',
                 aircraftType: flightData.aircraftType || '',
-                serviceClass: flightData.serviceClass || 'Economy',
+                serviceClass: flightData.serviceClass || 'Chicken Class',
                 distance: dist,
                 featuresCrossed: features
             });
@@ -2254,8 +2254,8 @@ const FlightTracker = () => {
         setEditingFlight(null);
         setFormData({ 
             origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-            serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+            serviceClass: 'Chicken Class', checkLandmarks: false, hasLayover: false,
+            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Chicken Class', 'Chicken Class'],
             paymentType: 'money', paymentAmount: ''
         });
         setAirportSuggestions([]);
@@ -2322,8 +2322,8 @@ const FlightTracker = () => {
   const getCarbonEstimate = (distance, serviceClass) => {
     const baseRatePerMile = 0.14; // kg CO2 per passenger-mile for economy
     const classMultipliers = {
-      'Economy': 1.0,
-      'Premium Economy': 1.5,
+      'Chicken Class': 1.0,
+      'Premium Chicken Class': 1.5,
       'Business': 2.5,
       'First': 4.0
     };
@@ -2342,11 +2342,11 @@ const FlightTracker = () => {
     if (f.legs && f.legs.length > 1) {
       // Multi-leg trip: calculate carbon per leg with its own service class
       return sum + f.legs.reduce((legSum, leg) => {
-        return legSum + getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Economy');
+        return legSum + getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Chicken Class');
       }, 0);
     } else {
       // Single leg trip
-      return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+      return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Chicken Class');
     }
   }, 0);
   const totalCarbonTons = (totalCarbonKg / 1000).toFixed(2);
@@ -2434,7 +2434,7 @@ const FlightTracker = () => {
     if (f.legs && f.legs.length > 1) {
       // Multi-leg trip: count each leg's service class
       f.legs.forEach(leg => {
-        const cls = leg.serviceClass || 'Economy';
+        const cls = leg.serviceClass || 'Chicken Class';
         classStats[cls] = (classStats[cls] || 0) + 1;
       });
     } else if (f.serviceClass) {
@@ -2442,7 +2442,7 @@ const FlightTracker = () => {
       classStats[f.serviceClass] = (classStats[f.serviceClass] || 0) + 1;
     }
   });
-  const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
+  const classOrder = ['First', 'Business', 'Premium Chicken Class', 'Chicken Class'];
   const sortedClasses = Object.entries(classStats).sort((a, b) => {
     return classOrder.indexOf(a[0]) - classOrder.indexOf(b[0]);
   });
@@ -2453,13 +2453,13 @@ const FlightTracker = () => {
     if (f.legs && f.legs.length > 1) {
       // Multi-leg trip: calculate carbon per leg with its own service class
       f.legs.forEach(leg => {
-        const cls = leg.serviceClass || 'Economy';
+        const cls = leg.serviceClass || 'Chicken Class';
         const carbon = getCarbonEstimate(leg.distance || 0, cls);
         carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
       });
     } else {
       // Single leg trip
-      const cls = f.serviceClass || 'Economy';
+      const cls = f.serviceClass || 'Chicken Class';
       const carbon = getCarbonEstimate(f.distance || 0, cls);
       carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
     }
@@ -2523,14 +2523,14 @@ const FlightTracker = () => {
       const viaAirports = flight.legs.slice(1, -1).map(leg => leg.origin);
       const legAirlines = flight.legs.map(leg => leg.airline || '');
       const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
-      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Chicken Class');
       
       setFormData({
         origin: flight.origin,
         destination: flight.destination,
         airline: '',
         aircraftType: '',
-        serviceClass: 'Economy',
+        serviceClass: 'Chicken Class',
         date: '', // Clear date so user must enter new one
         checkLandmarks: false,
         hasLayover: true,
@@ -2546,14 +2546,14 @@ const FlightTracker = () => {
         destination: flight.destination,
         airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
-        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Chicken Class',
         date: '', // Clear date so user must enter new one
         checkLandmarks: false,
         hasLayover: false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
-        legServiceClasses: ['Economy', 'Economy'],
+        legServiceClasses: ['Chicken Class', 'Chicken Class'],
         paymentType: 'money',
         paymentAmount: ''
       });
@@ -2576,14 +2576,14 @@ const FlightTracker = () => {
       }
       const legAirlines = flight.legs.map(leg => leg.airline || '');
       const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
-      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Chicken Class');
       
       setFormData({
         origin: flight.origin,
         destination: flight.destination,
         airline: '',
         aircraftType: '',
-        serviceClass: 'Economy',
+        serviceClass: 'Chicken Class',
         date: flight.date || '',
         checkLandmarks: false,
         hasLayover: true,
@@ -2601,14 +2601,14 @@ const FlightTracker = () => {
         destination: flight.destination,
         airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
-        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Chicken Class',
         date: flight.date || '',
         checkLandmarks: false,
         hasLayover: false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
-        legServiceClasses: ['Economy', 'Economy'],
+        legServiceClasses: ['Chicken Class', 'Chicken Class'],
         paymentType: flight.paymentType || 'money',
         paymentAmount: flight.paymentAmount || ''
       });
@@ -2717,8 +2717,8 @@ const FlightTracker = () => {
             setEditingFlight(null); 
             setFormData({ 
               origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+              serviceClass: 'Chicken Class', checkLandmarks: false, hasLayover: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Chicken Class', 'Chicken Class'],
               paymentType: 'money', paymentAmount: ''
             });
             setAirportSuggestions([]);
@@ -3585,12 +3585,12 @@ const FlightTracker = () => {
           <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
             <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
             {sortedClasses.map(([name, count]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
+              const barColor = name === 'Chicken Class' ? '#d97706' : 
+                               name === 'Premium Chicken Class' ? '#16a34a' : 
                                name === 'Business' ? '#2563eb' : 
                                '#ca8a04'; /* First - gold */
-              const displayName = name === 'Economy' ? '🐔 Chicken class' : 
-                                  name === 'Premium Economy' ? '💺 Premium Economy' :
+              const displayName = name === 'Chicken Class' ? '🐔 Chicken class' : 
+                                  name === 'Premium Chicken Class' ? '💺 Premium Chicken Class' :
                                   name === 'Business' ? '💼 Business' :
                                   '👑 First';
               return (
@@ -3851,12 +3851,12 @@ const FlightTracker = () => {
             
             <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>Your breakdown by class:</div>
             {sortedCarbonByClass.map(([name, carbonKg]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
+              const barColor = name === 'Chicken Class' ? '#d97706' : 
+                               name === 'Premium Chicken Class' ? '#16a34a' : 
                                name === 'Business' ? '#2563eb' : 
                                '#ca8a04';
-              const displayName = name === 'Economy' ? '🐔 Chicken' : 
-                                  name === 'Premium Economy' ? '💺 Prem Eco' :
+              const displayName = name === 'Chicken Class' ? '🐔 Chicken' : 
+                                  name === 'Premium Chicken Class' ? '💺 Prem Eco' :
                                   name === 'Business' ? '💼 Business' :
                                   '👑 First';
               return (
@@ -3925,7 +3925,7 @@ const FlightTracker = () => {
             {/* Individual Flights List */}
             <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
               {group.flights.map((f, idx) => {
-                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Chicken Class');
                 const drivingCO2 = (f.distance || 0) * 0.21;
                 const co2Diff = drivingCO2 - flightCO2;
                 const hasMultipleLegs = f.legs && f.legs.length > 1;
@@ -3969,35 +3969,35 @@ const FlightTracker = () => {
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           {/* Multi-leg aggregated service class badge */}
                           {(() => {
-                            const classes = f.legs.map(leg => leg.serviceClass || 'Economy');
+                            const classes = f.legs.map(leg => leg.serviceClass || 'Chicken Class');
                             const uniqueClasses = [...new Set(classes)];
-                            const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
-                            const bestClass = classOrder.find(c => uniqueClasses.includes(c)) || 'Economy';
+                            const classOrder = ['First', 'Business', 'Premium Chicken Class', 'Chicken Class'];
+                            const bestClass = classOrder.find(c => uniqueClasses.includes(c)) || 'Chicken Class';
                             const displayClass = uniqueClasses.length > 1 ? bestClass : bestClass;
                             return (
                               <span style={{ 
                                 fontSize: '11px', 
-                                color: bestClass === 'Economy' ? '#8b6914' : 
-                                       bestClass === 'Premium Economy' ? '#166534' : 
+                                color: bestClass === 'Chicken Class' ? '#8b6914' : 
+                                       bestClass === 'Premium Chicken Class' ? '#166534' : 
                                        bestClass === 'Business' ? '#1e40af' : 
                                        '#854d0e',
-                                background: bestClass === 'Economy' ? '#fef3c7' : 
-                                            bestClass === 'Premium Economy' ? '#dcfce7' : 
+                                background: bestClass === 'Chicken Class' ? '#fef3c7' : 
+                                            bestClass === 'Premium Chicken Class' ? '#dcfce7' : 
                                             bestClass === 'Business' ? '#dbeafe' : 
                                             '#fef9c3',
                                 padding: '3px 8px', 
                                 borderRadius: '6px',
                                 fontWeight: bestClass === 'First' ? '600' : 'normal'
                               }}>
-                                {bestClass === 'Economy' ? '🐔' : bestClass === 'Premium Economy' ? '💺' : bestClass === 'Business' ? '💼' : '👑'}
-                                {uniqueClasses.length > 1 ? ' Mixed' : ` ${bestClass === 'Economy' ? 'Chicken class' : bestClass}`}
+                                {bestClass === 'Chicken Class' ? '🐔' : bestClass === 'Premium Chicken Class' ? '💺' : bestClass === 'Business' ? '💼' : '👑'}
+                                {uniqueClasses.length > 1 ? ' Mixed' : ` ${bestClass === 'Chicken Class' ? 'Chicken class' : bestClass}`}
                               </span>
                             );
                           })()}
                           {/* Multi-leg CO2 badge */}
                           {(() => {
                             const totalLegCO2 = f.legs.reduce((sum, leg) => 
-                              sum + Math.round(getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Economy')), 0
+                              sum + Math.round(getCarbonEstimate(leg.distance || 0, leg.serviceClass || 'Chicken Class')), 0
                             );
                             const totalDrivingCO2 = f.distance * 0.21;
                             const co2Diff = totalDrivingCO2 - totalLegCO2;
@@ -4195,20 +4195,20 @@ const FlightTracker = () => {
                         {!hasMultipleLegs && f.serviceClass && (
                           <span style={{
                             fontSize: '12px',
-                            color: f.serviceClass === 'Economy' ? '#8b6914' :
-                                   f.serviceClass === 'Premium Economy' ? '#166534' :
+                            color: f.serviceClass === 'Chicken Class' ? '#8b6914' :
+                                   f.serviceClass === 'Premium Chicken Class' ? '#166534' :
                                    f.serviceClass === 'Business' ? '#1e40af' :
                                    '#854d0e',
-                            background: f.serviceClass === 'Economy' ? '#fef3c7' :
-                                        f.serviceClass === 'Premium Economy' ? '#dcfce7' :
+                            background: f.serviceClass === 'Chicken Class' ? '#fef3c7' :
+                                        f.serviceClass === 'Premium Chicken Class' ? '#dcfce7' :
                                         f.serviceClass === 'Business' ? '#dbeafe' :
                                         '#fef9c3',
                             padding: '3px 8px',
                             borderRadius: '6px',
                             fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
                           }}>
-                            {f.serviceClass === 'Economy' ? '🐔 Chicken class' :
-                             f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
+                            {f.serviceClass === 'Chicken Class' ? '🐔 Chicken class' :
+                             f.serviceClass === 'Premium Chicken Class' ? '💺 Premium Chicken Class' :
                              f.serviceClass === 'Business' ? '💼 Business' :
                              '👑 First'}
                           </span>
@@ -4471,23 +4471,23 @@ const FlightTracker = () => {
                             {leg.serviceClass && (
                               <span style={{ 
                                 fontSize: '10px', 
-                                color: leg.serviceClass === 'Economy' ? '#8b6914' : 
-                                       leg.serviceClass === 'Premium Economy' ? '#166534' : 
+                                color: leg.serviceClass === 'Chicken Class' ? '#8b6914' : 
+                                       leg.serviceClass === 'Premium Chicken Class' ? '#166534' : 
                                        leg.serviceClass === 'Business' ? '#1e40af' : 
                                        '#854d0e',
-                                background: leg.serviceClass === 'Economy' ? '#fef3c7' : 
-                                            leg.serviceClass === 'Premium Economy' ? '#dcfce7' : 
+                                background: leg.serviceClass === 'Chicken Class' ? '#fef3c7' : 
+                                            leg.serviceClass === 'Premium Chicken Class' ? '#dcfce7' : 
                                             leg.serviceClass === 'Business' ? '#dbeafe' : 
                                             '#fef9c3',
                                 padding: '2px 6px', 
                                 borderRadius: '6px',
                                 fontWeight: leg.serviceClass === 'First' ? '600' : 'normal'
                               }}>
-                                {leg.serviceClass === 'Economy' ? '🐔' : 
-                                 leg.serviceClass === 'Premium Economy' ? '💺' :
+                                {leg.serviceClass === 'Chicken Class' ? '🐔' : 
+                                 leg.serviceClass === 'Premium Chicken Class' ? '💺' :
                                  leg.serviceClass === 'Business' ? '💼' :
-                                 '👑'} {leg.serviceClass === 'Economy' ? 'Eco' : 
-                                        leg.serviceClass === 'Premium Economy' ? 'Prem' : 
+                                 '👑'} {leg.serviceClass === 'Chicken Class' ? 'Eco' : 
+                                        leg.serviceClass === 'Premium Chicken Class' ? 'Prem' : 
                                         leg.serviceClass === 'Business' ? 'Biz' : 'First'}
                               </span>
                             )}
@@ -4527,8 +4527,8 @@ const FlightTracker = () => {
                  setEditingFlight(null);
                  setFormData({ 
                    origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-                   serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+                   serviceClass: 'Chicken Class', checkLandmarks: false, hasLayover: false,
+                   viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Chicken Class', 'Chicken Class'],
                    paymentType: 'money', paymentAmount: ''
                  });
                  setAirportSuggestions([]);
@@ -4678,7 +4678,7 @@ const FlightTracker = () => {
                           viaAirports: hasLayover ? [''] : [''],
                           legAirlines: hasLayover ? ['', ''] : ['', ''],
                           legAircraftTypes: hasLayover ? ['', ''] : ['', ''],
-                          legServiceClasses: hasLayover ? ['Economy', 'Economy'] : ['Economy', 'Economy'],
+                          legServiceClasses: hasLayover ? ['Chicken Class', 'Chicken Class'] : ['Chicken Class', 'Chicken Class'],
                           airline: hasLayover ? '' : formData.airline
                         });
                       }}
@@ -4717,7 +4717,7 @@ const FlightTracker = () => {
                                 while (newLegAirlines.length < newVias.length + 1) {
                                   newLegAirlines.push('');
                                   newLegAircraftTypes.push('');
-                                  newLegServiceClasses.push('Economy');
+                                  newLegServiceClasses.push('Chicken Class');
                                 }
                                 setFormData({
                                   ...formData, 
@@ -4812,7 +4812,7 @@ const FlightTracker = () => {
                             viaAirports: [...formData.viaAirports, ''],
                             legAirlines: [...formData.legAirlines, ''],
                             legAircraftTypes: [...formData.legAircraftTypes, ''],
-                            legServiceClasses: [...formData.legServiceClasses, 'Economy']
+                            legServiceClasses: [...formData.legServiceClasses, 'Chicken Class']
                           });
                         }}
                         style={{ 
@@ -4909,7 +4909,7 @@ const FlightTracker = () => {
                             </div>
                             <div style={{ marginTop: '8px' }}>
                               <select 
-                                value={formData.legServiceClasses[i] || 'Economy'} 
+                                value={formData.legServiceClasses[i] || 'Chicken Class'} 
                                 onChange={e => {
                                   const newLegServiceClasses = [...formData.legServiceClasses];
                                   newLegServiceClasses[i] = e.target.value;
