@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
-  LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight
+  LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
+  ChevronDown, ChevronUp, Settings, Flag, MapPin
 } from 'lucide-react';
 
 // Firebase imports
@@ -201,6 +202,37 @@ const AIRPORTS_DATABASE = [
   { code: 'CMN', name: 'Mohammed V Intl', city: 'Casablanca', country: 'Morocco', lat: 33.3675, lon: -7.5898 },
   { code: 'LOS', name: 'Murtala Muhammed', city: 'Lagos', country: 'Nigeria', lat: 6.5774, lon: 3.3212 },
 ];
+
+// Country to Continent mapping
+const COUNTRY_TO_CONTINENT = {
+  // North America
+  'USA': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
+  // Europe
+  'UK': 'Europe', 'France': 'Europe', 'Germany': 'Europe', 'Netherlands': 'Europe',
+  'Belgium': 'Europe', 'Switzerland': 'Europe', 'Austria': 'Europe', 'Czechia': 'Europe',
+  'Poland': 'Europe', 'Hungary': 'Europe', 'Italy': 'Europe', 'Spain': 'Europe',
+  'Portugal': 'Europe', 'Greece': 'Europe', 'Turkey': 'Europe', 'Ireland': 'Europe',
+  'Denmark': 'Europe', 'Norway': 'Europe', 'Sweden': 'Europe', 'Finland': 'Europe',
+  'Russia': 'Europe',
+  // Middle East
+  'UAE': 'Middle East', 'Qatar': 'Middle East', 'Israel': 'Middle East',
+  'Egypt': 'Africa', 'Jordan': 'Middle East', 'Saudi Arabia': 'Middle East',
+  // Asia
+  'Singapore': 'Asia', 'Hong Kong': 'Asia', 'Japan': 'Asia', 'South Korea': 'Asia',
+  'China': 'Asia', 'Vietnam': 'Asia', 'Thailand': 'Asia', 'Malaysia': 'Asia',
+  'Indonesia': 'Asia', 'Philippines': 'Asia', 'India': 'Asia', 'Taiwan': 'Asia',
+  // Oceania
+  'Australia': 'Oceania', 'New Zealand': 'Oceania',
+  // South America
+  'Brazil': 'South America', 'Argentina': 'South America', 'Chile': 'South America',
+  'Peru': 'South America', 'Colombia': 'South America',
+  // Africa
+  'South Africa': 'Africa', 'Kenya': 'Africa', 'Ethiopia': 'Africa',
+  'Morocco': 'Africa', 'Nigeria': 'Africa'
+};
+
+// Helper to get continent from country
+const getContinent = (country) => COUNTRY_TO_CONTINENT[country] || 'Unknown';
 
 // Helper function to search airports by code, city, or name
 const searchAirports = (query) => {
@@ -812,6 +844,29 @@ const FlightTracker = () => {
   const [nickname, setNickname] = useState('');
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
+  
+  // Stats display preferences
+  const [statsExpanded, setStatsExpanded] = useState(() => {
+    const saved = localStorage.getItem('statsExpanded');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [visibleStats, setVisibleStats] = useState(() => {
+    const saved = localStorage.getItem('visibleStats');
+    return saved ? JSON.parse(saved) : {
+      flights: true,
+      miles: true,
+      routes: true,
+      countries: true,
+      continents: true,
+      airports: true,
+      co2: true,
+      alliance: true,
+      moon: true,
+      money: true,
+      milesSpent: true
+    };
+  });
+  const [showStatsSettings, setShowStatsSettings] = useState(false);
   
   // Progress tracking for Gmail import
   const [importProgress, setImportProgress] = useState({
@@ -2388,6 +2443,10 @@ const FlightTracker = () => {
             distance: totalDistance,
             originCity: from.city, 
             destCity: to.city,
+            originCountry: from.country || '',
+            destCountry: to.country || '',
+            originContinent: getContinent(from.country),
+            destContinent: getContinent(to.country),
             featuresCrossed: allFeatures,
             passengerCount: pax,
             legs: legs, // Store all legs
@@ -2493,6 +2552,52 @@ const FlightTracker = () => {
   
   const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
   const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
+  
+  // Calculate unique countries visited
+  const uniqueCountries = [...new Set(flights.flatMap(f => {
+    const countries = [];
+    if (f.originCountry) countries.push(f.originCountry);
+    if (f.destCountry) countries.push(f.destCountry);
+    // Also check legs for multi-leg trips
+    if (f.legs) {
+      f.legs.forEach(leg => {
+        if (leg.originCountry) countries.push(leg.originCountry);
+        if (leg.destCountry) countries.push(leg.destCountry);
+      });
+    }
+    return countries;
+  }).filter(Boolean))];
+  
+  // Calculate unique continents visited
+  const uniqueContinents = [...new Set(flights.flatMap(f => {
+    const continents = [];
+    if (f.originContinent) continents.push(f.originContinent);
+    if (f.destContinent) continents.push(f.destContinent);
+    // Also derive from country if continent not stored
+    if (f.originCountry) continents.push(getContinent(f.originCountry));
+    if (f.destCountry) continents.push(getContinent(f.destCountry));
+    return continents;
+  }).filter(c => c && c !== 'Unknown'))];
+  
+  // Calculate unique airports
+  const uniqueAirports = [...new Set(flights.flatMap(f => {
+    const airports = [f.origin, f.destination];
+    if (f.legs) {
+      f.legs.forEach(leg => {
+        airports.push(leg.origin, leg.destination);
+      });
+    }
+    return airports;
+  }).filter(Boolean))];
+  
+  // Save stats preferences to localStorage
+  useEffect(() => {
+    localStorage.setItem('statsExpanded', JSON.stringify(statsExpanded));
+  }, [statsExpanded]);
+  
+  useEffect(() => {
+    localStorage.setItem('visibleStats', JSON.stringify(visibleStats));
+  }, [visibleStats]);
   
   // Calculate total personal carbon footprint (per leg for multi-leg trips)
   const totalCarbonKg = flights.reduce((sum, f) => {
@@ -2836,7 +2941,22 @@ const FlightTracker = () => {
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 20px', fontFamily: 'sans-serif' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', flexWrap: 'wrap', gap: '15px' }}>
-        <h1 style={{ margin: 0 }}>FlightLog</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h1 style={{ margin: 0 }}>FlightLog</h1>
+          <span style={{
+            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+            color: '#fff',
+            fontSize: '10px',
+            fontWeight: '700',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            boxShadow: '0 2px 4px rgba(99, 102, 241, 0.3)'
+          }}>
+            Beta
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Auth UI */}
           {authLoading ? (
@@ -3617,160 +3737,163 @@ const FlightTracker = () => {
                 marginRight: '-10px',
                 paddingRight: '10px'
               }}>
-                {/* Leaderboard Header */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '50px 1fr 100px 80px 80px',
-                  gap: '12px',
-                  padding: '10px 16px',
-                  background: '#f8fafc',
-                  borderRadius: '8px',
-                  marginBottom: '8px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: '#64748b',
-                  textTransform: 'uppercase',
-                  position: 'sticky',
-                  top: 0
+                {/* Leaderboard Table */}
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'separate',
+                  borderSpacing: '0 6px'
                 }}>
-                  <span>Rank</span>
-                  <span>Explorer</span>
-                  <span style={{ textAlign: 'right' }}>Miles</span>
-                  <span style={{ textAlign: 'right' }}>Flights</span>
-                  <span style={{ textAlign: 'right' }}>Countries</span>
-                </div>
+                  {/* Leaderboard Header */}
+                  <thead>
+                    <tr style={{
+                      background: '#f8fafc',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      textTransform: 'uppercase'
+                    }}>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', borderRadius: '8px 0 0 8px', width: '60px' }}>Rank</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left' }}>Explorer</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', width: '100px' }}>Miles</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', width: '70px' }}>Flights</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', borderRadius: '0 8px 8px 0', width: '80px' }}>Countries</th>
+                    </tr>
+                  </thead>
 
-                {/* Leaderboard Entries */}
-                {leaderboardData.map((entry, index) => {
-                  const rank = index + 1;
-                  const isTop3 = rank <= 3;
-                  const medalColors = ['#fbbf24', '#9ca3af', '#cd7f32'];
-                  
-                  return (
-                    <div
-                      key={entry.id}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '50px 1fr 100px 80px 80px',
-                        gap: '12px',
-                        padding: '14px 16px',
-                        background: entry.isCurrentUser 
-                          ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)' 
-                          : isTop3 ? '#fffbeb' : '#fff',
-                        borderRadius: '10px',
-                        marginBottom: '6px',
-                        border: entry.isCurrentUser 
-                          ? '2px solid #10b981' 
-                          : isTop3 ? '1px solid #fde68a' : '1px solid #f1f5f9',
-                        alignItems: 'center',
-                        transition: 'transform 0.1s ease',
-                        cursor: 'default'
-                      }}
-                    >
-                      {/* Rank */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
-                        {isTop3 ? (
-                          <div style={{
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '50%',
-                            background: medalColors[rank - 1],
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                            fontWeight: '700',
-                            fontSize: '12px',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  {/* Leaderboard Entries */}
+                  <tbody>
+                    {leaderboardData.map((entry, index) => {
+                      const rank = index + 1;
+                      const isTop3 = rank <= 3;
+                      const medalColors = ['#fbbf24', '#9ca3af', '#cd7f32'];
+                      
+                      return (
+                        <tr
+                          key={entry.id}
+                          style={{
+                            background: entry.isCurrentUser 
+                              ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)' 
+                              : isTop3 ? '#fffbeb' : '#fff',
+                            boxShadow: entry.isCurrentUser 
+                              ? 'inset 0 0 0 2px #10b981' 
+                              : isTop3 ? 'inset 0 0 0 1px #fde68a' : 'inset 0 0 0 1px #f1f5f9',
+                            borderRadius: '10px'
+                          }}
+                        >
+                          {/* Rank */}
+                          <td style={{ 
+                            padding: '14px 12px', 
+                            textAlign: 'center',
+                            borderRadius: '10px 0 0 10px'
                           }}>
-                            {rank}
-                          </div>
-                        ) : (
-                          <span style={{ 
-                            fontWeight: '600', 
-                            color: '#64748b',
-                            fontSize: '14px'
-                          }}>
-                            {rank}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Name */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          background: entry.isCurrentUser ? '#10b981' : '#e2e8f0',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: entry.isCurrentUser ? '#fff' : '#64748b',
-                          fontWeight: '600',
-                          fontSize: '13px'
-                        }}>
-                          {entry.displayName?.charAt(0).toUpperCase() || '?'}
-                        </div>
-                        <div>
-                          <div style={{ 
-                            fontWeight: '600', 
-                            fontSize: '14px',
-                            color: entry.isCurrentUser ? '#059669' : '#1e293b',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                          }}>
-                            {entry.displayName}
-                            {entry.isCurrentUser && (
-                              <span style={{
-                                fontSize: '10px',
-                                background: '#10b981',
+                            {isTop3 ? (
+                              <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                background: medalColors[rank - 1],
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                                 color: '#fff',
-                                padding: '2px 6px',
-                                borderRadius: '4px'
+                                fontWeight: '700',
+                                fontSize: '12px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                               }}>
-                                YOU
+                                {rank}
+                              </div>
+                            ) : (
+                              <span style={{ 
+                                fontWeight: '600', 
+                                color: '#64748b',
+                                fontSize: '14px'
+                              }}>
+                                {rank}
                               </span>
                             )}
-                          </div>
-                        </div>
-                      </div>
+                          </td>
 
-                      {/* Miles */}
-                      <div style={{ 
-                        textAlign: 'right', 
-                        fontWeight: '700', 
-                        fontSize: '14px',
-                        color: isTop3 ? '#b45309' : '#1e293b'
-                      }}>
-                        {entry.totalMiles?.toLocaleString() || 0}
-                      </div>
+                          {/* Name */}
+                          <td style={{ padding: '14px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: entry.isCurrentUser ? '#10b981' : '#e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: entry.isCurrentUser ? '#fff' : '#64748b',
+                                fontWeight: '600',
+                                fontSize: '13px',
+                                flexShrink: 0
+                              }}>
+                                {entry.displayName?.charAt(0).toUpperCase() || '?'}
+                              </div>
+                              <div style={{ 
+                                fontWeight: '600', 
+                                fontSize: '14px',
+                                color: entry.isCurrentUser ? '#059669' : '#1e293b',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                              }}>
+                                {entry.displayName}
+                                {entry.isCurrentUser && (
+                                  <span style={{
+                                    fontSize: '10px',
+                                    background: '#10b981',
+                                    color: '#fff',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px'
+                                  }}>
+                                    YOU
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
 
-                      {/* Flights */}
-                      <div style={{ 
-                        textAlign: 'right', 
-                        fontSize: '14px',
-                        color: '#64748b'
-                      }}>
-                        {entry.totalFlights || 0}
-                      </div>
+                          {/* Miles */}
+                          <td style={{ 
+                            padding: '14px 12px',
+                            textAlign: 'right', 
+                            fontWeight: '700', 
+                            fontSize: '14px',
+                            color: isTop3 ? '#b45309' : '#1e293b',
+                            fontVariantNumeric: 'tabular-nums'
+                          }}>
+                            {entry.totalMiles?.toLocaleString() || 0}
+                          </td>
 
-                      {/* Countries */}
-                      <div style={{ 
-                        textAlign: 'right', 
-                        fontSize: '14px',
-                        color: '#64748b'
-                      }}>
-                        {entry.uniqueCountries || 0}
-                      </div>
-                    </div>
-                  );
-                })}
+                          {/* Flights */}
+                          <td style={{ 
+                            padding: '14px 12px',
+                            textAlign: 'right', 
+                            fontSize: '14px',
+                            color: '#64748b',
+                            fontVariantNumeric: 'tabular-nums'
+                          }}>
+                            {entry.totalFlights || 0}
+                          </td>
+
+                          {/* Countries */}
+                          <td style={{ 
+                            padding: '14px 12px',
+                            textAlign: 'right', 
+                            fontSize: '14px',
+                            color: '#64748b',
+                            borderRadius: '0 10px 10px 0',
+                            fontVariantNumeric: 'tabular-nums'
+                          }}>
+                            {entry.uniqueCountries || 0}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -3815,44 +3938,188 @@ const FlightTracker = () => {
       )}
 
       {/* Stats Dashboard */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        <div style={statCard}>
-          <Plane size={20}/>
-          <div style={statVal}>{totalFlightLegs}</div>
-          <div style={statLbl}>Total Flights</div>
-          {flights.length !== totalFlightLegs && (
-            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({flights.length} trips)</div>
-          )}
+      <div style={{ marginBottom: '40px' }}>
+        {/* Stats Header with collapse/settings */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: statsExpanded ? '20px' : '0',
+          padding: '12px 16px',
+          background: '#f8fafc',
+          borderRadius: '12px',
+          cursor: 'pointer'
+        }}>
+          <div 
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}
+            onClick={() => setStatsExpanded(!statsExpanded)}
+          >
+            <BarChart3 size={20} color="#6366f1" />
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#334155' }}>
+              Travel Statistics
+            </h3>
+            {statsExpanded ? <ChevronUp size={18} color="#64748b" /> : <ChevronDown size={18} color="#64748b" />}
+            {!statsExpanded && (
+              <span style={{ fontSize: '13px', color: '#64748b', marginLeft: '10px' }}>
+                {totalFlightLegs} flights • {totalMiles.toLocaleString()} mi • {uniqueCountries.length} countries
+              </span>
+            )}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowStatsSettings(!showStatsSettings); }}
+            style={{
+              background: showStatsSettings ? '#e0e7ff' : 'transparent',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '6px 10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}
+            title="Customize visible stats"
+          >
+            <Settings size={14} />
+          </button>
         </div>
-        <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
-        <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
-        <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
-        {dominantAlliance && dominantAlliance !== 'Independent' && (
+
+        {/* Stats Settings Panel */}
+        {showStatsSettings && (
           <div style={{
-            ...statCard,
-            background: ALLIANCE_STYLES[dominantAlliance].background,
-            borderColor: ALLIANCE_STYLES[dominantAlliance].color
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '16px',
+            marginBottom: '16px',
+            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
           }}>
-            <span style={{ fontSize: '20px' }}>{ALLIANCE_STYLES[dominantAlliance].icon}</span>
-            <div style={{...statVal, color: ALLIANCE_STYLES[dominantAlliance].color, fontSize: '18px'}}>{dominantAlliance}</div>
-            <div style={statLbl}>Top Alliance</div>
+            <div style={{ fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '12px' }}>
+              Choose which stats to display:
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+              {[
+                { key: 'flights', label: '✈️ Flights' },
+                { key: 'miles', label: '🌍 Miles' },
+                { key: 'routes', label: '🗺️ Routes' },
+                { key: 'countries', label: '🏳️ Countries' },
+                { key: 'continents', label: '🌎 Continents' },
+                { key: 'airports', label: '📍 Airports' },
+                { key: 'co2', label: '☁️ CO₂' },
+                { key: 'alliance', label: '⭐ Alliance' },
+                { key: 'moon', label: '🌙 Moon %' },
+                { key: 'money', label: '💵 Money' },
+                { key: 'milesSpent', label: '💳 Miles Spent' }
+              ].map(({ key, label }) => (
+                <label key={key} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  background: visibleStats[key] ? '#e0e7ff' : '#f1f5f9',
+                  borderRadius: '20px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  color: visibleStats[key] ? '#4338ca' : '#64748b',
+                  transition: 'all 0.2s ease'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={visibleStats[key]}
+                    onChange={(e) => setVisibleStats({ ...visibleStats, [key]: e.target.checked })}
+                    style={{ display: 'none' }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
           </div>
         )}
-        <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
-        {paymentStats.totalMoneySpent > 0 && (
-          <div style={{...statCard, background: '#f0fdf4', borderColor: '#22c55e'}}>
-            <DollarSign size={20} color="#22c55e"/>
-            <div style={{...statVal, color: '#16a34a'}}>${paymentStats.totalMoneySpent.toLocaleString()}</div>
-            <div style={statLbl}>Money Spent</div>
-            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.moneyFlightCount} trip{paymentStats.moneyFlightCount > 1 ? 's' : ''})</div>
-          </div>
-        )}
-        {paymentStats.totalMilesSpent > 0 && (
-          <div style={{...statCard, background: '#eff6ff', borderColor: '#3b82f6'}}>
-            <CreditCard size={20} color="#3b82f6"/>
-            <div style={{...statVal, color: '#2563eb'}}>{paymentStats.totalMilesSpent.toLocaleString()}</div>
-            <div style={statLbl}>Miles Redeemed</div>
-            <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.milesFlightCount} trip{paymentStats.milesFlightCount > 1 ? 's' : ''})</div>
+
+        {/* Stats Cards */}
+        {statsExpanded && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
+            {visibleStats.flights && (
+              <div style={statCard}>
+                <Plane size={20}/>
+                <div style={statVal}>{totalFlightLegs}</div>
+                <div style={statLbl}>Total Flights</div>
+                {flights.length !== totalFlightLegs && (
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({flights.length} trips)</div>
+                )}
+              </div>
+            )}
+            {visibleStats.miles && (
+              <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
+            )}
+            {visibleStats.routes && (
+              <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
+            )}
+            {visibleStats.countries && (
+              <div style={{...statCard, background: '#fef3c7', borderColor: '#f59e0b'}}>
+                <Flag size={20} color="#d97706"/>
+                <div style={{...statVal, color: '#b45309'}}>{uniqueCountries.length}</div>
+                <div style={statLbl}>Countries</div>
+                {uniqueCountries.length > 0 && (
+                  <div style={{ fontSize: '9px', color: '#92400e', marginTop: '4px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uniqueCountries.join(', ')}>
+                    {uniqueCountries.slice(0, 3).join(', ')}{uniqueCountries.length > 3 ? '...' : ''}
+                  </div>
+                )}
+              </div>
+            )}
+            {visibleStats.continents && (
+              <div style={{...statCard, background: '#dbeafe', borderColor: '#3b82f6'}}>
+                <Globe size={20} color="#2563eb"/>
+                <div style={{...statVal, color: '#1d4ed8'}}>{uniqueContinents.length}</div>
+                <div style={statLbl}>Continents</div>
+                {uniqueContinents.length > 0 && (
+                  <div style={{ fontSize: '9px', color: '#1e40af', marginTop: '4px' }}>
+                    {uniqueContinents.join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
+            {visibleStats.airports && (
+              <div style={{...statCard, background: '#f0fdf4', borderColor: '#22c55e'}}>
+                <MapPin size={20} color="#16a34a"/>
+                <div style={{...statVal, color: '#15803d'}}>{uniqueAirports.length}</div>
+                <div style={statLbl}>Airports</div>
+              </div>
+            )}
+            {visibleStats.co2 && (
+              <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
+            )}
+            {visibleStats.alliance && dominantAlliance && dominantAlliance !== 'Independent' && (
+              <div style={{
+                ...statCard,
+                background: ALLIANCE_STYLES[dominantAlliance].background,
+                borderColor: ALLIANCE_STYLES[dominantAlliance].color
+              }}>
+                <span style={{ fontSize: '20px' }}>{ALLIANCE_STYLES[dominantAlliance].icon}</span>
+                <div style={{...statVal, color: ALLIANCE_STYLES[dominantAlliance].color, fontSize: '18px'}}>{dominantAlliance}</div>
+                <div style={statLbl}>Top Alliance</div>
+              </div>
+            )}
+            {visibleStats.moon && (
+              <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
+            )}
+            {visibleStats.money && paymentStats.totalMoneySpent > 0 && (
+              <div style={{...statCard, background: '#f0fdf4', borderColor: '#22c55e'}}>
+                <DollarSign size={20} color="#22c55e"/>
+                <div style={{...statVal, color: '#16a34a'}}>${paymentStats.totalMoneySpent.toLocaleString()}</div>
+                <div style={statLbl}>Money Spent</div>
+                <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.moneyFlightCount} trip{paymentStats.moneyFlightCount > 1 ? 's' : ''})</div>
+              </div>
+            )}
+            {visibleStats.milesSpent && paymentStats.totalMilesSpent > 0 && (
+              <div style={{...statCard, background: '#eff6ff', borderColor: '#3b82f6'}}>
+                <CreditCard size={20} color="#3b82f6"/>
+                <div style={{...statVal, color: '#2563eb'}}>{paymentStats.totalMilesSpent.toLocaleString()}</div>
+                <div style={statLbl}>Miles Redeemed</div>
+                <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.milesFlightCount} trip{paymentStats.milesFlightCount > 1 ? 's' : ''})</div>
+              </div>
+            )}
           </div>
         )}
       </div>
