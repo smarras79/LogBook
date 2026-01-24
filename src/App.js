@@ -3,7 +3,7 @@ import {
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
   LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
-  ChevronDown, ChevronUp, Settings, Flag, MapPin
+  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon
 } from 'lucide-react';
 
 // Firebase imports
@@ -839,6 +839,7 @@ const FlightTracker = () => {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [leaderboardSortBy, setLeaderboardSortBy] = useState('miles'); // 'miles', 'flights', 'countries', 'co2'
   
   // User nickname state
   const [nickname, setNickname] = useState('');
@@ -995,11 +996,25 @@ const FlightTracker = () => {
     const uniqueCountries = [...new Set(userFlights.flatMap(f => [f.originCountry, f.destCountry].filter(Boolean)))].length;
     const uniqueAirports = [...new Set(userFlights.flatMap(f => [f.origin, f.destination]))].length;
     
+    // Calculate CO2 emissions
+    const classMultipliers = { 'Economy': 1.0, 'Premium Economy': 1.5, 'Business': 2.5, 'First': 4.0 };
+    const totalCO2 = userFlights.reduce((sum, f) => {
+      if (f.legs && f.legs.length > 1) {
+        return sum + f.legs.reduce((legSum, leg) => {
+          const mult = classMultipliers[leg.serviceClass] || 1.0;
+          return legSum + Math.round((leg.distance || 0) * 0.14 * mult);
+        }, 0);
+      }
+      const mult = classMultipliers[f.serviceClass] || 1.0;
+      return sum + Math.round((f.distance || 0) * 0.14 * mult);
+    }, 0);
+    
     return {
       totalMiles,
       totalFlights: totalFlightLegs,
       uniqueCountries,
-      uniqueAirports
+      uniqueAirports,
+      totalCO2
     };
   };
 
@@ -1089,6 +1104,7 @@ const FlightTracker = () => {
             totalFlights: data.totalFlights || 0,
             uniqueCountries: data.uniqueCountries || 0,
             uniqueAirports: data.uniqueAirports || 0,
+            totalCO2: data.totalCO2 || 0,
             isCurrentUser: authUser && docSnapshot.id === authUser.uid
           });
         }
@@ -1096,7 +1112,7 @@ const FlightTracker = () => {
       
       console.log('Filtered leaderboard entries:', leaderboard.length);
       
-      // Sort by total miles descending
+      // Sort by total miles descending by default
       leaderboard.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
       setLeaderboardData(leaderboard);
     } catch (error) {
@@ -1106,6 +1122,29 @@ const FlightTracker = () => {
     } finally {
       setLoadingLeaderboard(false);
     }
+  };
+
+  // Get sorted leaderboard data based on current sort selection
+  const getSortedLeaderboard = () => {
+    const sorted = [...leaderboardData];
+    switch (leaderboardSortBy) {
+      case 'miles':
+        sorted.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
+        break;
+      case 'flights':
+        sorted.sort((a, b) => (b.totalFlights || 0) - (a.totalFlights || 0));
+        break;
+      case 'countries':
+        sorted.sort((a, b) => (b.uniqueCountries || 0) - (a.uniqueCountries || 0));
+        break;
+      case 'co2':
+        // Lower CO2 is better, so sort ascending
+        sorted.sort((a, b) => (a.totalCO2 || 0) - (b.totalCO2 || 0));
+        break;
+      default:
+        sorted.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
+    }
+    return sorted;
   };
 
   // Fetch leaderboard when showing it
@@ -4220,7 +4259,7 @@ const FlightTracker = () => {
         <div style={modalOverlay}>
           <div style={{
             ...modalContent,
-            maxWidth: '600px',
+            maxWidth: '650px',
             maxHeight: '80vh',
             overflow: 'hidden',
             display: 'flex',
@@ -4284,35 +4323,119 @@ const FlightTracker = () => {
               <div style={{ 
                 flex: 1, 
                 overflowY: 'auto',
+                overflowX: 'auto',
                 marginRight: '-10px',
                 paddingRight: '10px'
               }}>
+                {/* Sort Buttons */}
+                <div style={{
+                  display: 'flex',
+                  gap: '8px',
+                  marginBottom: '16px',
+                  flexWrap: 'wrap',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', marginRight: '4px' }}>Sort by:</span>
+                  {[
+                    { key: 'miles', label: '✈️ Miles', color: '#f59e0b' },
+                    { key: 'flights', label: '🛫 Flights', color: '#3b82f6' },
+                    { key: 'countries', label: '🌍 Countries', color: '#10b981' },
+                    { key: 'co2', label: '🌱 CO₂ (Low)', color: '#059669' }
+                  ].map(({ key, label, color }) => (
+                    <button
+                      key={key}
+                      onClick={() => setLeaderboardSortBy(key)}
+                      style={{
+                        background: leaderboardSortBy === key ? color : '#f1f5f9',
+                        color: leaderboardSortBy === key ? '#fff' : '#64748b',
+                        border: 'none',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Leaderboard Table */}
                 <table style={{
                   width: '100%',
                   borderCollapse: 'separate',
-                  borderSpacing: '0 6px'
+                  borderSpacing: '0 6px',
+                  minWidth: '500px'
                 }}>
                   {/* Leaderboard Header */}
                   <thead>
                     <tr style={{
                       background: '#f8fafc',
-                      fontSize: '11px',
+                      fontSize: '10px',
                       fontWeight: '600',
                       color: '#64748b',
                       textTransform: 'uppercase'
                     }}>
-                      <th style={{ padding: '10px 12px', textAlign: 'center', borderRadius: '8px 0 0 8px', width: '60px' }}>Rank</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left' }}>Explorer</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right', width: '100px' }}>Miles</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right', width: '70px' }}>Flights</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right', borderRadius: '0 8px 8px 0', width: '80px' }}>Countries</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'center', borderRadius: '8px 0 0 8px', width: '50px' }}>#</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'left', minWidth: '100px' }}>Explorer</th>
+                      <th 
+                        style={{ 
+                          padding: '10px 8px', 
+                          textAlign: 'right', 
+                          width: '80px',
+                          background: leaderboardSortBy === 'miles' ? '#fef3c7' : 'transparent',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => setLeaderboardSortBy('miles')}
+                      >
+                        Miles {leaderboardSortBy === 'miles' && '▼'}
+                      </th>
+                      <th 
+                        style={{ 
+                          padding: '10px 8px', 
+                          textAlign: 'right', 
+                          width: '60px',
+                          background: leaderboardSortBy === 'flights' ? '#dbeafe' : 'transparent',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => setLeaderboardSortBy('flights')}
+                      >
+                        Flights {leaderboardSortBy === 'flights' && '▼'}
+                      </th>
+                      <th 
+                        style={{ 
+                          padding: '10px 8px', 
+                          textAlign: 'right', 
+                          width: '65px',
+                          background: leaderboardSortBy === 'countries' ? '#dcfce7' : 'transparent',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => setLeaderboardSortBy('countries')}
+                      >
+                        Countries {leaderboardSortBy === 'countries' && '▼'}
+                      </th>
+                      <th 
+                        style={{ 
+                          padding: '10px 8px', 
+                          textAlign: 'right', 
+                          borderRadius: '0 8px 8px 0', 
+                          width: '70px',
+                          background: leaderboardSortBy === 'co2' ? '#ecfdf5' : 'transparent',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => setLeaderboardSortBy('co2')}
+                      >
+                        CO₂ {leaderboardSortBy === 'co2' && '▲'}
+                      </th>
                     </tr>
                   </thead>
 
                   {/* Leaderboard Entries */}
                   <tbody>
-                    {leaderboardData.map((entry, index) => {
+                    {getSortedLeaderboard().map((entry, index) => {
                       const rank = index + 1;
                       const isTop3 = rank <= 3;
                       const medalColors = ['#fbbf24', '#9ca3af', '#cd7f32'];
@@ -4332,14 +4455,14 @@ const FlightTracker = () => {
                         >
                           {/* Rank */}
                           <td style={{ 
-                            padding: '14px 12px', 
+                            padding: '12px 8px', 
                             textAlign: 'center',
                             borderRadius: '10px 0 0 10px'
                           }}>
                             {isTop3 ? (
                               <div style={{
-                                width: '28px',
-                                height: '28px',
+                                width: '26px',
+                                height: '26px',
                                 borderRadius: '50%',
                                 background: medalColors[rank - 1],
                                 display: 'inline-flex',
@@ -4347,7 +4470,7 @@ const FlightTracker = () => {
                                 justifyContent: 'center',
                                 color: '#fff',
                                 fontWeight: '700',
-                                fontSize: '12px',
+                                fontSize: '11px',
                                 boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                               }}>
                                 {rank}
@@ -4356,7 +4479,7 @@ const FlightTracker = () => {
                               <span style={{ 
                                 fontWeight: '600', 
                                 color: '#64748b',
-                                fontSize: '14px'
+                                fontSize: '13px'
                               }}>
                                 {rank}
                               </span>
@@ -4364,11 +4487,11 @@ const FlightTracker = () => {
                           </td>
 
                           {/* Name */}
-                          <td style={{ padding: '14px 12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <td style={{ padding: '12px 8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <div style={{
-                                width: '32px',
-                                height: '32px',
+                                width: '28px',
+                                height: '28px',
                                 borderRadius: '50%',
                                 background: entry.isCurrentUser ? '#10b981' : '#e2e8f0',
                                 display: 'flex',
@@ -4376,27 +4499,36 @@ const FlightTracker = () => {
                                 justifyContent: 'center',
                                 color: entry.isCurrentUser ? '#fff' : '#64748b',
                                 fontWeight: '600',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 flexShrink: 0
                               }}>
                                 {entry.displayName?.charAt(0).toUpperCase() || '?'}
                               </div>
                               <div style={{ 
                                 fontWeight: '600', 
-                                fontSize: '14px',
+                                fontSize: '13px',
                                 color: entry.isCurrentUser ? '#059669' : '#1e293b',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '6px'
+                                gap: '4px',
+                                overflow: 'hidden'
                               }}>
-                                {entry.displayName}
+                                <span style={{ 
+                                  overflow: 'hidden', 
+                                  textOverflow: 'ellipsis', 
+                                  whiteSpace: 'nowrap',
+                                  maxWidth: '90px'
+                                }}>
+                                  {entry.displayName}
+                                </span>
                                 {entry.isCurrentUser && (
                                   <span style={{
-                                    fontSize: '10px',
+                                    fontSize: '9px',
                                     background: '#10b981',
                                     color: '#fff',
-                                    padding: '2px 6px',
-                                    borderRadius: '4px'
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    flexShrink: 0
                                   }}>
                                     YOU
                                   </span>
@@ -4407,22 +4539,25 @@ const FlightTracker = () => {
 
                           {/* Miles */}
                           <td style={{ 
-                            padding: '14px 12px',
+                            padding: '12px 8px',
                             textAlign: 'right', 
-                            fontWeight: '700', 
-                            fontSize: '14px',
-                            color: isTop3 ? '#b45309' : '#1e293b',
+                            fontWeight: leaderboardSortBy === 'miles' ? '700' : '600', 
+                            fontSize: '12px',
+                            color: leaderboardSortBy === 'miles' ? '#b45309' : '#1e293b',
+                            background: leaderboardSortBy === 'miles' ? 'rgba(254, 243, 199, 0.5)' : 'transparent',
                             fontVariantNumeric: 'tabular-nums'
                           }}>
-                            {entry.totalMiles?.toLocaleString() || 0}
+                            {(entry.totalMiles || 0).toLocaleString()}
                           </td>
 
                           {/* Flights */}
                           <td style={{ 
-                            padding: '14px 12px',
+                            padding: '12px 8px',
                             textAlign: 'right', 
-                            fontSize: '14px',
-                            color: '#64748b',
+                            fontWeight: leaderboardSortBy === 'flights' ? '700' : '500',
+                            fontSize: '12px',
+                            color: leaderboardSortBy === 'flights' ? '#1e40af' : '#64748b',
+                            background: leaderboardSortBy === 'flights' ? 'rgba(219, 234, 254, 0.5)' : 'transparent',
                             fontVariantNumeric: 'tabular-nums'
                           }}>
                             {entry.totalFlights || 0}
@@ -4430,14 +4565,29 @@ const FlightTracker = () => {
 
                           {/* Countries */}
                           <td style={{ 
-                            padding: '14px 12px',
+                            padding: '12px 8px',
                             textAlign: 'right', 
-                            fontSize: '14px',
-                            color: '#64748b',
-                            borderRadius: '0 10px 10px 0',
+                            fontWeight: leaderboardSortBy === 'countries' ? '700' : '500',
+                            fontSize: '12px',
+                            color: leaderboardSortBy === 'countries' ? '#166534' : '#64748b',
+                            background: leaderboardSortBy === 'countries' ? 'rgba(220, 252, 231, 0.5)' : 'transparent',
                             fontVariantNumeric: 'tabular-nums'
                           }}>
                             {entry.uniqueCountries || 0}
+                          </td>
+
+                          {/* CO2 */}
+                          <td style={{ 
+                            padding: '12px 8px',
+                            textAlign: 'right', 
+                            fontWeight: leaderboardSortBy === 'co2' ? '700' : '500',
+                            fontSize: '11px',
+                            color: leaderboardSortBy === 'co2' ? '#047857' : '#64748b',
+                            background: leaderboardSortBy === 'co2' ? 'rgba(236, 253, 245, 0.5)' : 'transparent',
+                            borderRadius: '0 10px 10px 0',
+                            fontVariantNumeric: 'tabular-nums'
+                          }}>
+                            {((entry.totalCO2 || 0) / 1000).toFixed(1)}t
                           </td>
                         </tr>
                       );
@@ -4556,7 +4706,7 @@ const FlightTracker = () => {
       )}
 
       {/* Stats Dashboard */}
-      <div style={{ marginBottom: '40px' }}>
+      <div style={{ marginBottom: statsExpanded ? '40px' : '12px' }}>
         {/* Stats Header with collapse/settings */}
         <div style={{ 
           display: 'flex', 
@@ -4720,7 +4870,7 @@ const FlightTracker = () => {
               </div>
             )}
             {visibleStats.moon && (
-              <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
+              <div style={statCard}><Moon size={20} color="#6366f1"/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
             )}
             {visibleStats.money && paymentStats.totalMoneySpent > 0 && (
               <div style={{...statCard, background: '#f0fdf4', borderColor: '#22c55e'}}>
@@ -4744,7 +4894,7 @@ const FlightTracker = () => {
 
       {/* Detailed Charts Section */}
       {flights.length > 0 && (
-        <div style={{ marginBottom: '40px' }}>
+        <div style={{ marginBottom: chartsExpanded ? '40px' : '12px' }}>
           {/* Charts Header with collapse */}
           <div 
             style={{ 
@@ -5837,22 +5987,83 @@ const FlightTracker = () => {
               <div style={{ display: 'grid', gap: '16px', paddingLeft: '20px' }}>
                 {groups.map(group => (
                   <div key={`${group.origin}-${group.destination}`} style={{ 
-                    border: '1px solid #eee', 
-                    borderRadius: '12px', 
-                    padding: '16px',
-                    background: '#fefce8'
+                    border: '1px solid #fde68a', 
+                    borderRadius: '16px', 
+                    padding: '20px',
+                    background: '#fffbeb'
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {/* Route Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                       <div>
-                        <span style={{ fontSize: '16px', fontWeight: '600' }}>{group.origin} → {group.destination}</span>
-                        <div style={{ color: '#666', fontSize: '12px', marginTop: '2px' }}>
+                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                        <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>
                           {group.originCity} to {group.destCity}
-                          {group.distance && <span style={{ marginLeft: '8px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                          {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
                         </div>
                       </div>
-                      <span style={{ fontSize: '11px', color: '#888', background: '#fff', padding: '4px 8px', borderRadius: '12px' }}>
-                        {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', color: '#92400e', background: '#fef3c7', padding: '4px 8px', borderRadius: '12px' }}>
+                          {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
+                        </span>
+                        <ArrowLeftRight size={14} style={{ cursor: 'pointer', color: '#666' }} title="Add return flight" onClick={() => handleReverseFlight(group.flights[0])} />
+                        <Copy size={14} style={{ cursor: 'pointer', color: '#666' }} title="Copy route" onClick={() => handleCopyFlight(group.flights[0])} />
+                      </div>
+                    </div>
+
+                    {/* Landmarks */}
+                    {group.featuresCrossed && group.featuresCrossed.length > 0 && (
+                      <div style={{marginBottom: '12px', display:'flex', flexWrap:'wrap', gap:'6px'}}>
+                        {group.featuresCrossed.map(feat => (
+                          <span key={feat} style={{fontSize:'10px', background:'#e0f2f1', color:'#004d40', padding:'3px 6px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px', fontWeight:'600'}}>
+                            <Globe size={8}/> {feat}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Individual Flights */}
+                    <div style={{ borderTop: '1px solid #fde68a', paddingTop: '12px' }}>
+                      {group.flights.map((f, idx) => {
+                        const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                        const hasMultipleLegs = f.legs && f.legs.length > 1;
+                        return (
+                          <div key={f.id} style={{ padding: '10px 0', borderBottom: idx < group.flights.length - 1 ? '1px solid #fef3c7' : 'none' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)}</span>
+                                {hasMultipleLegs && (
+                                  <span style={{ fontSize: '10px', color: '#6366f1', background: '#eef2ff', padding: '2px 6px', borderRadius: '8px', fontWeight: '600' }}>
+                                    {f.legs.length} LEGS
+                                  </span>
+                                )}
+                                {f.airline && <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>{f.airline}</span>}
+                                {f.aircraftType && <span style={{ fontSize: '11px', color: '#888' }}>{f.aircraftType}</span>}
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  padding: '2px 6px', 
+                                  borderRadius: '6px',
+                                  background: f.serviceClass === 'Economy' ? '#fef3c7' : f.serviceClass === 'Business' ? '#dbeafe' : f.serviceClass === 'First' ? '#fef9c3' : '#dcfce7',
+                                  color: f.serviceClass === 'Economy' ? '#92400e' : f.serviceClass === 'Business' ? '#1e40af' : f.serviceClass === 'First' ? '#854d0e' : '#166534'
+                                }}>
+                                  {f.serviceClass === 'Economy' ? '🐔' : f.serviceClass === 'Business' ? '💼' : f.serviceClass === 'First' ? '👑' : '💺'} {f.serviceClass === 'Economy' ? 'Chicken' : f.serviceClass}
+                                </span>
+                                <span style={{ fontSize: '10px', color: '#dc2626', background: '#fef2f2', padding: '2px 6px', borderRadius: '6px' }}>
+                                  <CloudRain size={10} style={{verticalAlign: 'middle'}}/> {Math.round(flightCO2)} kg
+                                </span>
+                                {f.paymentAmount && (
+                                  <span style={{ fontSize: '10px', color: f.paymentType === 'miles' ? '#2563eb' : '#16a34a', background: f.paymentType === 'miles' ? '#eff6ff' : '#f0fdf4', padding: '2px 6px', borderRadius: '6px' }}>
+                                    {f.paymentType === 'miles' ? `✈️ ${parseInt(f.paymentAmount).toLocaleString()} mi` : `💵 $${parseFloat(f.paymentAmount).toLocaleString()}`}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
+                                <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -5899,17 +6110,18 @@ const FlightTracker = () => {
               <div style={{ display: 'grid', gap: '16px', paddingLeft: '20px' }}>
                 {groups.map(group => (
                   <div key={`${group.origin}-${group.destination}`} style={{ 
-                    border: '1px solid #eee', 
-                    borderRadius: '12px', 
-                    padding: '16px',
+                    border: '1px solid #bfdbfe', 
+                    borderRadius: '16px', 
+                    padding: '20px',
                     background: '#eff6ff'
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {/* Route Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                       <div>
-                        <span style={{ fontSize: '16px', fontWeight: '600' }}>{group.origin} → {group.destination}</span>
-                        <div style={{ color: '#666', fontSize: '12px', marginTop: '2px' }}>
+                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                        <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>
                           {group.originCity} to {group.destCity}
-                          {group.distance && <span style={{ marginLeft: '8px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                          {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
                         </div>
                         {(group.originCountry || group.destCountry) && (
                           <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
@@ -5917,9 +6129,69 @@ const FlightTracker = () => {
                           </div>
                         )}
                       </div>
-                      <span style={{ fontSize: '11px', color: '#888', background: '#fff', padding: '4px 8px', borderRadius: '12px' }}>
-                        {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', color: '#1e40af', background: '#dbeafe', padding: '4px 8px', borderRadius: '12px' }}>
+                          {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
+                        </span>
+                        <ArrowLeftRight size={14} style={{ cursor: 'pointer', color: '#666' }} title="Add return flight" onClick={() => handleReverseFlight(group.flights[0])} />
+                        <Copy size={14} style={{ cursor: 'pointer', color: '#666' }} title="Copy route" onClick={() => handleCopyFlight(group.flights[0])} />
+                      </div>
+                    </div>
+
+                    {/* Landmarks */}
+                    {group.featuresCrossed && group.featuresCrossed.length > 0 && (
+                      <div style={{marginBottom: '12px', display:'flex', flexWrap:'wrap', gap:'6px'}}>
+                        {group.featuresCrossed.map(feat => (
+                          <span key={feat} style={{fontSize:'10px', background:'#e0f2f1', color:'#004d40', padding:'3px 6px', borderRadius:'10px', display:'flex', alignItems:'center', gap:'3px', fontWeight:'600'}}>
+                            <Globe size={8}/> {feat}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Individual Flights */}
+                    <div style={{ borderTop: '1px solid #bfdbfe', paddingTop: '12px' }}>
+                      {group.flights.map((f, idx) => {
+                        const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                        const hasMultipleLegs = f.legs && f.legs.length > 1;
+                        return (
+                          <div key={f.id} style={{ padding: '10px 0', borderBottom: idx < group.flights.length - 1 ? '1px solid #dbeafe' : 'none' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)}</span>
+                                {hasMultipleLegs && (
+                                  <span style={{ fontSize: '10px', color: '#6366f1', background: '#eef2ff', padding: '2px 6px', borderRadius: '8px', fontWeight: '600' }}>
+                                    {f.legs.length} LEGS
+                                  </span>
+                                )}
+                                {f.airline && <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>{f.airline}</span>}
+                                {f.aircraftType && <span style={{ fontSize: '11px', color: '#888' }}>{f.aircraftType}</span>}
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  padding: '2px 6px', 
+                                  borderRadius: '6px',
+                                  background: f.serviceClass === 'Economy' ? '#fef3c7' : f.serviceClass === 'Business' ? '#dbeafe' : f.serviceClass === 'First' ? '#fef9c3' : '#dcfce7',
+                                  color: f.serviceClass === 'Economy' ? '#92400e' : f.serviceClass === 'Business' ? '#1e40af' : f.serviceClass === 'First' ? '#854d0e' : '#166534'
+                                }}>
+                                  {f.serviceClass === 'Economy' ? '🐔' : f.serviceClass === 'Business' ? '💼' : f.serviceClass === 'First' ? '👑' : '💺'} {f.serviceClass === 'Economy' ? 'Chicken' : f.serviceClass}
+                                </span>
+                                <span style={{ fontSize: '10px', color: '#dc2626', background: '#fef2f2', padding: '2px 6px', borderRadius: '6px' }}>
+                                  <CloudRain size={10} style={{verticalAlign: 'middle'}}/> {Math.round(flightCO2)} kg
+                                </span>
+                                {f.paymentAmount && (
+                                  <span style={{ fontSize: '10px', color: f.paymentType === 'miles' ? '#2563eb' : '#16a34a', background: f.paymentType === 'miles' ? '#eff6ff' : '#f0fdf4', padding: '2px 6px', borderRadius: '6px' }}>
+                                    {f.paymentType === 'miles' ? `✈️ ${parseInt(f.paymentAmount).toLocaleString()} mi` : `💵 $${parseFloat(f.paymentAmount).toLocaleString()}`}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
+                                <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
