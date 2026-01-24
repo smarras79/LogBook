@@ -1289,13 +1289,19 @@ const FlightTracker = () => {
       }
     }
   };
-
+    
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+      try {
+	  await signOut(auth);
+      } catch (error) {
+	  console.error('Logout error:', error);
+      } finally {
+	  try { localStorage.removeItem('landingDismissed'); } catch(e) {}
+	  if (typeof setShowLanding === 'function') setShowLanding(true);
+	  if (typeof window !== 'undefined' && window.scrollTo) {
+	      window.scrollTo({ top: 0, behavior: 'smooth' });
+	  }
+      }
   };
 
   const openAuthModal = (mode) => {
@@ -5117,9 +5123,9 @@ const FlightTracker = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '12px', color: '#64748b', marginRight: '4px' }}>Organize by:</span>
             {[
-              { key: 'date', label: '📅 Date', icon: null },
-              { key: 'country', label: '🏳️ Country', icon: null },
-              { key: 'continent', label: '🌍 Continent', icon: null }
+              { key: 'date', label: 'Date'},
+              { key: 'country', label: 'Country'},
+              { key: 'continent', label: 'Continent'}
             ].map(({ key, label }) => (
               <button
                 key={key}
