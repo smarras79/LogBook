@@ -850,6 +850,10 @@ const FlightTracker = () => {
     const saved = localStorage.getItem('statsExpanded');
     return saved !== null ? JSON.parse(saved) : true;
   });
+  const [chartsExpanded, setChartsExpanded] = useState(() => {
+    const saved = localStorage.getItem('chartsExpanded');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   const [visibleStats, setVisibleStats] = useState(() => {
     const saved = localStorage.getItem('visibleStats');
     return saved ? JSON.parse(saved) : {
@@ -868,6 +872,18 @@ const FlightTracker = () => {
   });
   const [showStatsSettings, setShowStatsSettings] = useState(false);
   
+  // Sort/organization mode for flight cards
+  const [sortMode, setSortMode] = useState(() => {
+    const saved = localStorage.getItem('flightSortMode');
+    return saved || 'date';
+  });
+  
+  // Landing page state - show landing if not logged in and hasn't dismissed it
+  const [showLanding, setShowLanding] = useState(() => {
+    const dismissed = localStorage.getItem('landingDismissed');
+    return !dismissed;
+  });
+  
   // Progress tracking for Gmail import
   const [importProgress, setImportProgress] = useState({
     show: false,
@@ -885,6 +901,10 @@ const FlightTracker = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null); // tracks which alliance dropdown is open
+
+  // Database reprocessing state
+  const [isReprocessing, setIsReprocessing] = useState(false);
+  const [reprocessProgress, setReprocessProgress] = useState({ current: 0, total: 0 });
 
   // Gmail date range defaults (3 years ago to today)
   const getDefaultFromDate = () => {
@@ -1284,6 +1304,102 @@ const FlightTracker = () => {
     setAuthEmail('');
     setAuthPassword('');
     setShowAuthModal(true);
+  };
+
+  // Combined auth submit handler
+  const handleAuthSubmit = (e) => {
+    if (authMode === 'signup') {
+      handleSignup(e);
+    } else {
+      handleLogin(e);
+    }
+  };
+
+  // --- DATABASE REPROCESSING ---
+  // Define the current schema version - increment this when new fields are added
+  const CURRENT_SCHEMA_VERSION = 2; // v2 added originCountry, destCountry, originContinent, destContinent
+
+  // Check if a flight needs reprocessing (missing new fields)
+  const flightNeedsReprocessing = (flight) => {
+    // Check for missing country/continent data
+    if (!flight.originCountry || !flight.destCountry) return true;
+    if (!flight.originContinent || !flight.destContinent) return true;
+    // Check schema version
+    if (!flight.schemaVersion || flight.schemaVersion < CURRENT_SCHEMA_VERSION) return true;
+    return false;
+  };
+
+  // Count flights that need reprocessing
+  const getFlightsNeedingUpdate = () => {
+    return flights.filter(f => flightNeedsReprocessing(f));
+  };
+
+  // Reprocess a single flight to add missing data
+  const reprocessFlight = (flight) => {
+    const originAirport = AIRPORTS_DATABASE.find(a => a.code === flight.origin);
+    const destAirport = AIRPORTS_DATABASE.find(a => a.code === flight.destination);
+    
+    const updatedFlight = {
+      ...flight,
+      originCountry: flight.originCountry || originAirport?.country || '',
+      destCountry: flight.destCountry || destAirport?.country || '',
+      originContinent: flight.originContinent || getContinent(originAirport?.country),
+      destContinent: flight.destContinent || getContinent(destAirport?.country),
+      schemaVersion: CURRENT_SCHEMA_VERSION
+    };
+
+    // Also update legs if present
+    if (updatedFlight.legs && updatedFlight.legs.length > 0) {
+      updatedFlight.legs = updatedFlight.legs.map(leg => {
+        const legOrigin = AIRPORTS_DATABASE.find(a => a.code === leg.origin);
+        const legDest = AIRPORTS_DATABASE.find(a => a.code === leg.destination);
+        return {
+          ...leg,
+          originCountry: leg.originCountry || legOrigin?.country || '',
+          destCountry: leg.destCountry || legDest?.country || '',
+          originContinent: leg.originContinent || getContinent(legOrigin?.country),
+          destContinent: leg.destContinent || getContinent(legDest?.country)
+        };
+      });
+    }
+
+    return updatedFlight;
+  };
+
+  // Reprocess all flights that need updating
+  const handleReprocessDatabase = async () => {
+    const flightsToUpdate = getFlightsNeedingUpdate();
+    if (flightsToUpdate.length === 0) return;
+
+    setIsReprocessing(true);
+    setReprocessProgress({ current: 0, total: flightsToUpdate.length });
+
+    try {
+      const updatedFlights = flights.map((flight, index) => {
+        if (flightNeedsReprocessing(flight)) {
+          setReprocessProgress(prev => ({ ...prev, current: prev.current + 1 }));
+          return reprocessFlight(flight);
+        }
+        return flight;
+      });
+
+      setFlights(updatedFlights);
+      localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
+
+      // Also update Firestore if logged in
+      if (authUser) {
+        const userDocRef = doc(db, 'users', authUser.uid);
+        await updateDoc(userDocRef, { flights: updatedFlights });
+      }
+
+      alert(`Successfully updated ${flightsToUpdate.length} flight${flightsToUpdate.length > 1 ? 's' : ''} with new data!`);
+    } catch (error) {
+      console.error('Error reprocessing database:', error);
+      alert('Error updating flights. Please try again.');
+    } finally {
+      setIsReprocessing(false);
+      setReprocessProgress({ current: 0, total: 0 });
+    }
   };
 
   // --- IMPROVED LANDMARK DETECTION ---
@@ -2377,6 +2493,10 @@ const FlightTracker = () => {
                     destination: legTo.code,
                     originCity: legFrom.city,
                     destCity: legTo.city,
+                    originCountry: legFrom.country || '',
+                    destCountry: legTo.country || '',
+                    originContinent: getContinent(legFrom.country),
+                    destContinent: getContinent(legTo.country),
                     airline: legAirlines[i] || flightData.airline || '',
                     aircraftType: legAircraftTypes[i] || flightData.aircraftType || '',
                     serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Economy',
@@ -2424,6 +2544,10 @@ const FlightTracker = () => {
                 destination: flightData.destination,
                 originCity: from.city,
                 destCity: to.city,
+                originCountry: from.country || '',
+                destCountry: to.country || '',
+                originContinent: getContinent(from.country),
+                destContinent: getContinent(to.country),
                 airline: flightData.airline || '',
                 aircraftType: flightData.aircraftType || '',
                 serviceClass: flightData.serviceClass || 'Economy',
@@ -2450,7 +2574,8 @@ const FlightTracker = () => {
             featuresCrossed: allFeatures,
             passengerCount: pax,
             legs: legs, // Store all legs
-            legCount: legs.length // Quick reference for stats
+            legCount: legs.length, // Quick reference for stats
+            schemaVersion: CURRENT_SCHEMA_VERSION // Track data schema version
         };
 
         const updated = isImport 
@@ -2596,8 +2721,17 @@ const FlightTracker = () => {
   }, [statsExpanded]);
   
   useEffect(() => {
+    localStorage.setItem('chartsExpanded', JSON.stringify(chartsExpanded));
+  }, [chartsExpanded]);
+  
+  useEffect(() => {
     localStorage.setItem('visibleStats', JSON.stringify(visibleStats));
   }, [visibleStats]);
+  
+  // Save sort mode preference
+  useEffect(() => {
+    localStorage.setItem('flightSortMode', sortMode);
+  }, [sortMode]);
   
   // Calculate total personal carbon footprint (per leg for multi-leg trips)
   const totalCarbonKg = flights.reduce((sum, f) => {
@@ -2752,6 +2886,10 @@ const FlightTracker = () => {
         destination: flight.destination,
         originCity: flight.originCity,
         destCity: flight.destCity,
+        originCountry: flight.originCountry,
+        destCountry: flight.destCountry,
+        originContinent: flight.originContinent || getContinent(flight.originCountry),
+        destContinent: flight.destContinent || getContinent(flight.destCountry),
         featuresCrossed: flight.featuresCrossed,
         distance: flight.distance,
         flights: []
@@ -2766,12 +2904,54 @@ const FlightTracker = () => {
     group.flights.sort((a, b) => new Date(b.date) - new Date(a.date));
   });
 
-  // Convert to array and sort by most recent flight date
+  // Group flights by country or continent if needed
+  const getGroupedByCountry = () => {
+    const byCountry = {};
+    Object.values(groupedFlights).forEach(group => {
+      const countries = [...new Set([group.originCountry, group.destCountry].filter(Boolean))];
+      countries.forEach(country => {
+        if (!byCountry[country]) {
+          byCountry[country] = { country, groups: [] };
+        }
+        if (!byCountry[country].groups.find(g => g.origin === group.origin && g.destination === group.destination)) {
+          byCountry[country].groups.push(group);
+        }
+      });
+    });
+    return Object.values(byCountry).sort((a, b) => a.country.localeCompare(b.country));
+  };
+
+  const getGroupedByContinent = () => {
+    const byContinent = {};
+    Object.values(groupedFlights).forEach(group => {
+      const continents = [...new Set([group.originContinent, group.destContinent].filter(c => c && c !== 'Unknown'))];
+      continents.forEach(continent => {
+        if (!byContinent[continent]) {
+          byContinent[continent] = { continent, groups: [] };
+        }
+        if (!byContinent[continent].groups.find(g => g.origin === group.origin && g.destination === group.destination)) {
+          byContinent[continent].groups.push(group);
+        }
+      });
+    });
+    // Sort continents in a logical order
+    const continentOrder = ['North America', 'South America', 'Europe', 'Africa', 'Middle East', 'Asia', 'Oceania'];
+    return Object.values(byContinent).sort((a, b) => {
+      const aIdx = continentOrder.indexOf(a.continent);
+      const bIdx = continentOrder.indexOf(b.continent);
+      return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+    });
+  };
+
+  // Convert to array and sort by most recent flight date (default)
   const sortedGroups = Object.values(groupedFlights).sort((a, b) => {
     const aDate = new Date(a.flights[0].date);
     const bDate = new Date(b.flights[0].date);
     return bDate - aDate;
   });
+  
+  const groupedByCountry = sortMode === 'country' ? getGroupedByCountry() : [];
+  const groupedByContinent = sortMode === 'continent' ? getGroupedByContinent() : [];
 
   // Handler to copy/duplicate a flight
   const handleCopyFlight = (flight) => {
@@ -2937,6 +3117,370 @@ const FlightTracker = () => {
     setFlights(updated);
     localStorage.setItem('flights-data', JSON.stringify(updated));
   };
+
+  // Handle landing page dismissal
+  const handleStartAddingFlights = () => {
+    localStorage.setItem('landingDismissed', 'true');
+    setShowLanding(false);
+    if (!authUser) {
+      openAuthModal('signup');
+    }
+  };
+
+  // Show landing page for non-logged-in users who haven't dismissed it
+  if (showLanding && !authUser && !authLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'sans-serif',
+        background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0fdf4 100%)',
+        padding: '20px'
+      }}>
+        {/* Logo and Title */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          marginBottom: '40px'
+        }}>
+          {/* Logo Icon */}
+          <div style={{
+            width: '120px',
+            height: '120px',
+            borderRadius: '30px',
+            background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 20px 60px rgba(16, 185, 129, 0.4)',
+            marginBottom: '24px',
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            {/* Background pattern */}
+            <div style={{
+              position: 'absolute',
+              top: '-20px',
+              left: '-20px',
+              right: '-20px',
+              bottom: '-20px',
+              background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, transparent 50%)',
+            }} />
+            <Plane size={56} color="#fff" style={{ transform: 'rotate(-30deg)' }} />
+          </div>
+          
+          {/* Title */}
+          <h1 style={{
+            fontSize: '42px',
+            fontWeight: '800',
+            margin: '0 0 8px 0',
+            background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text'
+          }}>
+            FlightLog
+          </h1>
+          
+          {/* Tagline */}
+          <p style={{
+            fontSize: '18px',
+            color: '#64748b',
+            margin: '0 0 8px 0',
+            textAlign: 'center'
+          }}>
+            Track your journeys across the sky
+          </p>
+          
+          {/* Beta Badge */}
+          <span style={{
+            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+            color: '#fff',
+            fontSize: '11px',
+            fontWeight: '700',
+            padding: '4px 12px',
+            borderRadius: '20px',
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
+            Beta
+          </span>
+        </div>
+
+        {/* Features */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: '16px',
+          marginBottom: '40px',
+          maxWidth: '600px'
+        }}>
+          {[
+            { icon: '✈️', text: 'Log all your flights' },
+            { icon: '🌍', text: 'Track countries & continents' },
+            { icon: '📊', text: 'View travel statistics' },
+            { icon: '🏆', text: 'Compete on leaderboards' },
+            { icon: '🌱', text: 'Monitor carbon footprint' },
+            { icon: '📧', text: 'Import from Gmail' }
+          ].map((feature, idx) => (
+            <div key={idx} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: '#fff',
+              padding: '10px 16px',
+              borderRadius: '25px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+              fontSize: '14px',
+              color: '#475569'
+            }}>
+              <span style={{ fontSize: '16px' }}>{feature.icon}</span>
+              {feature.text}
+            </div>
+          ))}
+        </div>
+
+        {/* CTA Button */}
+        <button
+          onClick={handleStartAddingFlights}
+          style={{
+            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+            color: '#fff',
+            border: 'none',
+            padding: '18px 48px',
+            borderRadius: '16px',
+            fontSize: '18px',
+            fontWeight: '700',
+            cursor: 'pointer',
+            boxShadow: '0 10px 40px rgba(16, 185, 129, 0.4)',
+            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.transform = 'translateY(-2px)';
+            e.currentTarget.style.boxShadow = '0 14px 50px rgba(16, 185, 129, 0.5)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 10px 40px rgba(16, 185, 129, 0.4)';
+          }}
+        >
+          <Plus size={22} />
+          Start Adding Your Flights
+        </button>
+
+        {/* Free signup note */}
+        <p style={{
+          marginTop: '20px',
+          fontSize: '14px',
+          color: '#64748b',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px'
+        }}>
+          <Check size={16} color="#10b981" />
+          <strong style={{ color: '#10b981' }}>100% FREE</strong> to sign up and track unlimited flights
+        </p>
+
+        {/* Already have account link */}
+        <button
+          onClick={() => {
+            localStorage.setItem('landingDismissed', 'true');
+            setShowLanding(false);
+            openAuthModal('login');
+          }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#6366f1',
+            fontSize: '14px',
+            cursor: 'pointer',
+            marginTop: '16px',
+            textDecoration: 'underline'
+          }}
+        >
+          Already have an account? Log in
+        </button>
+
+        {/* Skip for now */}
+        <button
+          onClick={() => {
+            localStorage.setItem('landingDismissed', 'true');
+            setShowLanding(false);
+          }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#94a3b8',
+            fontSize: '13px',
+            cursor: 'pointer',
+            marginTop: '12px'
+          }}
+        >
+          Continue without account
+        </button>
+
+        {/* Auth Modal */}
+        {showAuthModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: '#fff',
+              borderRadius: '16px',
+              padding: '32px',
+              width: '100%',
+              maxWidth: '400px',
+              margin: '20px',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <h2 style={{ margin: 0 }}>{authMode === 'login' ? 'Welcome Back' : 'Create Free Account'}</h2>
+                <X style={{ cursor: 'pointer' }} onClick={() => setShowAuthModal(false)} />
+              </div>
+              
+              {authMode === 'signup' && (
+                <div style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginBottom: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '13px',
+                  color: '#166534'
+                }}>
+                  <Check size={16} />
+                  Free forever • Unlimited flights • Full features
+                </div>
+              )}
+              
+              {authError && (
+                <div style={{ 
+                  background: '#fef2f2', 
+                  color: '#dc2626', 
+                  padding: '12px', 
+                  borderRadius: '8px', 
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '14px'
+                }}>
+                  <AlertCircle size={18} />
+                  {authError}
+                </div>
+              )}
+              
+              <form onSubmit={handleAuthSubmit}>
+                <input 
+                  type="email"
+                  placeholder="Email address"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    marginBottom: '12px',
+                    fontSize: '15px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Password"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      paddingRight: '50px',
+                      borderRadius: '10px',
+                      border: '1px solid #e2e8f0',
+                      marginBottom: '20px',
+                      fontSize: '15px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '14px',
+                      top: '14px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#666'
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+                <button
+                  type="submit"
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {authMode === 'login' ? 'Log In' : 'Create Free Account'}
+                </button>
+              </form>
+              
+              <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '14px', color: '#666' }}>
+                {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
+                <button 
+                  onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#10b981', 
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  {authMode === 'login' ? 'Sign up free' : 'Log in'}
+                </button>
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 20px', fontFamily: 'sans-serif' }}>
@@ -3937,6 +4481,74 @@ const FlightTracker = () => {
         </div>
       )}
 
+      {/* Database Update Banner - Shows when flights need reprocessing */}
+      {flights.length > 0 && getFlightsNeedingUpdate().length > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+          border: '1px solid #f59e0b',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: '#f59e0b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <AlertCircle size={20} color="#fff" />
+            </div>
+            <div>
+              <div style={{ fontWeight: '600', color: '#92400e', fontSize: '14px' }}>
+                New features available for your flights!
+              </div>
+              <div style={{ fontSize: '12px', color: '#a16207', marginTop: '2px' }}>
+                {getFlightsNeedingUpdate().length} flight{getFlightsNeedingUpdate().length > 1 ? 's' : ''} can be updated with country & continent data
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleReprocessDatabase}
+            disabled={isReprocessing}
+            style={{
+              background: isReprocessing ? '#d97706' : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              color: '#fff',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              fontWeight: '600',
+              fontSize: '13px',
+              cursor: isReprocessing ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+            }}
+          >
+            {isReprocessing ? (
+              <>
+                <Loader2 className="animate-spin" size={16} />
+                Updating... {reprocessProgress.current}/{reprocessProgress.total}
+              </>
+            ) : (
+              <>
+                <Check size={16} />
+                Update All Flights
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Stats Dashboard */}
       <div style={{ marginBottom: '40px' }}>
         {/* Stats Header with collapse/settings */}
@@ -4124,109 +4736,142 @@ const FlightTracker = () => {
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        {/* Top Airlines Chart */}
-        {flights.length > 0 && topAirlines.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Airlines</h3>
-            {topAirlines.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flight{count > 1 ? 's' : ''}</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#4285F4', borderRadius: '4px', width: `${(count/totalFlightLegs)*100}%` }} />
-                </div>
-              </div>
-            ))}
+      {/* Detailed Charts Section */}
+      {flights.length > 0 && (
+        <div style={{ marginBottom: '40px' }}>
+          {/* Charts Header with collapse */}
+          <div 
+            style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: chartsExpanded ? '20px' : '0',
+              padding: '12px 16px',
+              background: '#f8fafc',
+              borderRadius: '12px',
+              cursor: 'pointer'
+            }}
+            onClick={() => setChartsExpanded(!chartsExpanded)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Trophy size={20} color="#f59e0b" />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#334155' }}>
+                Detailed Breakdown
+              </h3>
+              {chartsExpanded ? <ChevronUp size={18} color="#64748b" /> : <ChevronDown size={18} color="#64748b" />}
+              {!chartsExpanded && (
+                <span style={{ fontSize: '13px', color: '#64748b', marginLeft: '10px' }}>
+                  {topAirlines.length} airlines • {topAircraft.length} aircraft • {sortedAlliances.length} alliances
+                </span>
+              )}
+            </div>
           </div>
-        )}
 
-        {/* Top Aircraft Chart */}
-        {flights.length > 0 && topAircraft.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
-            {topAircraft.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+          {/* Charts Grid */}
+          {chartsExpanded && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+              {/* Top Airlines Chart */}
+              {topAirlines.length > 0 && (
+                <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+                  <h3 style={{ marginTop: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Airlines</h3>
+                  {topAirlines.map(([name, count]) => (
+                    <div key={name} style={{ marginBottom: '15px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flight{count > 1 ? 's' : ''}</span></div>
+                      <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                        <div style={{ height: '100%', background: '#4285F4', borderRadius: '4px', width: `${(count/totalFlightLegs)*100}%` }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
 
-        {/* Class of Service Chart */}
-        {flights.length > 0 && sortedClasses.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
-            {sortedClasses.map(([name, count]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
-                               name === 'Business' ? '#2563eb' : 
-                               '#ca8a04'; /* First - gold */
-              const displayName = name === 'Economy' ? '🐔 Chicken class' : 
-                                  name === 'Premium Economy' ? '💺 Premium Economy' :
-                                  name === 'Business' ? '💼 Business' :
-                                  '👑 First';
-              return (
-                <div key={name} style={{ marginBottom: '15px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
-                    <span>{displayName}</span>
-                    <span>{count} flight{count > 1 ? 's' : ''}</span>
-                  </div>
-                  <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                    <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/totalFlightLegs)*100}%` }} />
-                  </div>
+              {/* Top Aircraft Chart */}
+              {topAircraft.length > 0 && (
+                <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+                  <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
+                  {topAircraft.map(([name, count]) => (
+                    <div key={name} style={{ marginBottom: '15px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
+                      <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                        <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
 
-        {/* Alliance Breakdown Chart */}
-        {flights.length > 0 && sortedAlliances.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Users size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Airline Alliances</h3>
-            {sortedAlliances.map(([alliance, count]) => {
-              const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
-              const dropdownId = `chart-alliance-${alliance}`;
-              const isOpen = openAllianceDropdown === dropdownId;
-              const members = ALLIANCE_MEMBERS_DISPLAY[alliance] || [];
-              const hasDropdown = alliance !== 'Independent' && members.length > 0;
-              
-              return (
-                <div key={alliance} style={{ marginBottom: '15px', position: 'relative' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
-                    <span 
-                      onClick={(e) => {
-                        if (hasDropdown) {
-                          e.stopPropagation();
-                          setOpenAllianceDropdown(isOpen ? null : dropdownId);
-                        }
-                      }}
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '6px',
-                        cursor: hasDropdown ? 'pointer' : 'default',
-                        padding: '4px 8px',
-                        marginLeft: '-8px',
-                        borderRadius: '6px',
-                        background: isOpen ? style.background : 'transparent',
-                        transition: 'background 0.2s ease'
-                      }}
-                      title={hasDropdown ? `Click to see all ${alliance} members` : ''}
-                    >
-                      <span>{style.icon}</span>
-                      {alliance}
-                      {hasDropdown && (
-                        <span style={{ 
-                          fontSize: '10px', 
-                          color: '#888',
-                          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s ease'
-                        }}>▼</span>
-                      )}
+              {/* Class of Service Chart */}
+              {sortedClasses.length > 0 && (
+                <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+                  <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
+                  {sortedClasses.map(([name, count]) => {
+                    const barColor = name === 'Economy' ? '#d97706' : 
+                                     name === 'Premium Economy' ? '#16a34a' : 
+                                     name === 'Business' ? '#2563eb' : 
+                                     '#ca8a04'; /* First - gold */
+                    const displayName = name === 'Economy' ? '🐔 Chicken class' : 
+                                        name === 'Premium Economy' ? '💺 Premium Economy' :
+                                        name === 'Business' ? '💼 Business' :
+                                        '👑 First';
+                    return (
+                      <div key={name} style={{ marginBottom: '15px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                          <span>{displayName}</span>
+                          <span>{count} flight{count > 1 ? 's' : ''}</span>
+                        </div>
+                        <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                          <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/totalFlightLegs)*100}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Alliance Breakdown Chart */}
+              {sortedAlliances.length > 0 && (
+                <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+                  <h3 style={{ marginTop: 0 }}><Users size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Airline Alliances</h3>
+                  {sortedAlliances.map(([alliance, count]) => {
+                    const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
+                    const dropdownId = `chart-alliance-${alliance}`;
+                    const isOpen = openAllianceDropdown === dropdownId;
+                    const members = ALLIANCE_MEMBERS_DISPLAY[alliance] || [];
+                    const hasDropdown = alliance !== 'Independent' && members.length > 0;
+                    
+                    return (
+                      <div key={alliance} style={{ marginBottom: '15px', position: 'relative' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                          <span 
+                            onClick={(e) => {
+                              if (hasDropdown) {
+                                e.stopPropagation();
+                                setOpenAllianceDropdown(isOpen ? null : dropdownId);
+                              }
+                            }}
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '6px',
+                              cursor: hasDropdown ? 'pointer' : 'default',
+                              padding: '4px 8px',
+                              marginLeft: '-8px',
+                              borderRadius: '6px',
+                              background: isOpen ? style.background : 'transparent',
+                              transition: 'background 0.2s ease'
+                            }}
+                            title={hasDropdown ? `Click to see all ${alliance} members` : ''}
+                          >
+                            <span>{style.icon}</span>
+                            {alliance}
+                            {hasDropdown && (
+                              <span style={{ 
+                                fontSize: '10px', 
+                                color: '#888',
+                                transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.2s ease'
+                              }}>▼</span>
+                            )}
                     </span>
                     <span>{count} flights ({Math.round((count/totalFlightsWithAirlines)*100)}%)</span>
                   </div>
@@ -4349,37 +4994,35 @@ const FlightTracker = () => {
           </div>
         )}
         
-        {/* Top Landmarks Chart */}
-        {flights.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Landmarks</h3>
-            {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks detected yet.</p> : topFeatures.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} times</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#008080', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
+              {/* Top Landmarks Chart */}
+              <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
+                <h3 style={{ marginTop: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Landmarks</h3>
+                {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks detected yet.</p> : topFeatures.map(([name, count]) => (
+                  <div key={name} style={{ marginBottom: '15px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} times</span></div>
+                    <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                      <div style={{ height: '100%', background: '#008080', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* Carbon Footprint Breakdown */}
-        {flights.length > 0 && totalCarbonKg > 0 && (
-          <div style={{ background: '#fef2f2', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0, color: '#991b1b' }}><CloudRain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Your Carbon Footprint</h3>
-            
-            {/* Personal vs Total Flight comparison */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{totalCarbonTons}t</div>
-                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Your emissions</div>
-              </div>
-              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#9ca3af' }}>{totalFlightCarbonTons}t</div>
-                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Total flights' emissions</div>
-              </div>
-            </div>
+              {/* Carbon Footprint Breakdown */}
+              {totalCarbonKg > 0 && (
+                <div style={{ background: '#fef2f2', padding: '24px', borderRadius: '16px' }}>
+                  <h3 style={{ marginTop: 0, color: '#991b1b' }}><CloudRain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Your Carbon Footprint</h3>
+                  
+                  {/* Personal vs Total Flight comparison */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                    <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{totalCarbonTons}t</div>
+                      <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Your emissions</div>
+                    </div>
+                    <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#9ca3af' }}>{totalFlightCarbonTons}t</div>
+                      <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Total flights' emissions</div>
+                    </div>
+                  </div>
 
             {/* Driving comparison */}
             <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '12px' }}>
@@ -4446,69 +5089,116 @@ const FlightTracker = () => {
                 </div>
               );
             })}
-            <div style={{ fontSize: '11px', color: '#888', marginTop: '16px', borderTop: '1px solid #fecaca', paddingTop: '12px' }}>
-              💡 Your share: ~{((totalCarbonKg / totalFlightCarbonKg) * 100).toFixed(1)}% of total aircraft emissions. Premium classes have larger footprints due to increased seat space.<br/>
-              <span style={{ color: '#aaa' }}>Rates: 0.14 kg CO₂/mi (flying), 0.21 kg CO₂/mi (driving), 0.041 kg CO₂/mi (train avg).</span>
+                  <div style={{ fontSize: '11px', color: '#888', marginTop: '16px', borderTop: '1px solid #fecaca', paddingTop: '12px' }}>
+                    💡 Your share: ~{((totalCarbonKg / totalFlightCarbonKg) * 100).toFixed(1)}% of total aircraft emissions. Premium classes have larger footprints due to increased seat space.<br/>
+                    <span style={{ color: '#aaa' }}>Rates: 0.14 kg CO₂/mi (flying), 0.21 kg CO₂/mi (driving), 0.041 kg CO₂/mi (train avg).</span>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Flight List - Consolidated by Route */}
-      <div style={{ display: 'grid', gap: '20px' }}>
-        {sortedGroups.map(group => (
-          <div key={`${group.origin}-${group.destination}`} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
-            {/* Route Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-              <div>
-                <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
-                <div style={{ color: '#666', fontSize: '14px', marginTop: '4px' }}>
-                  {group.originCity} to {group.destCity}
-                  {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+      {/* Flight List Header with Sort Options */}
+      {flights.length > 0 && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          padding: '12px 16px',
+          background: '#f8fafc',
+          borderRadius: '12px'
+        }}>
+          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#334155' }}>
+            Your Flights
+          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', color: '#64748b', marginRight: '4px' }}>Organize by:</span>
+            {[
+              { key: 'date', label: '📅 Date', icon: null },
+              { key: 'country', label: '🏳️ Country', icon: null },
+              { key: 'continent', label: '🌍 Continent', icon: null }
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSortMode(key)}
+                style={{
+                  background: sortMode === key ? '#e0e7ff' : '#fff',
+                  border: sortMode === key ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                  color: sortMode === key ? '#4338ca' : '#64748b',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: sortMode === key ? '600' : '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Flight List - By Date (Default) */}
+      {sortMode === 'date' && (
+        <div style={{ display: 'grid', gap: '20px' }}>
+          {sortedGroups.map(group => (
+            <div key={`${group.origin}-${group.destination}`} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
+              {/* Route Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                <div>
+                  <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                  <div style={{ color: '#666', fontSize: '14px', marginTop: '4px' }}>
+                    {group.originCity} to {group.destCity}
+                    {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {(() => {
+                    // Calculate total flight legs for this route group
+                    const totalLegs = group.flights.reduce((sum, f) => sum + (f.legCount || 1), 0);
+                    return (
+                      <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
+                        {totalLegs} flight{totalLegs > 1 ? 's' : ''}
+                      </span>
+                    );
+                  })()}
+                  <ArrowLeftRight 
+                    size={16} 
+                    style={{ cursor: 'pointer', color: '#666' }} 
+                    title="Add return flight (reverse route)"
+                    onClick={() => handleReverseFlight(group.flights[0])} 
+                  />
+                  <Copy 
+                    size={16} 
+                    style={{ cursor: 'pointer', color: '#666' }} 
+                    title="Copy this route"
+                    onClick={() => handleCopyFlight(group.flights[0])} 
+                  />
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {(() => {
-                  // Calculate total flight legs for this route group
-                  const totalLegs = group.flights.reduce((sum, f) => sum + (f.legCount || 1), 0);
-                  return (
-                    <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
-                      {totalLegs} flight{totalLegs > 1 ? 's' : ''}
+
+              {/* Landmarks */}
+              {group.featuresCrossed && group.featuresCrossed.length > 0 && (
+                <div style={{marginTop:'12px', marginBottom: '16px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
+                  {group.featuresCrossed.map(feat => (
+                    <span key={feat} style={{fontSize:'11px', background:'#e0f2f1', color:'#004d40', padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
+                      <Globe size={10}/> {feat}
                     </span>
-                  );
-                })()}
-                <ArrowLeftRight 
-                  size={16} 
-                  style={{ cursor: 'pointer', color: '#666' }} 
-                  title="Add return flight (reverse route)"
-                  onClick={() => handleReverseFlight(group.flights[0])} 
-                />
-                <Copy 
-                  size={16} 
-                  style={{ cursor: 'pointer', color: '#666' }} 
-                  title="Copy this route"
-                  onClick={() => handleCopyFlight(group.flights[0])} 
-                />
-              </div>
-            </div>
+                  ))}
+                </div>
+              )}
 
-            {/* Landmarks */}
-            {group.featuresCrossed && group.featuresCrossed.length > 0 && (
-              <div style={{marginTop:'12px', marginBottom: '16px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
-                {group.featuresCrossed.map(feat => (
-                  <span key={feat} style={{fontSize:'11px', background:'#e0f2f1', color:'#004d40', padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
-                    <Globe size={10}/> {feat}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Individual Flights List */}
-            <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
-              {group.flights.map((f, idx) => {
-                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
-                const drivingCO2 = (f.distance || 0) * 0.21;
-                const co2Diff = drivingCO2 - flightCO2;
+              {/* Individual Flights List */}
+              <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
+                {group.flights.map((f, idx) => {
+                  const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                  const drivingCO2 = (f.distance || 0) * 0.21;
+                  const co2Diff = drivingCO2 - flightCO2;
                 const hasMultipleLegs = f.legs && f.legs.length > 1;
                 
                 return (
@@ -5102,6 +5792,136 @@ const FlightTracker = () => {
           </div>
         ))}
       </div>
+      )}
+
+      {/* Flight List - By Country */}
+      {sortMode === 'country' && (
+        <div style={{ display: 'grid', gap: '24px' }}>
+          {groupedByCountry.map(({ country, groups }) => (
+            <div key={country}>
+              {/* Country Header */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '16px',
+                paddingBottom: '12px',
+                borderBottom: '2px solid #fde68a'
+              }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Flag size={20} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>{country}</h3>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>
+                    {groups.length} route{groups.length > 1 ? 's' : ''} • {groups.reduce((sum, g) => sum + g.flights.length, 0)} flight{groups.reduce((sum, g) => sum + g.flights.length, 0) > 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Routes in this country */}
+              <div style={{ display: 'grid', gap: '16px', paddingLeft: '20px' }}>
+                {groups.map(group => (
+                  <div key={`${group.origin}-${group.destination}`} style={{ 
+                    border: '1px solid #eee', 
+                    borderRadius: '12px', 
+                    padding: '16px',
+                    background: '#fefce8'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '16px', fontWeight: '600' }}>{group.origin} → {group.destination}</span>
+                        <div style={{ color: '#666', fontSize: '12px', marginTop: '2px' }}>
+                          {group.originCity} to {group.destCity}
+                          {group.distance && <span style={{ marginLeft: '8px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#888', background: '#fff', padding: '4px 8px', borderRadius: '12px' }}>
+                        {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Flight List - By Continent */}
+      {sortMode === 'continent' && (
+        <div style={{ display: 'grid', gap: '24px' }}>
+          {groupedByContinent.map(({ continent, groups }) => (
+            <div key={continent}>
+              {/* Continent Header */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '16px',
+                paddingBottom: '12px',
+                borderBottom: '2px solid #bfdbfe'
+              }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Globe size={20} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>{continent}</h3>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>
+                    {groups.length} route{groups.length > 1 ? 's' : ''} • {groups.reduce((sum, g) => sum + g.flights.length, 0)} flight{groups.reduce((sum, g) => sum + g.flights.length, 0) > 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Routes in this continent */}
+              <div style={{ display: 'grid', gap: '16px', paddingLeft: '20px' }}>
+                {groups.map(group => (
+                  <div key={`${group.origin}-${group.destination}`} style={{ 
+                    border: '1px solid #eee', 
+                    borderRadius: '12px', 
+                    padding: '16px',
+                    background: '#eff6ff'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '16px', fontWeight: '600' }}>{group.origin} → {group.destination}</span>
+                        <div style={{ color: '#666', fontSize: '12px', marginTop: '2px' }}>
+                          {group.originCity} to {group.destCity}
+                          {group.distance && <span style={{ marginLeft: '8px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                        </div>
+                        {(group.originCountry || group.destCountry) && (
+                          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                            🏳️ {[group.originCountry, group.destCountry].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' ↔ ')}
+                          </div>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#888', background: '#fff', padding: '4px 8px', borderRadius: '12px' }}>
+                        {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal Form */}
       {showForm && (
