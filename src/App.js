@@ -1823,31 +1823,37 @@ const FlightTracker = () => {
       return null;
     }
     
-    // Valid IATA codes - comprehensive set
+    // Valid IATA codes - only major airports that are very unlikely to be false positives
+    // This is a curated set of the most common airports worldwide
     const validIata = new Set([
-      // North America
-      'JFK','LGA','EWR','LAX','SFO','ORD','MDW','ATL','DFW','DEN','SEA','PHX','MIA','FLL','MCO',
-      'BOS','IAD','DCA','BWI','PHL','MSP','DTW','CLT','LAS','SAN','SJC','OAK','PDX','IAH','HOU',
-      'AUS','SLC','TPA','HNL','ANC','YYZ','YVR','YUL','YYC','YEG','YOW','MEX','CUN','GDL','SJD',
-      // Europe
-      'LHR','LGW','STN','LTN','MAN','EDI','DUB','CDG','ORY','NCE','LYS','FRA','MUC','BER','TXL',
-      'SXF','DUS','HAM','AMS','BRU','ZRH','GVA','VIE','PRG','WAW','KRK','BUD','OTP','SOF',
-      'FCO','MXP','VCE','NAP','BCN','MAD','PMI','AGP','LIS','OPO','ATH','SKG','IST','SAW',
-      'OSL','ARN','CPH','HEL','RIX','TLL','VNO',
-      // Middle East
-      'DXB','AUH','DOH','KWI','BAH','MCT','AMM','TLV','CAI','JED','RUH',
-      // Asia
-      'SIN','KUL','BKK','DMK','SGN','HAN','CGK','MNL','HKG','TPE','NRT','HND','KIX','ICN','GMP',
-      'PEK','PVG','CAN','HGH','CTU','XIY','SZX','DEL','BOM','BLR','MAA','CCU',
+      // North America - Major hubs only
+      'JFK','LGA','EWR','LAX','SFO','ORD','ATL','DFW','DEN','SEA','PHX','MIA','FLL','MCO',
+      'BOS','IAD','DCA','PHL','MSP','DTW','CLT','LAS','IAH','HOU','AUS','SLC','TPA','HNL',
+      'YYZ','YVR','YUL','MEX','CUN',
+      // Europe - Major hubs only
+      'LHR','LGW','CDG','ORY','FRA','MUC','BER','AMS','BRU','ZRH','VIE','PRG','WAW',
+      'FCO','MXP','BCN','MAD','LIS','ATH','IST','DUB','CPH','OSL','ARN','HEL',
+      // Middle East - Major hubs only
+      'DXB','AUH','DOH','TLV','CAI',
+      // Asia - Major hubs only
+      'SIN','KUL','BKK','HKG','TPE','NRT','HND','ICN','PEK','PVG','DEL','BOM',
       // Oceania
-      'SYD','MEL','BNE','PER','AKL','WLG','CHC',
-      // South America
-      'GRU','GIG','BSB','EZE','AEP','SCL','LIM','BOG','MDE','UIO','GYE','CCS','PTY',
-      // Africa
-      'JNB','CPT','NBO','ADD','CAI','CMN','LOS','ACC',
-      // Brazil specific (for the user)
-      'REC','FOR','SSA','POA','CWB','VCP','CNF','MAO','BEL','NAT',
+      'SYD','MEL','AKL',
+      // South America - Major hubs only
+      'GRU','GIG','EZE','SCL','LIM','BOG',
+      // Africa - Major hubs only
+      'JNB','CPT','NBO','CAI','CMN','RAK',
     ]);
+    
+    // Check against our local airport database (most reliable)
+    const isInAirportDatabase = (code) => {
+      return AIRPORTS_DATABASE.some(a => a.code === code);
+    };
+    
+    // Strict validation: must be in our database OR in the curated validIata set
+    const isValidAirportCode = (code) => {
+      return isInAirportDatabase(code) || validIata.has(code);
+    };
     
     // Route patterns - more permissive but still require context
     const routePatterns = [
@@ -1878,7 +1884,7 @@ const FlightTracker = () => {
       
       for (const match of matches) {
         const code = match[2].toUpperCase();
-        if (validIata.has(code) && !codes.includes(code)) {
+        if (isValidAirportCode(code) && !codes.includes(code)) {
           codes.push(code);
         }
       }
@@ -1902,7 +1908,7 @@ const FlightTracker = () => {
         const code1 = match[3].toUpperCase();
         const code2 = match[4].toUpperCase();
         
-        if (validIata.has(code1) && validIata.has(code2) && code1 !== code2) {
+        if (isValidAirportCode(code1) && isValidAirportCode(code2) && code1 !== code2) {
           segments.push({
             date: dateStr,
             flightNumber: flightNum,
@@ -1919,7 +1925,7 @@ const FlightTracker = () => {
         let codeMatch;
         while ((codeMatch = allCodes.exec(text)) !== null) {
           const code = codeMatch[1];
-          if (validIata.has(code)) {
+          if (isValidAirportCode(code)) {
             codeSequence.push(code);
           }
         }
@@ -1953,7 +1959,7 @@ const FlightTracker = () => {
       
       for (const match of matches) {
         const code = match[1].toUpperCase();
-        if (validIata.has(code) && !codesFound.includes(code)) {
+        if (isValidAirportCode(code) && !codesFound.includes(code)) {
           codesFound.push(code);
         }
       }
@@ -1970,7 +1976,7 @@ const FlightTracker = () => {
       for (const match of matches) {
         const code1 = match[1]?.toUpperCase();
         const code2 = match[2]?.toUpperCase();
-        if (code1 && code2 && validIata.has(code1) && validIata.has(code2) && code1 !== code2) {
+        if (code1 && code2 && isValidAirportCode(code1) && isValidAirportCode(code2) && code1 !== code2) {
           origin = code1;
           destination = code2;
           break;
@@ -2033,6 +2039,49 @@ const FlightTracker = () => {
       }
     }
     
+    // Comprehensive list of common non-airport 3-letter codes to exclude (used in multiple places)
+    const excludeCodes = new Set([
+      // Common English words
+      'THE','AND','FOR','ARE','BUT','NOT','YOU','ALL','CAN','HAS','WAS','ONE','OUR','OUT',
+      'DAY','GET','HIM','HIS','HOW','ITS','MAY','NEW','NOW','OLD','SEE','TWO','WHO','WAY',
+      'ANY','FEW','GOT','HER','LET','PUT','SAY','SHE','TOO','USE','AGO','BIG','END','FAR',
+      'MAN','OWN','RUN','SET','TOP','TRY','WHY','YES','YET','ADD','AIR','BAD','BAG',
+      'BED','BOX','BOY','BUS','BUY','CAR','CUT','DID','DOG','EAT','EYE','FUN','GAS','HAD',
+      'HAT','HIT','HOT','ICE','JOB','KEY','KID','LAW','LAY','LED','LOT','LOW','MAP','MEN',
+      'MET','MIX','OIL','PAY','PER','PIE','POP','RAN','RAW','RED','SIT','SIX','SKY',
+      'SON','SUM','TAX','TEA','TEN','TIP','VAN','WAR','WET','WIN','WON','YEA',
+      // Days and months
+      'FRI','SAT','SUN','MON','TUE','WED','THU','JAN','FEB','MAR','APR','JUN','JUL',
+      'AUG','SEP','OCT','NOV','DEC',
+      // Currency and units
+      'USD','EUR','GBP','CAD','AUD','JPY','CNY','INR','KRW','MXN','BRL','CHF','SEK','NOK',
+      'DKK','NZD','SGD','HKD','TWD','THB','MYR','PHP','IDR','VND','PLN','CZK','HUF','RUB',
+      'ZAR','AED','SAR','ILS','EGP','QAR','KWD','BHD','OMR','JOD',
+      'LBS','OZS','KGS','GMS','MLS','QTS','PTS','GLS',
+      // Tech and web
+      'PDF','APP','WWW','COM','ORG','NET','GOV','EDU','MIL','BIZ','HTML','CSS','XML',
+      'API','URL','SSL','VPN','DNS','FTP','SQL','PHP','JSP','ASP','DOC','XLS','PPT','ZIP',
+      'RAR','TAR','GIF','PNG','JPG','SVG','BMP','TXT','CSV','LOG','BAK','TMP','EXE','DLL',
+      'SYS','BAT','CMD','REG','INI','CFG','DAT','BIN','ISO','IMG','DMG','APK','IPA','AAB',
+      // Time zones
+      'EST','PST','CST','MST','GMT','UTC','EDT','PDT','CDT','MDT','BST','CET','EET','JST',
+      'KST','IST',
+      // Business
+      'INC','LLC','LTD','PLC','LLP','GBH','CEO','CFO','COO','CTO','CIO','CMO',
+      'EVP','SVP','AVP','MGR','DIR','REP','REF','FAQ','TBD','TBA','ETA','ETD','ROI','KPI',
+      'SLA','NDA','MOU','LOI','RFP','RFQ','POC','MVP','UAT',
+      // Common abbreviations in emails
+      'FWD','BCC','EOM','EOD','EOW','EOY','YTD','MTD','WTD','QTD','MOM','YOY','WOW','POV',
+      'IMO','FYI','BTW','TBH','IDK','OMG','LOL','THX','PLS','MSG',
+      // Email/travel specific
+      'VIP','TSA','CBP','ICE','DHS','DOT','FAA','CAA','PNR','TST','SSR','OSI',
+      'RES','CNF','CNL','CHG','ADV','ACK','REQ','TKT','EMD','PTA','ITN',
+      // Miscellaneous
+      'NON','OFF','PRO','VIA','MAX','MIN','AVG','TOT','SUB','DEL','UPD',
+      'FIX','BUG','SRC','DST','OBJ','ARR','DEP','RET','ALT',
+      'OPT'
+    ]);
+    
     // If still no route, try to find two IATA codes in close proximity with flight context
     if (!origin || !destination) {
       const contextPattern = /(?:flight|depart|arrive|from|to|origin|destination|airport).{0,40}?\b([A-Z]{3})\b/gi;
@@ -2041,7 +2090,7 @@ const FlightTracker = () => {
       
       for (const match of contextMatches) {
         const code = match[1].toUpperCase();
-        if (validIata.has(code) && !foundCodes.includes(code)) {
+        if (isValidAirportCode(code) && !excludeCodes.has(code) && !foundCodes.includes(code)) {
           foundCodes.push(code);
         }
       }
@@ -2058,18 +2107,9 @@ const FlightTracker = () => {
       const allMatches = [...fullText.matchAll(allCodesPattern)];
       const validCodes = [];
       
-      // Common non-airport 3-letter codes to exclude
-      const excludeCodes = new Set([
-        'THE','AND','FOR','ARE','BUT','NOT','YOU','ALL','CAN','HAS','WAS','ONE','OUR','OUT',
-        'DAY','GET','HIM','HIS','HOW','ITS','MAY','NEW','NOW','OLD','SEE','TWO','WHO',
-        'FRI','SAT','SUN','MON','TUE','WED','THU','JAN','FEB','MAR','APR','JUN','JUL',
-        'AUG','SEP','OCT','NOV','DEC','USD','EUR','GBP','CAD','PDF','APP','WWW','COM',
-        'ORG','NET','GOV','EST','PST','CST','MST','GMT','UTC','INC','LLC','LTD','USA'
-      ]);
-      
       for (const match of allMatches) {
         const code = match[1].toUpperCase();
-        if (validIata.has(code) && !excludeCodes.has(code) && !validCodes.includes(code)) {
+        if (isValidAirportCode(code) && !excludeCodes.has(code) && !validCodes.includes(code)) {
           validCodes.push(code);
         }
       }
@@ -5094,21 +5134,21 @@ const FlightTracker = () => {
               <div style={{...statCard, background: '#eef2ff', borderColor: '#6366f1'}}>
                 <Moon size={20} color="#6366f1"/>
                 <div style={{...statVal, color: '#4f46e5'}}>{((totalMiles / 238855) * 100).toFixed(2)}%</div>
-                <div style={statLbl}>To the Moon</div>
+                <div style={statLbl}>🌙 To the Moon</div>
               </div>
             )}
             {visibleStats.world && (
               <div style={{...statCard, background: '#ecfdf5', borderColor: '#10b981'}}>
                 <Globe size={20} color="#10b981"/>
                 <div style={{...statVal, color: '#059669'}}>{(totalMiles / 24901).toFixed(2)}×</div>
-                <div style={statLbl}>Around the World</div>
+                <div style={statLbl}>🌍 Around the World</div>
               </div>
             )}
             {visibleStats.passengers && flights.length > 0 && (
               <div style={{...statCard, background: '#fdf4ff', borderColor: '#c026d3'}}>
                 <Users size={20} color="#c026d3"/>
                 <div style={{...statVal, color: '#a21caf'}}>{totalPassengers.toLocaleString()}</div>
-                <div style={statLbl}>Fellow Passengers</div>
+                <div style={statLbl}>👥 Fellow Passengers</div>
               </div>
             )}
             {visibleStats.money && paymentStats.totalMoneySpent > 0 && (
