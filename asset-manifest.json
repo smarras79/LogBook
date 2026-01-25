@@ -1,12 +1,12 @@
 {
   "files": {
-    "main.js": "/LogBook/static/js/main.842d480b.js",
+    "main.js": "/LogBook/static/js/main.b9d6f1ba.js",
     "static/js/38.b23168a5.chunk.js": "/LogBook/static/js/38.b23168a5.chunk.js",
     "index.html": "/LogBook/index.html",
-    "main.842d480b.js.map": "/LogBook/static/js/main.842d480b.js.map",
+    "main.b9d6f1ba.js.map": "/LogBook/static/js/main.b9d6f1ba.js.map",
     "38.b23168a5.chunk.js.map": "/LogBook/static/js/38.b23168a5.chunk.js.map"
   },
   "entrypoints": [
-    "static/js/main.842d480b.js"
+    "static/js/main.b9d6f1ba.js"
   ]
 }
