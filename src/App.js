@@ -45,6 +45,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
+// Force Google to show account picker every time
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 const GOOGLE_CLIENT_ID = "870884007039-9got7ia77t611u2fugedlq6j7kftf51p.apps.googleusercontent.com";
 const GOOGLE_API_KEY = "AIzaSyArv6AbTjFIM_nuCm4VKZAZTdfP_y2G0ag";
@@ -831,6 +833,12 @@ const FlightTracker = () => {
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
+  
+  // Store setImporting in window so error callbacks can access it
+  useEffect(() => {
+    window._setGmailImporting = setImporting;
+    return () => { window._setGmailImporting = null; };
+  }, []);
   const [suggestedFlights, setSuggestedFlights] = useState([]);
   
   // Contest opt-in state
@@ -872,6 +880,7 @@ const FlightTracker = () => {
     };
   });
   const [showStatsSettings, setShowStatsSettings] = useState(false);
+  const [showAllAircraft, setShowAllAircraft] = useState(false); // Toggle to show all aircraft types
   
   // Sort/organization mode for flight cards
   const [sortMode, setSortMode] = useState(() => {
@@ -925,11 +934,13 @@ const FlightTracker = () => {
     origin: '', 
     destination: '', 
     date: '', 
+    returnDate: '', // For round trip
     aircraftType: '', 
     airline: '', 
     serviceClass: 'Economy', 
     checkLandmarks: false,
     hasLayover: false,
+    isRoundTrip: false, // New: round trip option
     viaAirports: [''], // Array of connection airport codes
     legAirlines: ['', ''], // Airlines for each leg
     legAircraftTypes: ['', ''], // Aircraft for each leg
@@ -989,24 +1000,34 @@ const FlightTracker = () => {
 
   // Calculate user stats for contest
   const calculateUserStats = (userFlights) => {
-    const totalMiles = userFlights.reduce((sum, f) => sum + (f.distance || 0), 0);
-    const totalFlightLegs = userFlights.reduce((count, f) => {
-      return count + (f.legs && f.legs.length > 1 ? f.legs.length : 1);
+    // For round trips, count distance twice (outbound + return)
+    const totalMiles = userFlights.reduce((sum, f) => {
+      const multiplier = f.isRoundTrip ? 2 : 1;
+      return sum + (f.distance || 0) * multiplier;
     }, 0);
+    
+    // For round trips, count as 2 flights (or 2x legs for multi-leg)
+    const totalFlightLegs = userFlights.reduce((count, f) => {
+      const baseCount = f.legs && f.legs.length > 1 ? f.legs.length : 1;
+      const multiplier = f.isRoundTrip ? 2 : 1;
+      return count + (baseCount * multiplier);
+    }, 0);
+    
     const uniqueCountries = [...new Set(userFlights.flatMap(f => [f.originCountry, f.destCountry].filter(Boolean)))].length;
     const uniqueAirports = [...new Set(userFlights.flatMap(f => [f.origin, f.destination]))].length;
     
-    // Calculate CO2 emissions
+    // Calculate CO2 emissions (round trips = 2x emissions)
     const classMultipliers = { 'Economy': 1.0, 'Premium Economy': 1.5, 'Business': 2.5, 'First': 4.0 };
     const totalCO2 = userFlights.reduce((sum, f) => {
+      const rtMultiplier = f.isRoundTrip ? 2 : 1;
       if (f.legs && f.legs.length > 1) {
         return sum + f.legs.reduce((legSum, leg) => {
           const mult = classMultipliers[leg.serviceClass] || 1.0;
           return legSum + Math.round((leg.distance || 0) * 0.14 * mult);
-        }, 0);
+        }, 0) * rtMultiplier;
       }
       const mult = classMultipliers[f.serviceClass] || 1.0;
-      return sum + Math.round((f.distance || 0) * 0.14 * mult);
+      return sum + Math.round((f.distance || 0) * 0.14 * mult) * rtMultiplier;
     }, 0);
     
     return {
@@ -1220,11 +1241,49 @@ const FlightTracker = () => {
             client_id: GOOGLE_CLIENT_ID,
             scope: SCOPES,
             callback: '',
-	    ux_mode: 'popup',
+            ux_mode: 'popup',
+            error_callback: (error) => {
+              console.error('Google OAuth error:', error);
+              // Clear timeout and reset importing state
+              if (window._gmailAuthTimeout) {
+                clearTimeout(window._gmailAuthTimeout);
+                window._gmailAuthTimeout = null;
+              }
+              if (window._setGmailImporting) {
+                window._setGmailImporting(false);
+              }
+              // Handle popup blocked or other errors
+              if (error.type === 'popup_closed' || error.type === 'popup_failed_to_open') {
+                alert('Popup was blocked or closed. Please allow popups for this site and try again.');
+              }
+            }
         });
         setTokenClient(client);
       };
       document.body.appendChild(script2);
+    } else if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+      // Script already loaded, just initialize the client
+      const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SCOPES,
+          callback: '',
+          ux_mode: 'popup',
+          error_callback: (error) => {
+            console.error('Google OAuth error:', error);
+            // Clear timeout and reset importing state
+            if (window._gmailAuthTimeout) {
+              clearTimeout(window._gmailAuthTimeout);
+              window._gmailAuthTimeout = null;
+            }
+            if (window._setGmailImporting) {
+              window._setGmailImporting(false);
+            }
+            if (error.type === 'popup_closed' || error.type === 'popup_failed_to_open') {
+              alert('Popup was blocked or closed. Please allow popups for this site and try again.');
+            }
+          }
+      });
+      setTokenClient(client);
     }
 
     
@@ -1366,12 +1425,12 @@ const FlightTracker = () => {
 
   // Check if a flight needs reprocessing (missing new fields)
   const flightNeedsReprocessing = (flight) => {
-    // Check for missing country/continent data
-    if (!flight.originCountry || !flight.destCountry) return true;
-    if (!flight.originContinent || !flight.destContinent) return true;
-    // Check schema version
-    if (!flight.schemaVersion || flight.schemaVersion < CURRENT_SCHEMA_VERSION) return true;
-    return false;
+    // If schema version is current, no reprocessing needed
+    if (flight.schemaVersion && flight.schemaVersion >= CURRENT_SCHEMA_VERSION) return false;
+    // Otherwise, check for missing country/continent data
+    if (flight.originCountry === undefined || flight.destCountry === undefined) return true;
+    if (flight.originContinent === undefined || flight.destContinent === undefined) return true;
+    return true; // schemaVersion is outdated
   };
 
   // Count flights that need reprocessing
@@ -2122,12 +2181,39 @@ const FlightTracker = () => {
   };
 
   const handleGmailImport = () => {
+    // Check if tokenClient is available
+    if (!tokenClient) {
+      alert('Google services are still loading. Please wait a moment and try again.');
+      return;
+    }
+    
+    // Detect mobile device
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // Show mobile warning (only once per session)
+    if (isMobile && !sessionStorage.getItem('gmailMobileWarningShown')) {
+      const proceed = window.confirm(
+        'Gmail sync may not work well on mobile browsers due to popup restrictions.\n\n' +
+        'For best results, please use a desktop browser.\n\n' +
+        'Would you like to try anyway?'
+      );
+      sessionStorage.setItem('gmailMobileWarningShown', 'true');
+      if (!proceed) return;
+    }
+    
     setImporting(true);
     tokenClient.callback = async (resp) => {
+      // Clear the timeout since we got a response
+      if (window._gmailAuthTimeout) {
+        clearTimeout(window._gmailAuthTimeout);
+        window._gmailAuthTimeout = null;
+      }
+      
       if (resp.error) {
         setImporting(false);
         setImportProgress(p => ({...p, show: false}));
-        alert("Auth failed.");
+        console.error('Gmail auth error:', resp.error);
+        alert("Auth failed. " + (resp.error_description || ''));
         return;
       }
 
@@ -2431,8 +2517,34 @@ const FlightTracker = () => {
         setImporting(false);
       }
     };
-    if (window.gapi.client.getToken() === null) tokenClient.requestAccessToken({prompt: 'consent'});
-    else tokenClient.requestAccessToken({prompt: ''});
+    
+    // Request access token - must be called synchronously from user gesture
+    try {
+      // Set a timeout to reset state if popup doesn't respond
+      const timeoutId = setTimeout(() => {
+        if (importing) {
+          setImporting(false);
+          console.log('Gmail auth timed out');
+        }
+      }, 60000); // 60 second timeout
+      
+      // Store timeout ID so we can clear it when auth succeeds
+      window._gmailAuthTimeout = timeoutId;
+      
+      if (window.gapi && window.gapi.client && window.gapi.client.getToken() === null) {
+        tokenClient.requestAccessToken({prompt: 'consent'});
+      } else if (window.gapi && window.gapi.client) {
+        tokenClient.requestAccessToken({prompt: ''});
+      } else {
+        clearTimeout(timeoutId);
+        setImporting(false);
+        alert('Google API is still loading. Please wait a moment and try again.');
+      }
+    } catch (err) {
+      console.error('Error requesting access token:', err);
+      setImporting(false);
+      alert('Failed to open Google sign-in. If you\'re on mobile, please try using a desktop browser, or check that popups are allowed.');
+    }
   };
 
   // --- SAVE & IMPORT LOGIC ---
@@ -2475,7 +2587,7 @@ const FlightTracker = () => {
     await handleSaveOrImportSingle(flightData, isImport, false);
   };
 
-  const handleSaveOrImportSingle = async (flightData, isImport = false, skipStatusReset = false) => {
+  const handleSaveOrImportSingle = async (flightData, isImport = false, skipStatusReset = false, skipFormReset = false) => {
     setIsVerifying(true);
     setStatusMsg('Verifying Airports...');
     try {
@@ -2609,6 +2721,9 @@ const FlightTracker = () => {
         const newRecord = { 
             ...flightDataToSave, 
             id: flightData.id || Date.now(),
+            date: flightData.date, // Explicitly preserve date
+            returnDate: flightData.returnDate || '', // Explicitly preserve return date for round trips
+            isRoundTrip: flightData.isRoundTrip || false, // Explicitly preserve round trip flag
             distance: totalDistance,
             originCity: from.city, 
             destCity: to.city,
@@ -2622,25 +2737,46 @@ const FlightTracker = () => {
             legCount: legs.length, // Quick reference for stats
             schemaVersion: CURRENT_SCHEMA_VERSION // Track data schema version
         };
+        
+        // Debug log for round trips
+        if (newRecord.isRoundTrip) {
+            console.log('Saving round trip flight:', newRecord.origin, '⇄', newRecord.destination, 'dates:', newRecord.date, '-', newRecord.returnDate);
+        }
 
+        // Read current flights from localStorage (more reliable for sequential saves like round trips)
+        const currentFlights = JSON.parse(localStorage.getItem('flights-data') || '[]');
         const updated = isImport 
-            ? [newRecord, ...flights] 
-            : (editingFlight ? flights.map(f => f.id === editingFlight.id ? newRecord : f) : [newRecord, ...flights]);
-
+            ? [newRecord, ...currentFlights] 
+            : (editingFlight ? currentFlights.map(f => f.id === editingFlight.id ? newRecord : f) : [newRecord, ...currentFlights]);
+        
+        // Debug log the actual record being saved
+        console.log('Saving flight record to localStorage:', {
+            id: newRecord.id,
+            route: `${newRecord.origin} → ${newRecord.destination}`,
+            isRoundTrip: newRecord.isRoundTrip,
+            returnDate: newRecord.returnDate,
+            date: newRecord.date
+        });
+        
+        // Save to both state and localStorage
         setFlights(updated);
         localStorage.setItem('flights-data', JSON.stringify(updated));
         
         if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
-        setShowForm(false);
-        setEditingFlight(null);
-        setFormData({ 
-            origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-            serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
-            viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
-            paymentType: 'money', paymentAmount: ''
-        });
-        setAirportSuggestions([]);
-        setActiveAirportField(null);
+        
+        // Only reset form if not skipping (for round trip handling)
+        if (!skipFormReset) {
+          setShowForm(false);
+          setEditingFlight(null);
+          setFormData({ 
+              origin: '', destination: '', date: '', returnDate: '', aircraftType: '', airline: '', 
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+              paymentType: 'money', paymentAmount: ''
+          });
+          setAirportSuggestions([]);
+          setActiveAirportField(null);
+        }
     } catch (e) {
         console.error(e);
         if (skipStatusReset) {
@@ -2655,9 +2791,23 @@ const FlightTracker = () => {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
       e.preventDefault();
-      handleSaveOrImport({ ...formData, id: editingFlight ? editingFlight.id : null });
+      
+      // Debug log for round trip submission
+      console.log('Form submission - isRoundTrip:', formData.isRoundTrip, 'returnDate:', formData.returnDate);
+      
+      // For round trips, we save as a single flight record with isRoundTrip flag
+      // The distance will be for one way, but stats will count it as 2x
+      const dataToSave = {
+        ...formData,
+        id: editingFlight ? editingFlight.id : null,
+        // Keep isRoundTrip flag and returnDate in the saved record
+      };
+      
+      console.log('Data to save:', dataToSave.origin, dataToSave.destination, 'isRoundTrip:', dataToSave.isRoundTrip);
+      
+      handleSaveOrImport(dataToSave);
   };
 
   const fetchAirportData = async (code) => {
@@ -2717,10 +2867,18 @@ const FlightTracker = () => {
     return Math.round(distance * baseRatePerMile * multiplier);
   };
   
-  // Calculate total flights (counting each leg as a separate flight)
-  const totalFlightLegs = flights.reduce((sum, f) => sum + (f.legCount || 1), 0);
+  // Calculate total flights (counting each leg as a separate flight, round trips count as 2x)
+  const totalFlightLegs = flights.reduce((sum, f) => {
+    const baseCount = f.legCount || 1;
+    const rtMultiplier = f.isRoundTrip ? 2 : 1;
+    return sum + (baseCount * rtMultiplier);
+  }, 0);
   
-  const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
+  // Calculate total miles (round trips count as 2x distance)
+  const totalMiles = flights.reduce((sum, f) => {
+    const rtMultiplier = f.isRoundTrip ? 2 : 1;
+    return sum + (f.distance || 0) * rtMultiplier;
+  }, 0);
   const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
   
   // Calculate unique countries visited
@@ -2843,7 +3001,8 @@ const FlightTracker = () => {
       aircraftStats[f.aircraftType] = (aircraftStats[f.aircraftType] || 0) + 1;
     }
   });
-  const topAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
+  const allAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]);
+  const topAircraft = allAircraft.slice(0, 5);
 
   // Alliance statistics (count per leg for multi-leg trips)
   const allianceStats = {};
@@ -3019,12 +3178,16 @@ const FlightTracker = () => {
         aircraftType: '',
         serviceClass: 'Economy',
         date: '', // Clear date so user must enter new one
+        returnDate: '',
         checkLandmarks: false,
         hasLayover: true,
+        isRoundTrip: false,
         viaAirports: viaAirports.length > 0 ? viaAirports : [''],
         legAirlines: legAirlines,
         legAircraftTypes: legAircraftTypes,
-        legServiceClasses: legServiceClasses
+        legServiceClasses: legServiceClasses,
+        paymentType: 'money',
+        paymentAmount: ''
       });
     } else {
       const singleLeg = flight.legs && flight.legs[0];
@@ -3035,8 +3198,10 @@ const FlightTracker = () => {
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
         serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
         date: '', // Clear date so user must enter new one
+        returnDate: '',
         checkLandmarks: false,
         hasLayover: false,
+        isRoundTrip: false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
@@ -3070,8 +3235,10 @@ const FlightTracker = () => {
         aircraftType: '',
         serviceClass: 'Economy',
         date: '', // Clear date so user must enter new one
+        returnDate: '',
         checkLandmarks: false,
         hasLayover: true,
+        isRoundTrip: false,
         viaAirports: viaAirports.length > 0 ? viaAirports : [''],
         legAirlines: legAirlines,
         legAircraftTypes: legAircraftTypes,
@@ -3088,8 +3255,10 @@ const FlightTracker = () => {
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
         serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
         date: '', // Clear date so user must enter new one
+        returnDate: '',
         checkLandmarks: false,
         hasLayover: false,
+        isRoundTrip: false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
@@ -3125,8 +3294,10 @@ const FlightTracker = () => {
         aircraftType: '',
         serviceClass: 'Economy',
         date: flight.date || '',
+        returnDate: flight.returnDate || '',
         checkLandmarks: false,
         hasLayover: true,
+        isRoundTrip: flight.isRoundTrip || false,
         viaAirports: viaAirports.length > 0 ? viaAirports : [''],
         legAirlines: legAirlines,
         legAircraftTypes: legAircraftTypes,
@@ -3143,8 +3314,10 @@ const FlightTracker = () => {
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
         serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
         date: flight.date || '',
+        returnDate: flight.returnDate || '',
         checkLandmarks: false,
         hasLayover: false,
+        isRoundTrip: flight.isRoundTrip || false,
         viaAirports: [''],
         legAirlines: ['', ''],
         legAircraftTypes: ['', ''],
@@ -3701,7 +3874,8 @@ const FlightTracker = () => {
           <button
             onClick={handleGmailImport}
             disabled={!gapiInited || importing}
-            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
+            title="Import flights from your Gmail inbox"
+            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: gapiInited && !importing ? 'pointer' : 'not-allowed', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center', opacity: gapiInited && !importing ? 1 : 0.6 }}
           >
             {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
             {importing ? "Scanning..." : "Sync Gmail"}
@@ -3709,8 +3883,8 @@ const FlightTracker = () => {
           <button onClick={() => { 
             setEditingFlight(null); 
             setFormData({ 
-              origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+              origin: '', destination: '', date: '', returnDate: '', aircraftType: '', airline: '', 
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
               viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
               paymentType: 'money', paymentAmount: ''
             });
@@ -4155,100 +4329,83 @@ const FlightTracker = () => {
         </div>
       )}
 
-      {/* Contest Opt-In Section */}
+      {/* Contest Opt-In Section - Compact Version */}
       {authUser && (
         <div style={{
           background: contestOptIn ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : '#f8fafc',
           border: contestOptIn ? '1px solid #f59e0b' : '1px solid #e2e8f0',
-          borderRadius: '16px',
-          padding: '20px 24px',
-          marginBottom: '30px',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          marginBottom: '20px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '16px'
+          gap: '12px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '280px' }}>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '12px',
-              background: contestOptIn ? '#f59e0b' : '#94a3b8',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Trophy size={24} color="#fff" />
-            </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                Global Travel Contest
-              </h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
-                {contestOptIn 
-                  ? "You're competing! Your stats are visible on the leaderboard."
-                  : "Join to compare your travel stats with other explorers worldwide."
-                }
-              </p>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+            <Trophy size={20} color={contestOptIn ? '#f59e0b' : '#94a3b8'} />
+            <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+              {contestOptIn ? '🏆 Competing in Global Contest' : 'Global Travel Contest'}
+            </span>
+            {!contestOptIn && (
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                — Compare your stats worldwide
+              </span>
+            )}
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <label style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
+              gap: '6px',
               cursor: contestLoading ? 'wait' : 'pointer',
-              padding: '10px 16px',
+              padding: '6px 12px',
               background: contestOptIn ? '#fff' : '#f1f5f9',
-              borderRadius: '10px',
-              border: contestOptIn ? '2px solid #f59e0b' : '2px solid transparent',
-              transition: 'all 0.2s ease',
+              borderRadius: '8px',
+              border: contestOptIn ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+              fontSize: '13px',
+              fontWeight: '600',
+              color: contestOptIn ? '#92400e' : '#475569',
               opacity: contestLoading ? 0.7 : 1
             }}>
               {contestLoading ? (
-                <Loader2 className="animate-spin" size={20} style={{ color: '#f59e0b' }} />
+                <Loader2 className="animate-spin" size={14} style={{ color: '#f59e0b' }} />
               ) : (
                 <input
                   type="checkbox"
                   checked={contestOptIn}
                   onChange={(e) => handleContestOptInToggle(e.target.checked)}
                   style={{
-                    width: '20px',
-                    height: '20px',
+                    width: '16px',
+                    height: '16px',
                     cursor: 'pointer',
                     accentColor: '#f59e0b'
                   }}
                 />
               )}
-              <span style={{ 
-                fontWeight: '600', 
-                fontSize: '14px', 
-                color: contestOptIn ? '#92400e' : '#475569' 
-              }}>
-                {contestLoading ? 'Updating...' : (contestOptIn ? 'Opted In' : 'Opt In')}
-              </span>
+              {contestLoading ? '...' : (contestOptIn ? 'Opted In' : 'Opt In')}
             </label>
             
             <button
               onClick={() => setShowLeaderboard(true)}
               style={{
-                background: '#000',
+                background: '#1e293b',
                 color: '#fff',
                 border: 'none',
-                padding: '12px 20px',
-                borderRadius: '10px',
+                padding: '6px 14px',
+                borderRadius: '8px',
                 cursor: 'pointer',
                 fontWeight: '600',
-                fontSize: '14px',
+                fontSize: '13px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
+                gap: '6px'
               }}
             >
-              <Users size={18} />
-              View Leaderboard
+              <Users size={14} />
+              Leaderboard
             </button>
           </div>
         </div>
@@ -4259,7 +4416,7 @@ const FlightTracker = () => {
         <div style={modalOverlay}>
           <div style={{
             ...modalContent,
-            maxWidth: '650px',
+            maxWidth: '750px',
             maxHeight: '80vh',
             overflow: 'hidden',
             display: 'flex',
@@ -4368,7 +4525,7 @@ const FlightTracker = () => {
                   width: '100%',
                   borderCollapse: 'separate',
                   borderSpacing: '0 6px',
-                  minWidth: '500px'
+                  minWidth: '600px'
                 }}>
                   {/* Leaderboard Header */}
                   <thead>
@@ -4379,13 +4536,13 @@ const FlightTracker = () => {
                       color: '#64748b',
                       textTransform: 'uppercase'
                     }}>
-                      <th style={{ padding: '10px 8px', textAlign: 'center', borderRadius: '8px 0 0 8px', width: '50px' }}>#</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'left', minWidth: '100px' }}>Explorer</th>
+                      <th style={{ padding: '10px 10px', textAlign: 'center', borderRadius: '8px 0 0 8px', width: '50px' }}>#</th>
+                      <th style={{ padding: '10px 10px', textAlign: 'left', minWidth: '120px' }}>Explorer</th>
                       <th 
                         style={{ 
-                          padding: '10px 8px', 
+                          padding: '10px 10px', 
                           textAlign: 'right', 
-                          width: '80px',
+                          width: '90px',
                           background: leaderboardSortBy === 'miles' ? '#fef3c7' : 'transparent',
                           cursor: 'pointer'
                         }}
@@ -4395,9 +4552,9 @@ const FlightTracker = () => {
                       </th>
                       <th 
                         style={{ 
-                          padding: '10px 8px', 
+                          padding: '10px 10px', 
                           textAlign: 'right', 
-                          width: '60px',
+                          width: '70px',
                           background: leaderboardSortBy === 'flights' ? '#dbeafe' : 'transparent',
                           cursor: 'pointer'
                         }}
@@ -4407,9 +4564,9 @@ const FlightTracker = () => {
                       </th>
                       <th 
                         style={{ 
-                          padding: '10px 8px', 
+                          padding: '10px 10px', 
                           textAlign: 'right', 
-                          width: '65px',
+                          width: '80px',
                           background: leaderboardSortBy === 'countries' ? '#dcfce7' : 'transparent',
                           cursor: 'pointer'
                         }}
@@ -4419,10 +4576,10 @@ const FlightTracker = () => {
                       </th>
                       <th 
                         style={{ 
-                          padding: '10px 8px', 
+                          padding: '10px 10px', 
                           textAlign: 'right', 
                           borderRadius: '0 8px 8px 0', 
-                          width: '70px',
+                          width: '75px',
                           background: leaderboardSortBy === 'co2' ? '#ecfdf5' : 'transparent',
                           cursor: 'pointer'
                         }}
@@ -4455,7 +4612,7 @@ const FlightTracker = () => {
                         >
                           {/* Rank */}
                           <td style={{ 
-                            padding: '12px 8px', 
+                            padding: '12px 10px', 
                             textAlign: 'center',
                             borderRadius: '10px 0 0 10px'
                           }}>
@@ -4487,7 +4644,7 @@ const FlightTracker = () => {
                           </td>
 
                           {/* Name */}
-                          <td style={{ padding: '12px 8px' }}>
+                          <td style={{ padding: '12px 10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <div style={{
                                 width: '28px',
@@ -4539,10 +4696,10 @@ const FlightTracker = () => {
 
                           {/* Miles */}
                           <td style={{ 
-                            padding: '12px 8px',
+                            padding: '12px 10px',
                             textAlign: 'right', 
                             fontWeight: leaderboardSortBy === 'miles' ? '700' : '600', 
-                            fontSize: '12px',
+                            fontSize: '13px',
                             color: leaderboardSortBy === 'miles' ? '#b45309' : '#1e293b',
                             background: leaderboardSortBy === 'miles' ? 'rgba(254, 243, 199, 0.5)' : 'transparent',
                             fontVariantNumeric: 'tabular-nums'
@@ -4552,10 +4709,10 @@ const FlightTracker = () => {
 
                           {/* Flights */}
                           <td style={{ 
-                            padding: '12px 8px',
+                            padding: '12px 10px',
                             textAlign: 'right', 
                             fontWeight: leaderboardSortBy === 'flights' ? '700' : '500',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             color: leaderboardSortBy === 'flights' ? '#1e40af' : '#64748b',
                             background: leaderboardSortBy === 'flights' ? 'rgba(219, 234, 254, 0.5)' : 'transparent',
                             fontVariantNumeric: 'tabular-nums'
@@ -4565,10 +4722,10 @@ const FlightTracker = () => {
 
                           {/* Countries */}
                           <td style={{ 
-                            padding: '12px 8px',
+                            padding: '12px 10px',
                             textAlign: 'right', 
                             fontWeight: leaderboardSortBy === 'countries' ? '700' : '500',
-                            fontSize: '12px',
+                            fontSize: '13px',
                             color: leaderboardSortBy === 'countries' ? '#166534' : '#64748b',
                             background: leaderboardSortBy === 'countries' ? 'rgba(220, 252, 231, 0.5)' : 'transparent',
                             fontVariantNumeric: 'tabular-nums'
@@ -4578,10 +4735,10 @@ const FlightTracker = () => {
 
                           {/* CO2 */}
                           <td style={{ 
-                            padding: '12px 8px',
+                            padding: '12px 10px',
                             textAlign: 'right', 
                             fontWeight: leaderboardSortBy === 'co2' ? '700' : '500',
-                            fontSize: '11px',
+                            fontSize: '12px',
                             color: leaderboardSortBy === 'co2' ? '#047857' : '#64748b',
                             background: leaderboardSortBy === 'co2' ? 'rgba(236, 253, 245, 0.5)' : 'transparent',
                             borderRadius: '0 10px 10px 0',
@@ -4944,8 +5101,27 @@ const FlightTracker = () => {
               {/* Top Aircraft Chart */}
               {topAircraft.length > 0 && (
                 <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-                  <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
-                  {topAircraft.map(([name, count]) => (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> {showAllAircraft ? 'All Aircraft' : 'Top Aircraft'}</h3>
+                    {allAircraft.length > 5 && (
+                      <button
+                        onClick={() => setShowAllAircraft(!showAllAircraft)}
+                        style={{
+                          background: showAllAircraft ? '#f97316' : '#fff',
+                          color: showAllAircraft ? '#fff' : '#f97316',
+                          border: '1px solid #f97316',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {showAllAircraft ? `Show Top 5` : `Show All (${allAircraft.length})`}
+                      </button>
+                    )}
+                  </div>
+                  {(showAllAircraft ? allAircraft : topAircraft).map(([name, count]) => (
                     <div key={name} style={{ marginBottom: '15px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
                       <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
@@ -5302,33 +5478,60 @@ const FlightTracker = () => {
       {/* Flight List - By Date (Default) */}
       {sortMode === 'date' && (
         <div style={{ display: 'grid', gap: '20px' }}>
-          {sortedGroups.map(group => (
+          {sortedGroups.map(group => {
+            // Check if this group contains any round trips
+            const hasRoundTrips = group.flights.some(f => f.isRoundTrip);
+            const allRoundTrips = group.flights.every(f => f.isRoundTrip);
+            
+            return (
             <div key={`${group.origin}-${group.destination}`} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
               {/* Route Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div>
-                  <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                  <span style={{ fontSize: '20px', fontWeight: 'bold' }}>
+                    {group.origin} {allRoundTrips ? '⇄' : '→'} {group.destination}
+                  </span>
+                  {allRoundTrips && (
+                    <span style={{ 
+                      marginLeft: '10px',
+                      fontSize: '11px', 
+                      color: '#16a34a', 
+                      background: '#dcfce7', 
+                      padding: '3px 8px', 
+                      borderRadius: '10px',
+                      fontWeight: '600',
+                      verticalAlign: 'middle'
+                    }}>
+                      Round Trip
+                    </span>
+                  )}
                   <div style={{ color: '#666', fontSize: '14px', marginTop: '4px' }}>
-                    {group.originCity} to {group.destCity}
-                    {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
+                    {group.originCity} {allRoundTrips ? '↔' : 'to'} {group.destCity}
+                    {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {(group.distance * (allRoundTrips ? 2 : 1)).toLocaleString()} mi{allRoundTrips ? ' (total)' : ''}</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {(() => {
-                    // Calculate total flight legs for this route group
-                    const totalLegs = group.flights.reduce((sum, f) => sum + (f.legCount || 1), 0);
+                    // Calculate total flight legs for this route group (round trips count as 2x)
+                    const totalLegs = group.flights.reduce((sum, f) => {
+                      const baseCount = f.legCount || 1;
+                      const rtMultiplier = f.isRoundTrip ? 2 : 1;
+                      return sum + (baseCount * rtMultiplier);
+                    }, 0);
                     return (
                       <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
                         {totalLegs} flight{totalLegs > 1 ? 's' : ''}
                       </span>
                     );
                   })()}
-                  <ArrowLeftRight 
-                    size={16} 
-                    style={{ cursor: 'pointer', color: '#666' }} 
-                    title="Add return flight (reverse route)"
-                    onClick={() => handleReverseFlight(group.flights[0])} 
-                  />
+                  {!allRoundTrips && (
+                    <ArrowLeftRight 
+                      size={16} 
+                      style={{ cursor: 'pointer', color: '#666' }} 
+                      title="Add return flight (reverse route)"
+                      onClick={() => handleReverseFlight(group.flights[0])} 
+                    />
+                  )}
                   <Copy 
                     size={16} 
                     style={{ cursor: 'pointer', color: '#666' }} 
@@ -5352,8 +5555,10 @@ const FlightTracker = () => {
               {/* Individual Flights List */}
               <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
                 {group.flights.map((f, idx) => {
-                  const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
-                  const drivingCO2 = (f.distance || 0) * 0.21;
+                  // For round trips, calculate CO2 for both directions
+                  const rtMultiplier = f.isRoundTrip ? 2 : 1;
+                  const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy') * rtMultiplier;
+                  const drivingCO2 = (f.distance || 0) * 0.21 * rtMultiplier;
                   const co2Diff = drivingCO2 - flightCO2;
                 const hasMultipleLegs = f.legs && f.legs.length > 1;
                 
@@ -5373,9 +5578,30 @@ const FlightTracker = () => {
                     marginBottom: hasMultipleLegs ? '10px' : '0'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
-                      <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
-                        {formatDate(f.date)}
-                      </span>
+                      {/* Date display - show both dates for round trips */}
+                      {f.isRoundTrip ? (
+                        <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
+                          {formatDate(f.date)} ⇄ {formatDate(f.returnDate)}
+                        </span>
+                      ) : (
+                        <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
+                          {formatDate(f.date)}
+                        </span>
+                      )}
+                      
+                      {/* Round trip badge */}
+                      {f.isRoundTrip && (
+                        <span style={{ 
+                          fontSize: '10px', 
+                          color: '#16a34a', 
+                          background: '#dcfce7', 
+                          padding: '3px 8px', 
+                          borderRadius: '10px',
+                          fontWeight: '600'
+                        }}>
+                          🔄 ROUND TRIP
+                        </span>
+                      )}
                       
                       {/* Show leg count badge for multi-leg trips */}
                       {hasMultipleLegs && (
@@ -5387,7 +5613,7 @@ const FlightTracker = () => {
                           borderRadius: '10px',
                           fontWeight: '600'
                         }}>
-                          {f.legs.length} LEGS
+                          {f.legs.length} LEGS{f.isRoundTrip ? ' × 2' : ''}
                         </span>
                       )}
                       
@@ -5613,7 +5839,7 @@ const FlightTracker = () => {
                       
                       {/* Common badges (only for single-leg flights) */}
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        {f.aircraftType && f.aircraftType !== 'Unknown' && (
+                        {f.aircraftType && f.aircraftType !== 'Unknown' && !hasMultipleLegs && (
                           <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
                             {f.aircraftType}
                           </span>
@@ -5640,31 +5866,34 @@ const FlightTracker = () => {
                              '👑 First'}
                           </span>
                         )}
-                        <span 
-                          style={{ 
-                            fontSize: '11px', 
-                            color: '#dc2626', 
-                            background: '#fef2f2', 
-                            padding: '3px 8px', 
-                            borderRadius: '6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                          title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
-                        >
-                          <CloudRain size={10}/>
-                          {flightCO2} kg
-                          <span style={{ 
-                            fontSize: '10px', 
-                            color: co2Diff > 0 ? '#166534' : '#854d0e',
-                            marginLeft: '2px'
-                          }}>
-                            {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
+                        {/* CO2 badge - only for single-leg flights */}
+                        {!hasMultipleLegs && (
+                          <span 
+                            style={{ 
+                              fontSize: '11px', 
+                              color: '#dc2626', 
+                              background: '#fef2f2', 
+                              padding: '3px 8px', 
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
+                          >
+                            <CloudRain size={10}/>
+                            {flightCO2} kg
+                            <span style={{ 
+                              fontSize: '10px', 
+                              color: co2Diff > 0 ? '#166534' : '#854d0e',
+                              marginLeft: '2px'
+                            }}>
+                              {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
+                            </span>
                           </span>
-                        </span>
-                        {/* Payment badge */}
-                        {f.paymentAmount && (
+                        )}
+                        {/* Payment badge - only for single-leg flights */}
+                        {!hasMultipleLegs && f.paymentAmount && (
                           <span style={{ 
                             fontSize: '11px', 
                             color: f.paymentType === 'miles' ? '#2563eb' : '#16a34a', 
@@ -5946,7 +6175,7 @@ const FlightTracker = () => {
               )})}
             </div>
           </div>
-        ))}
+        )})}
       </div>
       )}
 
@@ -6024,16 +6253,26 @@ const FlightTracker = () => {
                     {/* Individual Flights */}
                     <div style={{ borderTop: '1px solid #fde68a', paddingTop: '12px' }}>
                       {group.flights.map((f, idx) => {
-                        const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                        const rtMultiplier = f.isRoundTrip ? 2 : 1;
+                        const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy') * rtMultiplier;
                         const hasMultipleLegs = f.legs && f.legs.length > 1;
                         return (
                           <div key={f.id} style={{ padding: '10px 0', borderBottom: idx < group.flights.length - 1 ? '1px solid #fef3c7' : 'none' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)}</span>
+                                {f.isRoundTrip ? (
+                                  <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)} ⇄ {formatDate(f.returnDate)}</span>
+                                ) : (
+                                  <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)}</span>
+                                )}
+                                {f.isRoundTrip && (
+                                  <span style={{ fontSize: '10px', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '8px', fontWeight: '600' }}>
+                                    🔄 R/T
+                                  </span>
+                                )}
                                 {hasMultipleLegs && (
                                   <span style={{ fontSize: '10px', color: '#6366f1', background: '#eef2ff', padding: '2px 6px', borderRadius: '8px', fontWeight: '600' }}>
-                                    {f.legs.length} LEGS
+                                    {f.legs.length} LEGS{f.isRoundTrip ? ' × 2' : ''}
                                   </span>
                                 )}
                                 {f.airline && <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>{f.airline}</span>}
@@ -6152,16 +6391,26 @@ const FlightTracker = () => {
                     {/* Individual Flights */}
                     <div style={{ borderTop: '1px solid #bfdbfe', paddingTop: '12px' }}>
                       {group.flights.map((f, idx) => {
-                        const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
+                        const rtMultiplier = f.isRoundTrip ? 2 : 1;
+                        const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy') * rtMultiplier;
                         const hasMultipleLegs = f.legs && f.legs.length > 1;
                         return (
                           <div key={f.id} style={{ padding: '10px 0', borderBottom: idx < group.flights.length - 1 ? '1px solid #dbeafe' : 'none' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)}</span>
+                                {f.isRoundTrip ? (
+                                  <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)} ⇄ {formatDate(f.returnDate)}</span>
+                                ) : (
+                                  <span style={{ fontWeight: '600', fontSize: '13px', minWidth: '85px' }}>{formatDate(f.date)}</span>
+                                )}
+                                {f.isRoundTrip && (
+                                  <span style={{ fontSize: '10px', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '8px', fontWeight: '600' }}>
+                                    🔄 R/T
+                                  </span>
+                                )}
                                 {hasMultipleLegs && (
                                   <span style={{ fontSize: '10px', color: '#6366f1', background: '#eef2ff', padding: '2px 6px', borderRadius: '8px', fontWeight: '600' }}>
-                                    {f.legs.length} LEGS
+                                    {f.legs.length} LEGS{f.isRoundTrip ? ' × 2' : ''}
                                   </span>
                                 )}
                                 {f.airline && <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>{f.airline}</span>}
@@ -6211,8 +6460,8 @@ const FlightTracker = () => {
                  setShowForm(false);
                  setEditingFlight(null);
                  setFormData({ 
-                   origin: '', destination: '', date: '', aircraftType: '', airline: '', 
-                   serviceClass: 'Economy', checkLandmarks: false, hasLayover: false,
+                   origin: '', destination: '', date: '', returnDate: '', aircraftType: '', airline: '', 
+                   serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
                    viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
                    paymentType: 'money', paymentAmount: ''
                  });
@@ -6682,13 +6931,65 @@ const FlightTracker = () => {
                     </>
                   )}
                   
-                  <input 
-                    type="date" 
-                    required 
-                    value={formData.date} 
-                    onChange={e => setFormData({...formData, date: e.target.value})} 
-                    style={inputStyle} 
-                  />
+                  {/* Date Section */}
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                        {formData.isRoundTrip ? 'Departure Date' : 'Flight Date'}
+                      </div>
+                      <input 
+                        type="date" 
+                        required 
+                        value={formData.date} 
+                        onChange={e => setFormData({...formData, date: e.target.value})} 
+                        style={inputStyle} 
+                      />
+                    </div>
+                    {formData.isRoundTrip && (
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>Return Date</div>
+                        <input 
+                          type="date" 
+                          required 
+                          value={formData.returnDate} 
+                          onChange={e => setFormData({...formData, returnDate: e.target.value})} 
+                          style={inputStyle} 
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Round Trip Option - show when not editing OR when editing a round trip */}
+                  {(!editingFlight || formData.isRoundTrip) && (
+                    <label style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '10px', 
+                      cursor: editingFlight ? 'default' : 'pointer', 
+                      fontSize: '14px', 
+                      color: '#555',
+                      background: formData.isRoundTrip ? '#ecfdf5' : '#f8fafc',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: formData.isRoundTrip ? '1px solid #10b981' : '1px solid #e2e8f0',
+                      opacity: editingFlight && formData.isRoundTrip ? 0.8 : 1
+                    }}>
+                      <input 
+                        type="checkbox" 
+                        checked={formData.isRoundTrip} 
+                        onChange={e => setFormData({
+                          ...formData, 
+                          isRoundTrip: e.target.checked, 
+                          returnDate: e.target.checked ? formData.returnDate : '' // Only clear returnDate when unchecking
+                        })}
+                        style={{ width: '18px', height: '18px', cursor: editingFlight ? 'default' : 'pointer' }}
+                        disabled={editingFlight} // Can't change round trip status when editing
+                      />
+                      <span style={{ fontWeight: formData.isRoundTrip ? '600' : 'normal', color: formData.isRoundTrip ? '#059669' : '#555' }}>
+                        🔄 Round trip {editingFlight && formData.isRoundTrip ? '(2 flights)' : '(adds return flight automatically)'}
+                      </span>
+                    </label>
+                  )}
                   
                   {/* Payment Section */}
                   <div style={{ 
@@ -6732,10 +7033,12 @@ const FlightTracker = () => {
                   </label>
                   
                   <button type="submit" style={{ background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>
-                    {editingFlight ? 'Update Flight' : (formData.checkLandmarks ? 'Save & Analyze' : 'Save Flight')}
+                    {editingFlight 
+                      ? (formData.isRoundTrip ? 'Update Round Trip' : 'Update Flight') 
+                      : (formData.isRoundTrip ? 'Save Round Trip' : (formData.checkLandmarks ? 'Save & Analyze' : 'Save Flight'))}
                     {formData.hasLayover && formData.viaAirports.filter(v => v.trim()).length > 0 && (
                       <span style={{ marginLeft: '8px', opacity: 0.8 }}>
-                        ({formData.viaAirports.filter(v => v.trim()).length + 1} legs)
+                        ({formData.viaAirports.filter(v => v.trim()).length + 1} legs{formData.isRoundTrip ? ' × 2' : ''})
                       </span>
                     )}
                   </button>
