@@ -202,7 +202,9 @@ const AIRPORTS_DATABASE = [
   { code: 'NBO', name: 'Jomo Kenyatta Intl', city: 'Nairobi', country: 'Kenya', lat: -1.3192, lon: 36.9278 },
   { code: 'ADD', name: 'Addis Ababa Bole', city: 'Addis Ababa', country: 'Ethiopia', lat: 8.9779, lon: 38.7993 },
   { code: 'CMN', name: 'Mohammed V Intl', city: 'Casablanca', country: 'Morocco', lat: 33.3675, lon: -7.5898 },
+  { code: 'RAK', name: 'Marrakech Menara', city: 'Marrakech', country: 'Morocco', lat: 31.6069, lon: -8.0363 },
   { code: 'LOS', name: 'Murtala Muhammed', city: 'Lagos', country: 'Nigeria', lat: 6.5774, lon: 3.3212 },
+  { code: 'CAI', name: 'Cairo Intl', city: 'Cairo', country: 'Egypt', lat: 30.1219, lon: 31.4056 },
 ];
 
 // Country to Continent mapping
@@ -875,6 +877,7 @@ const FlightTracker = () => {
       co2: true,
       alliance: true,
       moon: true,
+      world: true,
       money: true,
       milesSpent: true
     };
@@ -1421,7 +1424,7 @@ const FlightTracker = () => {
 
   // --- DATABASE REPROCESSING ---
   // Define the current schema version - increment this when new fields are added
-  const CURRENT_SCHEMA_VERSION = 2; // v2 added originCountry, destCountry, originContinent, destContinent
+  const CURRENT_SCHEMA_VERSION = 3; // v3 fixed country fetching for external airports
 
   // Check if a flight needs reprocessing (missing new fields)
   const flightNeedsReprocessing = (flight) => {
@@ -1430,6 +1433,10 @@ const FlightTracker = () => {
     // Otherwise, check for missing country/continent data
     if (flight.originCountry === undefined || flight.destCountry === undefined) return true;
     if (flight.originContinent === undefined || flight.destContinent === undefined) return true;
+    // Also reprocess if continent is 'Unknown' (country might not have been fetched properly)
+    if (flight.originContinent === 'Unknown' || flight.destContinent === 'Unknown') return true;
+    // Also reprocess if country is empty string
+    if (flight.originCountry === '' || flight.destCountry === '') return true;
     return true; // schemaVersion is outdated
   };
 
@@ -1443,12 +1450,24 @@ const FlightTracker = () => {
     const originAirport = AIRPORTS_DATABASE.find(a => a.code === flight.origin);
     const destAirport = AIRPORTS_DATABASE.find(a => a.code === flight.destination);
     
+    // Get country - use existing if valid, otherwise look up
+    const originCountry = (flight.originCountry && flight.originCountry !== '') 
+      ? flight.originCountry 
+      : (originAirport?.country || '');
+    const destCountry = (flight.destCountry && flight.destCountry !== '') 
+      ? flight.destCountry 
+      : (destAirport?.country || '');
+    
+    // Get continent - recalculate from country (in case country was fixed)
+    const originContinent = getContinent(originCountry);
+    const destContinent = getContinent(destCountry);
+    
     const updatedFlight = {
       ...flight,
-      originCountry: flight.originCountry || originAirport?.country || '',
-      destCountry: flight.destCountry || destAirport?.country || '',
-      originContinent: flight.originContinent || getContinent(originAirport?.country),
-      destContinent: flight.destContinent || getContinent(destAirport?.country),
+      originCountry,
+      destCountry,
+      originContinent: originContinent !== 'Unknown' ? originContinent : (flight.originContinent || 'Unknown'),
+      destContinent: destContinent !== 'Unknown' ? destContinent : (flight.destContinent || 'Unknown'),
       schemaVersion: CURRENT_SCHEMA_VERSION
     };
 
@@ -1457,12 +1476,20 @@ const FlightTracker = () => {
       updatedFlight.legs = updatedFlight.legs.map(leg => {
         const legOrigin = AIRPORTS_DATABASE.find(a => a.code === leg.origin);
         const legDest = AIRPORTS_DATABASE.find(a => a.code === leg.destination);
+        
+        const legOriginCountry = (leg.originCountry && leg.originCountry !== '') 
+          ? leg.originCountry 
+          : (legOrigin?.country || '');
+        const legDestCountry = (leg.destCountry && leg.destCountry !== '') 
+          ? leg.destCountry 
+          : (legDest?.country || '');
+        
         return {
           ...leg,
-          originCountry: leg.originCountry || legOrigin?.country || '',
-          destCountry: leg.destCountry || legDest?.country || '',
-          originContinent: leg.originContinent || getContinent(legOrigin?.country),
-          destContinent: leg.destContinent || getContinent(legDest?.country)
+          originCountry: legOriginCountry,
+          destCountry: legDestCountry,
+          originContinent: getContinent(legOriginCountry),
+          destContinent: getContinent(legDestCountry)
         };
       });
     }
@@ -2825,11 +2852,14 @@ const FlightTracker = () => {
           // Robust check for lat/lon parsing
           const lat = parseFloat(parts[parts.length - 8]);
           const lon = parseFloat(parts[parts.length - 7]);
+          // Get country from parts[3] (format: ID, Name, City, Country, IATA, ICAO, Lat, Lon, ...)
+          const country = parts[3] ? parts[3].replace(/"/g, '') : '';
           
           if (!isNaN(lat) && !isNaN(lon)) {
               return {
                 code: cleanCode,
                 city: parts[2].replace(/"/g, ''),
+                country: country,
                 lat: lat,
                 lon: lon
               };
@@ -4934,6 +4964,7 @@ const FlightTracker = () => {
                 { key: 'co2', label: '☁️ CO₂' },
                 { key: 'alliance', label: '⭐ Alliance' },
                 { key: 'moon', label: '🌙 Moon %' },
+                { key: 'world', label: '🌍 World Laps' },
                 { key: 'money', label: '💵 Money' },
                 { key: 'milesSpent', label: '💳 Miles Spent' }
               ].map(({ key, label }) => (
@@ -5027,7 +5058,18 @@ const FlightTracker = () => {
               </div>
             )}
             {visibleStats.moon && (
-              <div style={statCard}><Moon size={20} color="#6366f1"/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
+              <div style={{...statCard, background: '#eef2ff', borderColor: '#6366f1'}}>
+                <Moon size={20} color="#6366f1"/>
+                <div style={{...statVal, color: '#4f46e5'}}>{((totalMiles / 238855) * 100).toFixed(2)}%</div>
+                <div style={statLbl}>🌙 To the Moon</div>
+              </div>
+            )}
+            {visibleStats.world && (
+              <div style={{...statCard, background: '#ecfdf5', borderColor: '#10b981'}}>
+                <Globe size={20} color="#10b981"/>
+                <div style={{...statVal, color: '#059669'}}>{(totalMiles / 24901).toFixed(2)}×</div>
+                <div style={statLbl}>🌍 Around the World</div>
+              </div>
             )}
             {visibleStats.money && paymentStats.totalMoneySpent > 0 && (
               <div style={{...statCard, background: '#f0fdf4', borderColor: '#22c55e'}}>
