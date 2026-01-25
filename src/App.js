@@ -866,8 +866,7 @@ const FlightTracker = () => {
     return saved !== null ? JSON.parse(saved) : true;
   });
   const [visibleStats, setVisibleStats] = useState(() => {
-    const saved = localStorage.getItem('visibleStats');
-    return saved ? JSON.parse(saved) : {
+    const defaults = {
       flights: true,
       miles: true,
       routes: true,
@@ -878,9 +877,16 @@ const FlightTracker = () => {
       alliance: true,
       moon: true,
       world: true,
+      passengers: true,
       money: true,
       milesSpent: true
     };
+    const saved = localStorage.getItem('visibleStats');
+    if (saved) {
+      // Merge saved with defaults to handle new keys
+      return { ...defaults, ...JSON.parse(saved) };
+    }
+    return defaults;
   });
   const [showStatsSettings, setShowStatsSettings] = useState(false);
   const [showAllAircraft, setShowAllAircraft] = useState(false); // Toggle to show all aircraft types
@@ -2740,7 +2746,10 @@ const FlightTracker = () => {
             });
         }
         
-        const pax = getPassengerEstimate(flightData.aircraftType);
+        // Calculate total passengers from all legs (each leg may have different aircraft)
+        const pax = legs.reduce((sum, leg) => {
+          return sum + getPassengerEstimate(leg.aircraftType);
+        }, 0);
 
         // Remove form-only fields from the data to be saved
         const { checkLandmarks, hasLayover, viaAirports, legAirlines, legAircraftTypes, legServiceClasses, ...flightDataToSave } = flightData;
@@ -2909,7 +2918,30 @@ const FlightTracker = () => {
     const rtMultiplier = f.isRoundTrip ? 2 : 1;
     return sum + (f.distance || 0) * rtMultiplier;
   }, 0);
-  const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
+  
+  // Calculate total fellow passengers (round trips count as 2x since you fly with passengers twice)
+  // For multi-leg flights, sum passengers from each leg
+  const totalPassengers = flights.reduce((sum, f) => {
+    const rtMultiplier = f.isRoundTrip ? 2 : 1;
+    const legCount = (f.legs && f.legs.length > 0) ? f.legs.length : 1;
+    
+    // If passengerCount is already calculated and > 0, use it
+    if (f.passengerCount && f.passengerCount > 0) {
+      return sum + f.passengerCount * rtMultiplier;
+    }
+    
+    // Otherwise calculate from legs or top-level aircraft
+    if (f.legs && f.legs.length > 0) {
+      const legPassengers = f.legs.reduce((legSum, leg) => {
+        return legSum + getPassengerEstimate(leg.aircraftType);
+      }, 0);
+      return sum + legPassengers * rtMultiplier;
+    }
+    
+    // Single flight - use aircraft type or default (123 passengers)
+    const pax = getPassengerEstimate(f.aircraftType);
+    return sum + pax * rtMultiplier;
+  }, 0);
   
   // Calculate unique countries visited
   const uniqueCountries = [...new Set(flights.flatMap(f => {
@@ -4965,6 +4997,7 @@ const FlightTracker = () => {
                 { key: 'alliance', label: '⭐ Alliance' },
                 { key: 'moon', label: '🌙 Moon %' },
                 { key: 'world', label: '🌍 World Laps' },
+                { key: 'passengers', label: '👥 Passengers' },
                 { key: 'money', label: '💵 Money' },
                 { key: 'milesSpent', label: '💳 Miles Spent' }
               ].map(({ key, label }) => (
@@ -5061,14 +5094,21 @@ const FlightTracker = () => {
               <div style={{...statCard, background: '#eef2ff', borderColor: '#6366f1'}}>
                 <Moon size={20} color="#6366f1"/>
                 <div style={{...statVal, color: '#4f46e5'}}>{((totalMiles / 238855) * 100).toFixed(2)}%</div>
-                <div style={statLbl}>🌙 To the Moon</div>
+                <div style={statLbl}>To the Moon</div>
               </div>
             )}
             {visibleStats.world && (
               <div style={{...statCard, background: '#ecfdf5', borderColor: '#10b981'}}>
                 <Globe size={20} color="#10b981"/>
                 <div style={{...statVal, color: '#059669'}}>{(totalMiles / 24901).toFixed(2)}×</div>
-                <div style={statLbl}>🌍 Around the World</div>
+                <div style={statLbl}>Around the World</div>
+              </div>
+            )}
+            {visibleStats.passengers && flights.length > 0 && (
+              <div style={{...statCard, background: '#fdf4ff', borderColor: '#c026d3'}}>
+                <Users size={20} color="#c026d3"/>
+                <div style={{...statVal, color: '#a21caf'}}>{totalPassengers.toLocaleString()}</div>
+                <div style={statLbl}>Fellow Passengers</div>
               </div>
             )}
             {visibleStats.money && paymentStats.totalMoneySpent > 0 && (
