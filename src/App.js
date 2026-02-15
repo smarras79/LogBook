@@ -1203,6 +1203,10 @@ const FlightTracker = () => {
   // Airport autocomplete state
   const [airportSuggestions, setAirportSuggestions] = useState([]);
   const [activeAirportField, setActiveAirportField] = useState(null); // 'origin', 'destination', or 'via-0', 'via-1', etc.
+  
+  // Fellow passengers state
+  const [fellowPassengers, setFellowPassengers] = useState([]);
+  const [showFellowPassengers, setShowFellowPassengers] = useState(false);
 
   // Firebase Auth State Listener
   useEffect(() => {
@@ -1366,8 +1370,12 @@ const FlightTracker = () => {
       // If opting in, register all flights with flight numbers to the shared registry
       if (newValue) {
         const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+        console.log(`Registering ${flightsWithNumbers.length} flights for user ${authUser.uid}`);
+        
         for (const flight of flightsWithNumbers) {
           const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+          console.log(`Registering flight: "${flight.flightNumber}" on ${flight.date} as key: "${flightKey}"`);
+          
           const registryRef = doc(db, 'flightRegistry', flightKey);
           const registryDoc = await getDoc(registryRef);
           
@@ -1379,11 +1387,15 @@ const FlightTracker = () => {
           
           if (registryDoc.exists()) {
             const existing = registryDoc.data().passengers || [];
+            console.log(`Flight ${flightKey} already has ${existing.length} passengers`);
             // Don't add duplicate
             if (!existing.some(p => p.uid === authUser.uid)) {
               await updateDoc(registryRef, { 
                 passengers: [...existing, userEntry]
               });
+              console.log(`Added user to existing flight ${flightKey}`);
+            } else {
+              console.log(`User already registered for flight ${flightKey}`);
             }
           } else {
             await setDoc(registryRef, {
@@ -1391,6 +1403,7 @@ const FlightTracker = () => {
               date: flight.date,
               passengers: [userEntry]
             });
+            console.log(`Created new registry for flight ${flightKey}`);
           }
         }
       } else {
@@ -1416,6 +1429,7 @@ const FlightTracker = () => {
         checkFlightMatches();
       } else {
         setFlightMatches({});
+        setFellowPassengers([]);
       }
     } catch (error) {
       console.error('Error updating flight matching preference:', error);
@@ -1425,31 +1439,68 @@ const FlightTracker = () => {
 
   // Check for flight matches (other users on same flights)
   const checkFlightMatches = async () => {
-    if (!authUser || !flightMatchingOptIn) return;
+    if (!authUser || !flightMatchingOptIn) {
+      console.log('Skipping flight match check - not authenticated or not opted in');
+      return;
+    }
     
+    console.log('Checking flight matches for user:', authUser.uid);
     const matches = {};
+    const fellowPassengersData = [];
     const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+    
+    console.log('Flights with numbers:', flightsWithNumbers.length);
+    console.log('Flight details:', flightsWithNumbers.map(f => ({
+      flightNumber: f.flightNumber,
+      date: f.date,
+      origin: f.origin,
+      destination: f.destination
+    })));
     
     for (const flight of flightsWithNumbers) {
       const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+      console.log(`Flight number: "${flight.flightNumber}", Date: "${flight.date}", Generated key: "${flightKey}"`);
+      
       try {
         const registryRef = doc(db, 'flightRegistry', flightKey);
         const registryDoc = await getDoc(registryRef);
         
         if (registryDoc.exists()) {
           const passengers = registryDoc.data().passengers || [];
+          console.log(`Flight ${flightKey} has ${passengers.length} total passengers:`, passengers);
+          
           // Filter out current user and get other passengers
           const others = passengers.filter(p => p.uid !== authUser.uid);
+          console.log(`Found ${others.length} other passengers on flight ${flightKey}`);
+          
           if (others.length > 0) {
             matches[flightKey] = others;
+            
+            // Add to fellow passengers with flight details
+            others.forEach(passenger => {
+              fellowPassengersData.push({
+                ...passenger,
+                flightNumber: flight.flightNumber,
+                date: flight.date,
+                origin: flight.origin,
+                destination: flight.destination,
+                airline: flight.airline
+              });
+            });
           }
+        } else {
+          console.log(`No registry found for flight ${flightKey}`);
         }
       } catch (e) {
         console.error('Error checking flight matches:', e);
       }
     }
     
+    console.log('Total fellow passengers found:', fellowPassengersData.length);
+    console.log('Fellow passengers data:', fellowPassengersData);
+    
     setFlightMatches(matches);
+    setFellowPassengers(fellowPassengersData);
   };
 
   // Check flight matches when flights change and user is opted in
@@ -5136,15 +5187,108 @@ const detectLandmarksHybrid = async (origin, dest) => {
           flexWrap: 'wrap',
           gap: '12px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              flex: 1,
+              position: 'relative',
+              cursor: flightMatchingOptIn && fellowPassengers.length > 0 ? 'pointer' : 'default'
+            }}
+            onMouseEnter={() => {
+              console.log('Mouse entered banner. Opted in:', flightMatchingOptIn, 'Fellow passengers:', fellowPassengers.length);
+              if (flightMatchingOptIn && fellowPassengers.length > 0) {
+                console.log('Showing fellow passengers popup');
+                setShowFellowPassengers(true);
+              }
+            }}
+            onMouseLeave={() => {
+              console.log('Mouse left banner');
+              setShowFellowPassengers(false);
+            }}
+          >
             <Users size={20} color={flightMatchingOptIn ? '#16a34a' : '#94a3b8'} />
             <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
-              {flightMatchingOptIn ? '👥 Finding Fellow Passengers' : 'Fellow Passenger Finder'}
+              {flightMatchingOptIn ? `👥 Finding Fellow Passengers ${fellowPassengers.length > 0 ? `(${fellowPassengers.length} found)` : ''}` : 'Fellow Passenger Finder'}
             </span>
             {!flightMatchingOptIn && (
               <span style={{ fontSize: '12px', color: '#64748b' }}>
                 — See who else was on your flights
               </span>
+            )}
+            
+            {/* Fellow Passengers Popup */}
+            {showFellowPassengers && fellowPassengers.length > 0 && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                marginTop: '8px',
+                background: 'white',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                padding: '16px',
+                zIndex: 1000,
+                minWidth: '300px',
+                maxWidth: '400px',
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}>
+                <div style={{ 
+                  fontSize: '13px', 
+                  fontWeight: '600', 
+                  color: '#475569',
+                  marginBottom: '12px',
+                  borderBottom: '1px solid #e2e8f0',
+                  paddingBottom: '8px'
+                }}>
+                  Fellow Passengers
+                </div>
+                {fellowPassengers.map((passenger, idx) => (
+                  <div key={idx} style={{
+                    padding: '12px',
+                    background: '#f8fafc',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <div style={{ 
+                      fontSize: '14px', 
+                      fontWeight: '600', 
+                      color: '#1e293b',
+                      marginBottom: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <User size={16} color="#16a34a" />
+                      {passenger.nickname || 'Anonymous Traveler'}
+                    </div>
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: '#64748b',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Plane size={12} />
+                        <span style={{ fontWeight: '600' }}>{passenger.flightNumber}</span>
+                        {passenger.airline && <span>({passenger.airline})</span>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <MapPin size={12} />
+                        <span>{passenger.origin} → {passenger.destination}</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                        {formatDate(passenger.date)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
           
