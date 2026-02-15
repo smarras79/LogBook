@@ -29,6 +29,10 @@ import {
   where,
   getDocs
 } from 'firebase/firestore';
+
+// Landmark detection version - increment when detection logic improves
+const LANDMARK_DETECTION_VERSION = 4; // v2: Added 100mi buffer, consecutive hits, more seas
+
 // Firebase configuration - Replace with your own config from Firebase Console
 const firebaseConfig = {
   apiKey: "AIzaSyBN3khxqaQpC8Ws9EQ7syvnPC_rLasMOL0",
@@ -636,6 +640,29 @@ const getFlightRadar24Url = (flightNumber, date) => {
   return `https://www.flightradar24.com/data/flights/${cleanFlightNumber.toLowerCase()}`;
 };
 
+// Check if a flight needs landmark refresh
+const flightNeedsLandmarkRefresh = (flight) => {
+  // Only refresh if flight has landmarks and version is outdated
+  if (!flight.featuresCrossed || flight.featuresCrossed.length === 0) return false;
+  return !flight.landmarkVersion || flight.landmarkVersion < LANDMARK_DETECTION_VERSION;
+};
+
+// Check if a flight could have landmarks added
+const flightCouldHaveLandmarks = (flight) => {
+  // Flight doesn't have landmarks at all, or has empty array
+  return !flight.featuresCrossed || flight.featuresCrossed.length === 0;
+};
+
+// Get flights that could benefit from landmark refresh
+const getFlightsNeedingLandmarkRefresh = (flights) => {
+  return flights.filter(f => flightNeedsLandmarkRefresh(f));
+};
+
+// Get flights that could have landmarks added
+const getFlightsForLandmarkAddition = (flights) => {
+  return flights.filter(f => flightCouldHaveLandmarks(f));
+};
+
 // Helper function to get airline alliance
 const getAirlineAlliance = (airlineName) => {
   if (!airlineName) return null;
@@ -802,11 +829,10 @@ const LANDMARKS_DB = [
 ];
 
 // --- IMPROVED OCEANS DATABASE ---
-// Using bounding boxes instead of just center + radius for better accuracy
+// --- IMPROVED OCEANS DATABASE ---
 const OCEANS_DB = [
   { 
     name: "North Atlantic Ocean", 
-    // Bounding box: roughly between North America and Europe
     bounds: { minLat: 10, maxLat: 60, minLon: -80, maxLon: -5 },
     center: { lat: 35.0, lon: -40.0 }
   },
@@ -817,7 +843,6 @@ const OCEANS_DB = [
   },
   { 
     name: "North Pacific Ocean", 
-    // This is the key fix - more restrictive bounds that don't include US mainland
     bounds: { minLat: 10, maxLat: 60, minLon: -180, maxLon: -125 },
     center: { lat: 35.0, lon: -155.0 }
   },
@@ -842,9 +867,49 @@ const OCEANS_DB = [
     center: { lat: 15.0, lon: -75.0 }
   },
   { 
-    name: "Mediterranean Sea", 
-    bounds: { minLat: 30, maxLat: 46, minLon: -6, maxLon: 36 },
-    center: { lat: 35.0, lon: 18.0 }
+      name: "Mediterranean Sea", 
+      bounds: { minLat: 30, maxLat: 44, minLon: -6, maxLon: 36 },  // Changed maxLat from 46 to 44
+      center: { lat: 37.0, lon: 18.0 }  // Adjusted center slightly south
+  },
+  { 
+      name: "Adriatic Sea", 
+      bounds: { minLat: 39, maxLat: 46, minLon: 12, maxLon: 20 },
+      center: { lat: 43.0, lon: 16.0 }
+  },
+  {
+    name: "Aegean Sea",
+    bounds: { minLat: 35, maxLat: 41, minLon: 23, maxLon: 28 },
+    center: { lat: 38.0, lon: 25.0 }
+  },
+  {
+    name: "Ionian Sea",
+    bounds: { minLat: 36, maxLat: 40, minLon: 15, maxLon: 21 },
+    center: { lat: 38.0, lon: 18.0 }
+  },
+  {
+    name: "Tyrrhenian Sea",
+    bounds: { minLat: 38, maxLat: 44, minLon: 9, maxLon: 15 },
+    center: { lat: 40.0, lon: 12.0 }
+  },
+  {
+    name: "North Sea",
+    bounds: { minLat: 51, maxLat: 62, minLon: -4, maxLon: 9 },
+    center: { lat: 56.0, lon: 3.0 }
+  },
+  {
+    name: "Baltic Sea",
+    bounds: { minLat: 53, maxLat: 66, minLon: 10, maxLon: 30 },
+    center: { lat: 58.0, lon: 20.0 }
+  },
+  {
+    name: "Norwegian Sea",
+    bounds: { minLat: 62, maxLat: 75, minLon: -5, maxLon: 15 },
+    center: { lat: 68.0, lon: 5.0 }
+  },
+  {
+    name: "Black Sea",
+    bounds: { minLat: 41, maxLat: 47, minLon: 27, maxLon: 42 },
+    center: { lat: 44.0, lon: 35.0 }
   },
   { 
     name: "Gulf of Mexico", 
@@ -1004,6 +1069,9 @@ const FlightTracker = () => {
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [landmarkRefreshDismissed, setLandmarkRefreshDismissed] = useState(() => {
+      return localStorage.getItem('landmarkRefreshDismissed') === 'true';
+  });
   
   // Store setImporting in window so error callbacks can access it
   useEffect(() => {
@@ -1844,96 +1912,122 @@ const FlightTracker = () => {
     return dist <= landmark.radius;
   };
 
-  // Main hybrid detection function
-  const detectLandmarksHybrid = async (origin, dest) => {
-    const steps = 20; // Increased from 12 for better coverage
-    const detected = new Set();
-    const landPointsFound = []; // Track which points are confirmed over land
+    // Main hybrid detection function
+// Main hybrid detection function
+const detectLandmarksHybrid = async (origin, dest) => {
+  const steps = 40;
+  const detected = new Set();
+  const minDistanceFromEndpoints = 100; // Miles - ignore features within 100 miles of airports
+  
+  // Track consecutive hits for oceans (need at least 3 consecutive points)
+  const oceanHits = {};
+  
+  // Calculate distances from endpoints
+  const distanceFromOrigin = (point) => calculateDistance(origin.lat, origin.lon, point.lat, point.lon);
+  const distanceFromDest = (point) => calculateDistance(dest.lat, dest.lon, point.lat, point.lon);
+  
+  // FIRST: Check all points against oceans and landmarks
+  for (let i = 0; i <= steps; i++) {
+    const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, i / steps);
     
-    // First pass: Check all points against our landmarks database
-    for (let i = 1; i < steps; i++) {
-      const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, i / steps);
+    if (!point || isNaN(point.lat) || isNaN(point.lon)) continue;
+    
+    // Skip points too close to origin or destination
+    const distFromOrigin = distanceFromOrigin(point);
+    const distFromDest = distanceFromDest(point);
+    
+    if (distFromOrigin < minDistanceFromEndpoints || distFromDest < minDistanceFromEndpoints) {
+      continue;
+    }
+    
+    // Check oceans - track consecutive hits
+    OCEANS_DB.forEach(ocean => {
+      if (isPointInOceanBounds(point, ocean)) {
+        if (!oceanHits[ocean.name]) {
+          oceanHits[ocean.name] = 0;
+        }
+        oceanHits[ocean.name]++;
+      }
+    });
+    
+    // Check landmarks (keep existing logic)
+    LANDMARKS_DB.forEach(landmark => {
+      if (isPointNearLandmark(point, landmark)) {
+        detected.add(landmark.name);
+      }
+    });
+  }
+  
+  // Only add oceans that had at least 3 hits (confirms crossing, not just grazing)
+  Object.entries(oceanHits).forEach(([oceanName, hitCount]) => {
+    if (hitCount >= 3) {
+      detected.add(oceanName);
+    }
+  });
+  
+  // SECOND: Use geocoding for additional land features only
+  if (geocoder.current) {
+    const geocodeSteps = [0.2, 0.35, 0.5, 0.65, 0.8]; // Skip extreme ends
+    
+    for (let frac of geocodeSteps) {
+      const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, frac);
       
       if (!point || isNaN(point.lat) || isNaN(point.lon)) continue;
       
-      // Check against landmarks database
-      LANDMARKS_DB.forEach(landmark => {
-        if (isPointNearLandmark(point, landmark)) {
-          detected.add(landmark.name);
-        }
-      });
-    }
-    
-    // Second pass: Use geocoding to verify water vs land and detect additional features
-    if (geocoder.current) {
-      // Sample fewer points for geocoding to stay within rate limits
-      const geocodeSteps = [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9];
+      setStatusMsg(`Scanning point ${Math.round(frac * 100)}%...`);
       
-      for (let frac of geocodeSteps) {
-        const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, frac);
+      try {
+        await new Promise(r => setTimeout(r, 300));
         
-        if (!point || isNaN(point.lat) || isNaN(point.lon)) continue;
+        const googlePoint = { lat: point.lat, lng: point.lon };
         
-        setStatusMsg(`Scanning point ${Math.round(frac * 100)}%...`);
+        const results = await new Promise((resolve) => {
+          geocoder.current.geocode({ location: googlePoint }, (res, status) => resolve({res, status}));
+        });
         
-        try {
-          await new Promise(r => setTimeout(r, 300));
-          
-          const googlePoint = { lat: point.lat, lng: point.lon };
-          
-          const results = await new Promise((resolve) => {
-            geocoder.current.geocode({ location: googlePoint }, (res, status) => resolve({res, status}));
+        if (results.status === "OK" && results.res && results.res.length > 0) {
+          // Check for natural features from geocoding
+          results.res.forEach(r => {
+            const types = r.types || [];
+            if (types.includes('natural_feature') || types.includes('park')) {
+              r.address_components?.forEach(comp => {
+                const compTypes = comp.types || [];
+                // Skip administrative areas
+                if (compTypes.includes('country') || 
+                    compTypes.includes('administrative_area_level_1') ||
+                    compTypes.includes('administrative_area_level_2') ||
+                    compTypes.includes('locality')) {
+                  return;
+                }
+                
+                const name = comp.long_name;
+                // Look for meaningful natural features
+                if (name.includes("National Park") || 
+                    name.includes("National Forest") ||
+                    name.includes("National Monument") ||
+                    name.includes("Wilderness") ||
+                    name.includes("Mountain") ||
+                    name.includes("Lake") ||
+                    name.includes("River") ||
+                    name.includes("Canyon") ||
+                    name.includes("Desert") ||
+                    name.includes("Valley")) {
+                  detected.add(name);
+                }
+              });
+            }
           });
-          
-          if (results.status === "OK" && results.res && results.res.length > 0) {
-            // We got land results - this point is over land
-            landPointsFound.push(point);
-            
-            // Check for additional features from geocoding
-            results.res.forEach(r => {
-              const types = r.types || [];
-              if (types.includes('natural_feature') || types.includes('park') || types.includes('establishment')) {
-                r.address_components?.forEach(comp => {
-                  const compTypes = comp.types || [];
-                  // Skip administrative areas
-                  if (compTypes.includes('country') || 
-                      compTypes.includes('administrative_area_level_1') ||
-                      compTypes.includes('administrative_area_level_2') ||
-                      compTypes.includes('locality')) {
-                    return;
-                  }
-                  
-                  const name = comp.long_name;
-                  // Look for meaningful natural features
-                  if (name.includes("National Park") || 
-                      name.includes("National Forest") ||
-                      name.includes("National Monument") ||
-                      name.includes("Wilderness") ||
-                      name.includes("Mountain") ||
-                      name.includes("Lake") ||
-                      name.includes("River") ||
-                      name.includes("Canyon") ||
-                      name.includes("Desert") ||
-                      name.includes("Valley")) {
-                    detected.add(name);
-                  }
-                });
-              }
-            });
-          } else if (results.status === "ZERO_RESULTS") {
-            // No results means we're over water - check oceans
-            checkOceansImproved(point, detected);
-          }
-        } catch (e) { 
-          console.warn("Geocoding skip:", e); 
         }
+      } catch (e) { 
+        console.warn("Geocoding skip:", e); 
       }
     }
-    
-    setStatusMsg('');
-    return Array.from(detected);
-  };
-
+  }
+  
+  setStatusMsg('');
+  return Array.from(detected);
+};
+   
   // Improved ocean checking using bounding boxes
   const checkOceansImproved = (point, detectedSet) => {
     OCEANS_DB.forEach(ocean => {
@@ -2903,7 +2997,81 @@ const FlightTracker = () => {
     }
   };
 
-  // --- SAVE & IMPORT LOGIC ---
+    // Refresh landmarks for specific flights
+    const handleRefreshLandmarks = async (flightIds) => {
+	setIsReprocessing(true);
+	setReprocessProgress({ current: 0, total: flightIds.length });
+	
+	try {
+	    const updatedFlights = await Promise.all(
+		flights.map(async (flight, index) => {
+		    if (!flightIds.includes(flight.id)) {
+			return flight;
+		    }
+		    
+		    setReprocessProgress(prev => ({ ...prev, current: prev.current + 1 }));
+		    setStatusMsg(`Refreshing landmarks for ${flight.origin} → ${flight.destination}...`);
+		    
+		    // Re-detect landmarks
+		    const from = await fetchAirportData(flight.origin);
+		    const to = await fetchAirportData(flight.destination);
+        
+		    if (!from || !to) return flight;
+		    
+		    let allFeatures = [];
+		    
+		    if (flight.legs && flight.legs.length > 1) {
+			// Multi-leg flight - refresh each leg
+			for (let i = 0; i < flight.legs.length; i++) {
+			    const leg = flight.legs[i];
+			    const legFrom = await fetchAirportData(leg.origin);
+			    const legTo = await fetchAirportData(leg.destination);
+			    
+			    if (legFrom && legTo) {
+				const legFeatures = await detectLandmarksHybrid(legFrom, legTo);
+				allFeatures = [...new Set([...allFeatures, ...legFeatures])];
+				
+				// Update leg features
+				flight.legs[i] = {
+				    ...leg,
+				    featuresCrossed: legFeatures
+				};
+			    }
+			}
+		    } else {
+			// Single flight
+			allFeatures = await detectLandmarksHybrid(from, to);
+		    }
+		    
+		    return {
+			...flight,
+			featuresCrossed: allFeatures,
+			landmarkVersion: LANDMARK_DETECTION_VERSION
+		    };
+		})
+	    );
+	    
+	    setFlights(updatedFlights);
+	    localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
+	    
+	    if (authUser) {
+		const userDocRef = doc(db, 'users', authUser.uid);
+		await updateDoc(userDocRef, { flights: updatedFlights });
+	    }
+	    
+	    alert(`Successfully refreshed landmarks for ${flightIds.length} flight${flightIds.length > 1 ? 's' : ''}!`);
+	} catch (error) {
+	    console.error('Error refreshing landmarks:', error);
+	    alert('Error refreshing landmarks. Please try again.');
+	} finally {
+	    setIsReprocessing(false);
+	    setReprocessProgress({ current: 0, total: 0 });
+	    setStatusMsg('');
+	}
+    };
+
+  
+    // --- SAVE & IMPORT LOGIC ---
   const handleSaveOrImport = async (flightData, isImport = false) => {
     // Handle round trips by adding both flights
     if (flightData.isRoundTrip && isImport) {
@@ -3077,26 +3245,28 @@ const FlightTracker = () => {
         // Remove form-only fields from the data to be saved
         const { checkLandmarks, hasLayover, viaAirports, legAirlines, legAircraftTypes, legServiceClasses, ...flightDataToSave } = flightData;
 
-        const newRecord = { 
-            ...flightDataToSave, 
-            id: flightData.id || Date.now(),
-            date: flightData.date, // Explicitly preserve date
-            returnDate: flightData.returnDate || '', // Explicitly preserve return date for round trips
-            isRoundTrip: flightData.isRoundTrip || false, // Explicitly preserve round trip flag
-            flightNumber: flightData.flightNumber || '', // Explicitly preserve flight number
-            distance: totalDistance,
-            originCity: from.city, 
-            destCity: to.city,
-            originCountry: from.country || '',
-            destCountry: to.country || '',
-            originContinent: getContinent(from.country),
-            destContinent: getContinent(to.country),
-            featuresCrossed: allFeatures,
-            passengerCount: pax,
-            legs: legs, // Store all legs
-            legCount: legs.length, // Quick reference for stats
-            schemaVersion: CURRENT_SCHEMA_VERSION // Track data schema version
-        };
+	const newRecord = { 
+	    ...flightDataToSave, 
+	    id: flightData.id || Date.now(),
+	    date: flightData.date,
+	    returnDate: flightData.returnDate || '',
+	    isRoundTrip: flightData.isRoundTrip || false,
+	    flightNumber: flightData.flightNumber || '',
+	    distance: totalDistance,
+	    originCity: from.city, 
+	    destCity: to.city,
+	    originCountry: from.country || '',
+	    destCountry: to.country || '',
+	    originContinent: getContinent(from.country),
+	    destContinent: getContinent(to.country),
+	    featuresCrossed: allFeatures,
+	    landmarkVersion: flightData.checkLandmarks ? LANDMARK_DETECTION_VERSION : (flightData.landmarkVersion || 1), // Track landmark version
+	    passengerCount: pax,
+	    legs: legs,
+	    legCount: legs.length,
+	    schemaVersion: CURRENT_SCHEMA_VERSION
+	};
+        
         
         // Debug log for round trips
         if (newRecord.isRoundTrip) {
@@ -4317,6 +4487,8 @@ const FlightTracker = () => {
         </div>
       </header>
 
+
+	
       {/* Auth Modal */}
       {showAuthModal && (
         <div style={modalOverlay}>
@@ -4749,6 +4921,125 @@ const FlightTracker = () => {
         </div>
       )}
 
+	      {/* Landmark Detection Banner - Shows for refresh OR initial addition */}
+    {flights.length > 0 && !landmarkRefreshDismissed && (() => {
+	const flightsNeedingRefresh = getFlightsNeedingLandmarkRefresh(flights);
+	const flightsNeedingAddition = getFlightsForLandmarkAddition(flights);
+	const totalFlightsToProcess = flightsNeedingRefresh.length + flightsNeedingAddition.length;
+	
+	if (totalFlightsToProcess === 0) return null;
+	
+	const isRefresh = flightsNeedingRefresh.length > 0;
+	const isAddition = flightsNeedingAddition.length > 0;
+	
+	return (
+	    <div style={{
+		     background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+		     border: '1px solid #10b981',
+		     borderRadius: '12px',
+		     padding: '16px 20px',
+		     marginBottom: '24px',
+		     display: 'flex',
+		     alignItems: 'center',
+		     justifyContent: 'space-between',
+		     flexWrap: 'wrap',
+		     gap: '12px'
+		 }}>
+		<div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+		    <div style={{
+			     width: '40px',
+			     height: '40px',
+			     borderRadius: '10px',
+			     background: '#10b981',
+			     display: 'flex',
+			     alignItems: 'center',
+			     justifyContent: 'center'
+			 }}>
+			<Mountain size={20} color="#fff" />
+		    </div>
+		    <div>
+			<div style={{ fontWeight: '600', color: '#065f46', fontSize: '14px' }}>
+			    {isRefresh && isAddition 
+			     ? 'Detect landmarks on your flights!' 
+			     : isRefresh 
+			     ? 'Improved landmark detection available!'
+			     : 'Add landmarks to your flights!'}
+			</div>
+			<div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
+			    {isRefresh && isAddition && (
+				<>{flightsNeedingRefresh.length} can be refreshed, {flightsNeedingAddition.length} can have landmarks added</>
+			    )}
+			    {isRefresh && !isAddition && (
+				<>{flightsNeedingRefresh.length} flight{flightsNeedingRefresh.length > 1 ? 's' : ''} can be refreshed with improved detection</>
+			    )}
+			    {!isRefresh && isAddition && (
+				<>{flightsNeedingAddition.length} flight{flightsNeedingAddition.length > 1 ? 's' : ''} can have landmarks detected</>
+			    )}
+			</div>
+		    </div>
+		</div>
+		<div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+		    <button
+			onClick={() => {
+			    setLandmarkRefreshDismissed(true);
+			    localStorage.setItem('landmarkRefreshDismissed', 'true');
+			}}
+			style={{
+			    background: 'transparent',
+			    color: '#047857',
+			    border: '1px solid #10b981',
+			    padding: '8px 16px',
+			    borderRadius: '8px',
+			    fontWeight: '600',
+			    fontSize: '13px',
+			    cursor: 'pointer'
+			}}
+		    >
+			Dismiss
+		    </button>
+		    <button
+			onClick={() => {
+			    const allIds = [...new Set([
+				...flightsNeedingRefresh.map(f => f.id),
+				...flightsNeedingAddition.map(f => f.id)
+			    ])];
+			    handleRefreshLandmarks(allIds);
+			}}
+			disabled={isReprocessing}
+			style={{
+			    background: isReprocessing ? '#059669' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+			    color: '#fff',
+			    border: 'none',
+			    padding: '10px 20px',
+			    borderRadius: '8px',
+			    fontWeight: '600',
+			    fontSize: '13px',
+			    cursor: isReprocessing ? 'wait' : 'pointer',
+			    display: 'flex',
+			    alignItems: 'center',
+			    gap: '8px',
+			    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+			}}
+		    >
+			{isReprocessing ? (
+			    <>
+				<Loader2 className="animate-spin" size={16} />
+				Processing... {reprocessProgress.current}/{reprocessProgress.total}
+			    </>
+			) : (
+			    <>
+				<Mountain size={16} />
+				{isRefresh && isAddition ? 'Process All' : isRefresh ? 'Refresh Landmarks' : 'Add Landmarks'}
+			    </>
+			)}
+		    </button>
+		</div>
+	    </div>
+	);
+    })()}
+    
+
+	    
       {/* Contest Opt-In Section - Compact Version */}
       {authUser && (
         <div style={{
