@@ -5,7 +5,6 @@ import {
   LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
   ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon
 } from 'lucide-react';
-
 // Firebase imports
 import { initializeApp } from 'firebase/app';
 import { 
@@ -1246,12 +1245,35 @@ const FlightTracker = () => {
   }, []);
 
   // Save flights to Firestore when they change (for authenticated users)
+  // CRITICAL: Use a ref to track if we're in the middle of loading to prevent race conditions
+  const isSavingRef = useRef(false);
+  
   useEffect(() => {
-    if (authUser && !authLoading) {
+    // Don't save if we're still loading or if we're already saving
+    if (authLoading || isSavingRef.current) {
+      console.log('⏸️ Skipping save - authLoading:', authLoading, 'isSaving:', isSavingRef.current);
+      return;
+    }
+    
+    if (authUser) {
+      isSavingRef.current = true;
       const userDocRef = doc(db, 'users', authUser.uid);
-      updateDoc(userDocRef, { flights: flights }).catch(console.error);
-    } else if (!authUser && !authLoading) {
+      console.log('💾 Saving flights to Firestore:', flights.length, 'flights');
+      
+      updateDoc(userDocRef, { flights: flights })
+        .then(() => {
+          console.log('✓ Flights saved successfully to Firestore');
+          isSavingRef.current = false;
+        })
+        .catch((error) => {
+          console.error('❌ Error saving flights to Firestore:', error);
+          console.error('Error code:', error.code);
+          console.error('Error message:', error.message);
+          isSavingRef.current = false;
+        });
+    } else if (!authUser) {
       // Save to localStorage for non-authenticated users
+      console.log('💾 Saving flights to localStorage:', flights.length, 'flights');
       localStorage.setItem('flights-data', JSON.stringify(flights));
     }
   }, [flights, authUser, authLoading]);
@@ -1444,7 +1466,24 @@ const FlightTracker = () => {
       return;
     }
     
-    console.log('Checking flight matches for user:', authUser.uid);
+    console.log('========== CHECKING FLIGHT MATCHES ==========');
+    console.log('Current user ID:', authUser.uid);
+    console.log('Current user nickname:', nickname);
+    
+    // First, let's see ALL documents in flightRegistry for debugging
+    try {
+      console.log('\n--- Listing ALL flightRegistry documents ---');
+      const registrySnapshot = await getDocs(collection(db, 'flightRegistry'));
+      console.log(`Total documents in flightRegistry: ${registrySnapshot.size}`);
+      registrySnapshot.forEach((doc) => {
+        console.log(`Document ID: ${doc.id}`);
+        console.log('Data:', JSON.stringify(doc.data(), null, 2));
+      });
+      console.log('--- End of flightRegistry listing ---\n');
+    } catch (listError) {
+      console.error('Error listing flightRegistry:', listError);
+    }
+    
     const matches = {};
     const fellowPassengersData = [];
     const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
@@ -1459,45 +1498,74 @@ const FlightTracker = () => {
     
     for (const flight of flightsWithNumbers) {
       const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
-      console.log(`Flight number: "${flight.flightNumber}", Date: "${flight.date}", Generated key: "${flightKey}"`);
+      console.log(`\n--- Checking Flight ---`);
+      console.log(`Original flight number: "${flight.flightNumber}"`);
+      console.log(`Original date: "${flight.date}"`);
+      console.log(`Generated key: "${flightKey}"`);
       
       try {
         const registryRef = doc(db, 'flightRegistry', flightKey);
+        console.log(`Attempting to read from: flightRegistry/${flightKey}`);
+        
         const registryDoc = await getDoc(registryRef);
+        console.log(`Document exists: ${registryDoc.exists()}`);
         
         if (registryDoc.exists()) {
-          const passengers = registryDoc.data().passengers || [];
-          console.log(`Flight ${flightKey} has ${passengers.length} total passengers:`, passengers);
+          const docData = registryDoc.data();
+          console.log('Full document data:', JSON.stringify(docData, null, 2));
+          
+          const passengers = docData.passengers || [];
+          console.log(`Total passengers in registry: ${passengers.length}`);
+          console.log('All passengers:', passengers.map(p => ({
+            uid: p.uid,
+            nickname: p.nickname,
+            addedAt: p.addedAt
+          })));
           
           // Filter out current user and get other passengers
-          const others = passengers.filter(p => p.uid !== authUser.uid);
-          console.log(`Found ${others.length} other passengers on flight ${flightKey}`);
+          const others = passengers.filter(p => {
+            console.log(`Comparing: "${p.uid}" !== "${authUser.uid}" = ${p.uid !== authUser.uid}`);
+            return p.uid !== authUser.uid;
+          });
+          console.log(`Fellow passengers (excluding self): ${others.length}`);
           
           if (others.length > 0) {
+            console.log('✓ MATCH FOUND! Other passengers:', others.map(p => p.nickname));
             matches[flightKey] = others;
             
             // Add to fellow passengers with flight details
             others.forEach(passenger => {
-              fellowPassengersData.push({
+              const passengerData = {
                 ...passenger,
                 flightNumber: flight.flightNumber,
                 date: flight.date,
                 origin: flight.origin,
                 destination: flight.destination,
                 airline: flight.airline
-              });
+              };
+              console.log('Adding fellow passenger:', passengerData);
+              fellowPassengersData.push(passengerData);
             });
+          } else {
+            console.log('✗ No other passengers on this flight (only you)');
           }
         } else {
-          console.log(`No registry found for flight ${flightKey}`);
+          console.log(`✗ No registry document found for flight ${flightKey}`);
+          console.log('This means no one has registered for this flight yet.');
         }
       } catch (e) {
-        console.error('Error checking flight matches:', e);
+        console.error(`❌ ERROR checking flight ${flightKey}:`, e);
+        console.error('Error name:', e.name);
+        console.error('Error message:', e.message);
+        console.error('Error code:', e.code);
       }
     }
     
+    console.log('\n========== FINAL RESULTS ==========');
     console.log('Total fellow passengers found:', fellowPassengersData.length);
     console.log('Fellow passengers data:', fellowPassengersData);
+    console.log('Matches object:', matches);
+    console.log('=====================================\n');
     
     setFlightMatches(matches);
     setFellowPassengers(fellowPassengersData);
@@ -3971,10 +4039,28 @@ const detectLandmarksHybrid = async (origin, dest) => {
   };
 
   // Handler to delete a specific flight
-  const handleDeleteFlight = (flightId) => {
+  const handleDeleteFlight = async (flightId) => {
+    console.log('🗑️ Deleting flight:', flightId);
+    console.log('Current flights count:', flights.length);
+    
     const updated = flights.filter(x => x.id !== flightId);
+    
+    console.log('Updated flights count:', updated.length);
+    console.log('Deleted flights:', flights.length - updated.length);
+    
     setFlights(updated);
     localStorage.setItem('flights-data', JSON.stringify(updated));
+    
+    // If user is authenticated, immediately update Firestore
+    if (authUser) {
+      try {
+        const userDocRef = doc(db, 'users', authUser.uid);
+        await updateDoc(userDocRef, { flights: updated });
+        console.log('✓ Flight deleted from Firestore');
+      } catch (error) {
+        console.error('❌ Error deleting flight from Firestore:', error);
+      }
+    }
   };
 
   // Handle landing page dismissal
