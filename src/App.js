@@ -467,6 +467,175 @@ const ALLIANCE_MEMBERS_DISPLAY = {
   ]
 };
 
+// --- AIRLINE WEBSITES DATABASE ---
+const AIRLINE_WEBSITES = {
+  // Star Alliance
+  'Aegean Airlines': 'https://en.aegeanair.com/',
+  'Aegean': 'https://en.aegeanair.com/',
+  'Air Canada': 'https://www.aircanada.com/',
+  'Air China': 'https://www.airchina.com/',
+  'Air India': 'https://www.airindia.com/',
+  'Air New Zealand': 'https://www.airnewzealand.com/',
+  'ANA': 'https://www.ana.co.jp/en/us/',
+  'All Nippon Airways': 'https://www.ana.co.jp/en/us/',
+  'Asiana Airlines': 'https://flyasiana.com/',
+  'Asiana': 'https://flyasiana.com/',
+  'Austrian': 'https://www.austrian.com/',
+  'Austrian Airlines': 'https://www.austrian.com/',
+  'Avianca': 'https://www.avianca.com/',
+  'Brussels Airlines': 'https://www.brusselsairlines.com/',
+  'Brussels': 'https://www.brusselsairlines.com/',
+  'Copa Airlines': 'https://www.copaair.com/',
+  'Copa': 'https://www.copaair.com/',
+  'Croatia Airlines': 'https://www.croatiaairlines.com/',
+  'Croatia': 'https://www.croatiaairlines.com/',
+  'EgyptAir': 'https://www.egyptair.com/',
+  'Ethiopian Airlines': 'https://www.ethiopianairlines.com/',
+  'Ethiopian': 'https://www.ethiopianairlines.com/',
+  'EVA Air': 'https://www.evaair.com/',
+  'EVA': 'https://www.evaair.com/',
+  'LOT Polish Airlines': 'https://www.lot.com/',
+  'LOT': 'https://www.lot.com/',
+  'Lufthansa': 'https://www.lufthansa.com/',
+  'Scandinavian Airlines': 'https://www.flysas.com/',
+  'SAS': 'https://www.flysas.com/',
+  'Shenzhen Airlines': 'https://www.shenzhenair.com/',
+  'Singapore Airlines': 'https://www.singaporeair.com/',
+  'Singapore': 'https://www.singaporeair.com/',
+  'South African Airways': 'https://www.flysaa.com/',
+  'Swiss': 'https://www.swiss.com/',
+  'Swiss International': 'https://www.swiss.com/',
+  'SWISS': 'https://www.swiss.com/',
+  'TAP Air Portugal': 'https://www.flytap.com/',
+  'TAP Portugal': 'https://www.flytap.com/',
+  'TAP': 'https://www.flytap.com/',
+  'Thai Airways': 'https://www.thaiairways.com/',
+  'Thai': 'https://www.thaiairways.com/',
+  'THAI': 'https://www.thaiairways.com/',
+  'Turkish Airlines': 'https://www.turkishairlines.com/',
+  'Turkish': 'https://www.turkishairlines.com/',
+  'United': 'https://www.united.com/',
+  'United Airlines': 'https://www.united.com/',
+  
+  // SkyTeam
+  'Aeroflot': 'https://www.aeroflot.ru/',
+  'Aerolíneas Argentinas': 'https://www.aerolineas.com.ar/',
+  'Aeroméxico': 'https://www.aeromexico.com/',
+  'Aeromexico': 'https://www.aeromexico.com/',
+  'Air Europa': 'https://www.aireuropa.com/',
+  'Air France': 'https://www.airfrance.com/',
+  'China Airlines': 'https://www.china-airlines.com/',
+  'China Eastern': 'https://www.ceair.com/',
+  'China Eastern Airlines': 'https://www.ceair.com/',
+  'Czech Airlines': 'https://www.czechairlines.com/',
+  'CSA': 'https://www.czechairlines.com/',
+  'Delta': 'https://www.delta.com/',
+  'Delta Air Lines': 'https://www.delta.com/',
+  'Delta Airlines': 'https://www.delta.com/',
+  'Garuda Indonesia': 'https://www.garuda-indonesia.com/',
+  'Garuda': 'https://www.garuda-indonesia.com/',
+  'ITA Airways': 'https://www.ita-airways.com/',
+  'ITA': 'https://www.ita-airways.com/',
+  'Kenya Airways': 'https://www.kenya-airways.com/',
+  'Kenya': 'https://www.kenya-airways.com/',
+  'KLM': 'https://www.klm.com/',
+  'Korean Air': 'https://www.koreanair.com/',
+  'Korean': 'https://www.koreanair.com/',
+  'Middle East Airlines': 'https://www.mea.com.lb/',
+  'MEA': 'https://www.mea.com.lb/',
+  'Saudia': 'https://www.saudia.com/',
+  'TAROM': 'https://www.tarom.ro/',
+  'Vietnam Airlines': 'https://www.vietnamairlines.com/',
+  'Vietnam': 'https://www.vietnamairlines.com/',
+  'Virgin Atlantic': 'https://www.virginatlantic.com/',
+  'Virgin': 'https://www.virginatlantic.com/',
+  'XiamenAir': 'https://www.xiamenair.com/',
+  
+  // Oneworld
+  'Alaska Airlines': 'https://www.alaskaair.com/',
+  'Alaska': 'https://www.alaskaair.com/',
+  'American Airlines': 'https://www.aa.com/',
+  'American': 'https://www.aa.com/',
+  'AA': 'https://www.aa.com/',
+  'British Airways': 'https://www.britishairways.com/',
+  'BA': 'https://www.britishairways.com/',
+  'Cathay Pacific': 'https://www.cathaypacific.com/',
+  'Cathay': 'https://www.cathaypacific.com/',
+  'Finnair': 'https://www.finnair.com/',
+  'Iberia': 'https://www.iberia.com/',
+  'Japan Airlines': 'https://www.jal.co.jp/en/',
+  'JAL': 'https://www.jal.co.jp/en/',
+  'Malaysia Airlines': 'https://www.malaysiaairlines.com/',
+  'Malaysia': 'https://www.malaysiaairlines.com/',
+  'Qantas': 'https://www.qantas.com/',
+  'Qatar Airways': 'https://www.qatarairways.com/',
+  'Qatar': 'https://www.qatarairways.com/',
+  'Royal Air Maroc': 'https://www.royalairmaroc.com/',
+  'RAM': 'https://www.royalairmaroc.com/',
+  'Royal Jordanian': 'https://www.rj.com/',
+  'SriLankan Airlines': 'https://www.srilankan.com/',
+  'SriLankan': 'https://www.srilankan.com/',
+  
+  // Other major airlines
+  'Southwest': 'https://www.southwest.com/',
+  'Southwest Airlines': 'https://www.southwest.com/',
+  'JetBlue': 'https://www.jetblue.com/',
+  'Spirit Airlines': 'https://www.spirit.com/',
+  'Spirit': 'https://www.spirit.com/',
+  'Frontier Airlines': 'https://www.flyfrontier.com/',
+  'Frontier': 'https://www.flyfrontier.com/',
+  'Ryanair': 'https://www.ryanair.com/',
+  'easyJet': 'https://www.easyjet.com/',
+  'Wizz Air': 'https://wizzair.com/',
+  'Norwegian': 'https://www.norwegian.com/',
+  'Emirates': 'https://www.emirates.com/',
+  'Etihad': 'https://www.etihad.com/',
+  'Etihad Airways': 'https://www.etihad.com/',
+  'LATAM': 'https://www.latam.com/',
+  'GOL': 'https://www.voegol.com.br/',
+  'Azul': 'https://www.voeazul.com.br/',
+  'WestJet': 'https://www.westjet.com/',
+  'Air Transat': 'https://www.airtransat.com/',
+  'Porter Airlines': 'https://www.flyporter.com/',
+  'Allegiant': 'https://www.allegiantair.com/',
+  'Sun Country': 'https://www.suncountry.com/',
+  'Hawaiian Airlines': 'https://www.hawaiianairlines.com/',
+  'Hawaiian': 'https://www.hawaiianairlines.com/'
+};
+
+// Helper function to get airline website
+const getAirlineWebsite = (airlineName) => {
+  if (!airlineName) return null;
+  
+  // Direct match
+  if (AIRLINE_WEBSITES[airlineName]) {
+    return AIRLINE_WEBSITES[airlineName];
+  }
+  
+  // Case-insensitive search
+  const normalizedName = airlineName.trim();
+  for (const [airline, website] of Object.entries(AIRLINE_WEBSITES)) {
+    if (airline.toLowerCase() === normalizedName.toLowerCase()) {
+      return website;
+    }
+  }
+  
+  return null;
+};
+
+// Helper function to get FlightRadar24 URL for a flight number
+const getFlightRadar24Url = (flightNumber, date) => {
+  if (!flightNumber) return null;
+  
+  // Remove spaces and convert to uppercase for consistency
+  const cleanFlightNumber = flightNumber.replace(/\s+/g, '').toUpperCase();
+  
+  // FlightRadar24 uses lowercase for flight numbers in URLs
+  // If date is provided, you could potentially link to a specific flight on that date
+  // For now, we'll link to the general flight page which shows recent and scheduled flights
+  return `https://www.flightradar24.com/data/flights/${cleanFlightNumber.toLowerCase()}`;
+};
+
 // Helper function to get airline alliance
 const getAirlineAlliance = (airlineName) => {
   if (!airlineName) return null;
@@ -851,6 +1020,10 @@ const FlightTracker = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardSortBy, setLeaderboardSortBy] = useState('miles'); // 'miles', 'flights', 'countries', 'co2'
   
+  // Flight matching opt-in state (find fellow passengers on same flight)
+  const [flightMatchingOptIn, setFlightMatchingOptIn] = useState(false);
+  const [flightMatches, setFlightMatches] = useState({}); // { flightKey: [{ nickname, uid }] }
+  
   // User nickname state
   const [nickname, setNickname] = useState('');
   const [editingNickname, setEditingNickname] = useState(false);
@@ -944,6 +1117,7 @@ const FlightTracker = () => {
     destination: '', 
     date: '', 
     returnDate: '', // For round trip
+    flightNumber: '', // Flight number (e.g., UA123, AA456)
     aircraftType: '', 
     airline: '', 
     serviceClass: 'Economy', 
@@ -974,17 +1148,20 @@ const FlightTracker = () => {
         if (userDoc.exists()) {
           setFlights(userDoc.data().flights || []);
           setContestOptIn(userDoc.data().contestOptIn || false);
+          setFlightMatchingOptIn(userDoc.data().flightMatchingOptIn || false);
           setNickname(userDoc.data().nickname || '');
         } else {
           // Create user document if it doesn't exist
-          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false, nickname: '' });
+          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false, flightMatchingOptIn: false, nickname: '' });
           setFlights([]);
           setContestOptIn(false);
+          setFlightMatchingOptIn(false);
           setNickname('');
         }
       } else {
         setAuthUser(null);
         setContestOptIn(false);
+        setFlightMatchingOptIn(false);
         setNickname('');
         // Fall back to localStorage for non-authenticated users
         const localFlights = localStorage.getItem('flights-data');
@@ -1107,6 +1284,112 @@ const FlightTracker = () => {
       setContestLoading(false);
     }
   };
+
+  // Handle flight matching opt-in toggle
+  const handleFlightMatchingToggle = async (newValue) => {
+    if (!authUser) return;
+    
+    const userDocRef = doc(db, 'users', authUser.uid);
+    
+    try {
+      // Update user's preference
+      await updateDoc(userDocRef, { flightMatchingOptIn: newValue });
+      
+      // If opting in, register all flights with flight numbers to the shared registry
+      if (newValue) {
+        const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+        for (const flight of flightsWithNumbers) {
+          const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+          const registryRef = doc(db, 'flightRegistry', flightKey);
+          const registryDoc = await getDoc(registryRef);
+          
+          const userEntry = {
+            uid: authUser.uid,
+            nickname: nickname || authUser.displayName || 'Anonymous',
+            addedAt: new Date().toISOString()
+          };
+          
+          if (registryDoc.exists()) {
+            const existing = registryDoc.data().passengers || [];
+            // Don't add duplicate
+            if (!existing.some(p => p.uid === authUser.uid)) {
+              await updateDoc(registryRef, { 
+                passengers: [...existing, userEntry]
+              });
+            }
+          } else {
+            await setDoc(registryRef, {
+              flightNumber: flight.flightNumber,
+              date: flight.date,
+              passengers: [userEntry]
+            });
+          }
+        }
+      } else {
+        // If opting out, remove user from all flight registries
+        const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+        for (const flight of flightsWithNumbers) {
+          const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+          const registryRef = doc(db, 'flightRegistry', flightKey);
+          const registryDoc = await getDoc(registryRef);
+          
+          if (registryDoc.exists()) {
+            const existing = registryDoc.data().passengers || [];
+            const filtered = existing.filter(p => p.uid !== authUser.uid);
+            await updateDoc(registryRef, { passengers: filtered });
+          }
+        }
+      }
+      
+      setFlightMatchingOptIn(newValue);
+      
+      // Refresh flight matches if opting in
+      if (newValue) {
+        checkFlightMatches();
+      } else {
+        setFlightMatches({});
+      }
+    } catch (error) {
+      console.error('Error updating flight matching preference:', error);
+      alert('Failed to update flight matching preference. Please try again.');
+    }
+  };
+
+  // Check for flight matches (other users on same flights)
+  const checkFlightMatches = async () => {
+    if (!authUser || !flightMatchingOptIn) return;
+    
+    const matches = {};
+    const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+    
+    for (const flight of flightsWithNumbers) {
+      const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+      try {
+        const registryRef = doc(db, 'flightRegistry', flightKey);
+        const registryDoc = await getDoc(registryRef);
+        
+        if (registryDoc.exists()) {
+          const passengers = registryDoc.data().passengers || [];
+          // Filter out current user and get other passengers
+          const others = passengers.filter(p => p.uid !== authUser.uid);
+          if (others.length > 0) {
+            matches[flightKey] = others;
+          }
+        }
+      } catch (e) {
+        console.error('Error checking flight matches:', e);
+      }
+    }
+    
+    setFlightMatches(matches);
+  };
+
+  // Check flight matches when flights change and user is opted in
+  useEffect(() => {
+    if (authUser && flightMatchingOptIn && !authLoading) {
+      checkFlightMatches();
+    }
+  }, [flights, flightMatchingOptIn, authUser, authLoading]);
 
   // Fetch leaderboard data
   const fetchLeaderboard = async () => {
@@ -2800,6 +3083,7 @@ const FlightTracker = () => {
             date: flightData.date, // Explicitly preserve date
             returnDate: flightData.returnDate || '', // Explicitly preserve return date for round trips
             isRoundTrip: flightData.isRoundTrip || false, // Explicitly preserve round trip flag
+            flightNumber: flightData.flightNumber || '', // Explicitly preserve flight number
             distance: totalDistance,
             originCity: from.city, 
             destCity: to.city,
@@ -2838,6 +3122,38 @@ const FlightTracker = () => {
         setFlights(updated);
         localStorage.setItem('flights-data', JSON.stringify(updated));
         
+        // Register flight to shared registry if user opted in and has flight number
+        if (authUser && flightMatchingOptIn && newRecord.flightNumber && newRecord.date) {
+          try {
+            const flightKey = `${newRecord.flightNumber}_${newRecord.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+            const registryRef = doc(db, 'flightRegistry', flightKey);
+            const registryDoc = await getDoc(registryRef);
+            
+            const userEntry = {
+              uid: authUser.uid,
+              nickname: nickname || authUser.displayName || 'Anonymous',
+              addedAt: new Date().toISOString()
+            };
+            
+            if (registryDoc.exists()) {
+              const existing = registryDoc.data().passengers || [];
+              if (!existing.some(p => p.uid === authUser.uid)) {
+                await updateDoc(registryRef, { passengers: [...existing, userEntry] });
+              }
+            } else {
+              await setDoc(registryRef, {
+                flightNumber: newRecord.flightNumber,
+                date: newRecord.date,
+                passengers: [userEntry]
+              });
+            }
+            // Refresh matches
+            checkFlightMatches();
+          } catch (regError) {
+            console.error('Error registering flight:', regError);
+          }
+        }
+        
         if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
         
         // Only reset form if not skipping (for round trip handling)
@@ -2845,7 +3161,7 @@ const FlightTracker = () => {
           setShowForm(false);
           setEditingFlight(null);
           setFormData({ 
-              origin: '', destination: '', date: '', returnDate: '', aircraftType: '', airline: '', 
+              origin: '', destination: '', date: '', returnDate: '', flightNumber: '', aircraftType: '', airline: '', 
               serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
               viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
               paymentType: 'money', paymentAmount: ''
@@ -3394,6 +3710,7 @@ const FlightTracker = () => {
         destination: flight.destination,
         airline: '',
         aircraftType: '',
+        flightNumber: flight.flightNumber || '',
         serviceClass: 'Economy',
         date: flight.date || '',
         returnDate: flight.returnDate || '',
@@ -3414,6 +3731,7 @@ const FlightTracker = () => {
         destination: flight.destination,
         airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
         aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        flightNumber: flight.flightNumber || '',
         serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
         date: flight.date || '',
         returnDate: flight.returnDate || '',
@@ -3985,7 +4303,7 @@ const FlightTracker = () => {
           <button onClick={() => { 
             setEditingFlight(null); 
             setFormData({ 
-              origin: '', destination: '', date: '', returnDate: '', aircraftType: '', airline: '', 
+              origin: '', destination: '', date: '', returnDate: '', flightNumber: '', aircraftType: '', airline: '', 
               serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
               viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
               paymentType: 'money', paymentAmount: ''
@@ -4510,6 +4828,61 @@ const FlightTracker = () => {
               Leaderboard
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Flight Matching Opt-in Banner */}
+      {authUser && (
+        <div style={{
+          background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+          border: '1px solid #86efac',
+          borderRadius: '12px',
+          padding: '12px 20px',
+          marginTop: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+            <Users size={20} color={flightMatchingOptIn ? '#16a34a' : '#94a3b8'} />
+            <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+              {flightMatchingOptIn ? '👥 Finding Fellow Passengers' : 'Fellow Passenger Finder'}
+            </span>
+            {!flightMatchingOptIn && (
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                — See who else was on your flights
+              </span>
+            )}
+          </div>
+          
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            cursor: 'pointer',
+            padding: '6px 12px',
+            background: flightMatchingOptIn ? '#fff' : '#f1f5f9',
+            borderRadius: '8px',
+            border: flightMatchingOptIn ? '1px solid #16a34a' : '1px solid #e2e8f0',
+            fontSize: '13px',
+            fontWeight: '600',
+            color: flightMatchingOptIn ? '#166534' : '#475569'
+          }}>
+            <input
+              type="checkbox"
+              checked={flightMatchingOptIn}
+              onChange={(e) => handleFlightMatchingToggle(e.target.checked)}
+              style={{
+                width: '16px',
+                height: '16px',
+                cursor: 'pointer',
+                accentColor: '#16a34a'
+              }}
+            />
+            {flightMatchingOptIn ? 'Opted In' : 'Opt In'}
+          </label>
         </div>
       )}
 
@@ -5725,6 +6098,44 @@ const FlightTracker = () => {
                         </span>
                       )}
                       
+                      {/* Flight number badge (shown for all flight types) */}
+                      {f.flightNumber && (() => {
+                        const flightRadar24Url = getFlightRadar24Url(f.flightNumber, f.date);
+                        return (
+                          <a
+                            href={flightRadar24Url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ 
+                              fontSize: '11px', 
+                              color: '#6366f1', 
+                              background: '#eef2ff', 
+                              padding: '3px 8px', 
+                              borderRadius: '10px',
+                              fontWeight: '600',
+                              textDecoration: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.background = '#6366f1';
+                              e.currentTarget.style.color = '#fff';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.background = '#eef2ff';
+                              e.currentTarget.style.color = '#6366f1';
+                            }}
+                            title={`View ${f.flightNumber} on FlightRadar24`}
+                          >
+                            ✈ {f.flightNumber}
+                            <Globe size={10} />
+                          </a>
+                        );
+                      })()}
+                      
                       {/* Show leg count badge for multi-leg trips */}
                       {hasMultipleLegs && (
                         <span style={{ 
@@ -5827,11 +6238,45 @@ const FlightTracker = () => {
                       {/* Single leg flight - show airline inline */}
                       {!hasMultipleLegs && (
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          {f.airline && (
-                            <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                              {f.airline}
-                            </span>
-                          )}
+                          {f.airline && (() => {
+                            const airlineWebsite = getAirlineWebsite(f.airline);
+                            return airlineWebsite ? (
+                              <a 
+                                href={airlineWebsite}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ 
+                                  fontSize: '12px', 
+                                  color: '#555', 
+                                  background: '#f5f5f5', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '6px',
+                                  textDecoration: 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                                onMouseEnter={e => {
+                                  e.currentTarget.style.background = '#3b82f6';
+                                  e.currentTarget.style.color = '#fff';
+                                }}
+                                onMouseLeave={e => {
+                                  e.currentTarget.style.background = '#f5f5f5';
+                                  e.currentTarget.style.color = '#555';
+                                }}
+                                title={`Visit ${f.airline} website`}
+                              >
+                                {f.airline}
+                                <Globe size={10} />
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
+                                {f.airline}
+                              </span>
+                            );
+                          })()}
                           {f.airline && (() => {
                             const alliance = getAirlineAlliance(f.airline);
                             const style = ALLIANCE_STYLES[alliance] || ALLIANCE_STYLES['Independent'];
@@ -6033,6 +6478,34 @@ const FlightTracker = () => {
                             }
                           </span>
                         )}
+                        {/* Fellow Passengers badge */}
+                        {flightMatchingOptIn && f.flightNumber && f.date && (() => {
+                          const flightKey = `${f.flightNumber}_${f.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+                          const matches = flightMatches[flightKey];
+                          if (matches && matches.length > 0) {
+                            return (
+                              <span 
+                                style={{ 
+                                  fontSize: '11px', 
+                                  color: '#059669', 
+                                  background: '#ecfdf5', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontWeight: '500',
+                                  border: '1px solid #86efac'
+                                }}
+                                title={`Fellow passengers: ${matches.map(m => m.nickname).join(', ')}`}
+                              >
+                                <Users size={10}/>
+                                {matches.length} fellow traveler{matches.length > 1 ? 's' : ''}
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                     
@@ -6123,18 +6596,55 @@ const FlightTracker = () => {
                             </span>
                             
                             {/* Airline */}
-                            {leg.airline && (
-                              <span style={{ 
-                                fontSize: '11px', 
-                                color: '#555', 
-                                background: '#fff', 
-                                padding: '2px 8px', 
-                                borderRadius: '6px',
-                                border: '1px solid #e5e5e5'
-                              }}>
-                                {leg.airline}
-                              </span>
-                            )}
+                            {leg.airline && (() => {
+                              const airlineWebsite = getAirlineWebsite(leg.airline);
+                              return airlineWebsite ? (
+                                <a
+                                  href={airlineWebsite}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ 
+                                    fontSize: '11px', 
+                                    color: '#555', 
+                                    background: '#fff', 
+                                    padding: '2px 8px', 
+                                    borderRadius: '6px',
+                                    border: '1px solid #e5e5e5',
+                                    textDecoration: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.background = '#3b82f6';
+                                    e.currentTarget.style.color = '#fff';
+                                    e.currentTarget.style.borderColor = '#3b82f6';
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.background = '#fff';
+                                    e.currentTarget.style.color = '#555';
+                                    e.currentTarget.style.borderColor = '#e5e5e5';
+                                  }}
+                                  title={`Visit ${leg.airline} website`}
+                                >
+                                  {leg.airline}
+                                  <Globe size={9} />
+                                </a>
+                              ) : (
+                                <span style={{ 
+                                  fontSize: '11px', 
+                                  color: '#555', 
+                                  background: '#fff', 
+                                  padding: '2px 8px', 
+                                  borderRadius: '6px',
+                                  border: '1px solid #e5e5e5'
+                                }}>
+                                  {leg.airline}
+                                </span>
+                              );
+                            })()}
                             
                             {/* Alliance badge with dropdown */}
                             {leg.airline && legStyle && (
@@ -6397,7 +6907,45 @@ const FlightTracker = () => {
                                     {f.legs.length} LEGS{f.isRoundTrip ? ' × 2' : ''}
                                   </span>
                                 )}
-                                {f.airline && <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>{f.airline}</span>}
+                                {f.airline && (() => {
+                                  const airlineWebsite = getAirlineWebsite(f.airline);
+                                  return airlineWebsite ? (
+                                    <a
+                                      href={airlineWebsite}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ 
+                                        fontSize: '11px', 
+                                        color: '#555', 
+                                        background: '#fff', 
+                                        padding: '2px 6px', 
+                                        borderRadius: '6px',
+                                        textDecoration: 'none',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                      onMouseEnter={e => {
+                                        e.currentTarget.style.background = '#3b82f6';
+                                        e.currentTarget.style.color = '#fff';
+                                      }}
+                                      onMouseLeave={e => {
+                                        e.currentTarget.style.background = '#fff';
+                                        e.currentTarget.style.color = '#555';
+                                      }}
+                                      title={`Visit ${f.airline} website`}
+                                    >
+                                      {f.airline}
+                                      <Globe size={9} />
+                                    </a>
+                                  ) : (
+                                    <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>
+                                      {f.airline}
+                                    </span>
+                                  );
+                                })()}
                                 {f.aircraftType && <span style={{ fontSize: '11px', color: '#888' }}>{f.aircraftType}</span>}
                                 <span style={{ 
                                   fontSize: '10px', 
@@ -6535,7 +7083,45 @@ const FlightTracker = () => {
                                     {f.legs.length} LEGS{f.isRoundTrip ? ' × 2' : ''}
                                   </span>
                                 )}
-                                {f.airline && <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>{f.airline}</span>}
+                                {f.airline && (() => {
+                                  const airlineWebsite = getAirlineWebsite(f.airline);
+                                  return airlineWebsite ? (
+                                    <a
+                                      href={airlineWebsite}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ 
+                                        fontSize: '11px', 
+                                        color: '#555', 
+                                        background: '#fff', 
+                                        padding: '2px 6px', 
+                                        borderRadius: '6px',
+                                        textDecoration: 'none',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                      onMouseEnter={e => {
+                                        e.currentTarget.style.background = '#3b82f6';
+                                        e.currentTarget.style.color = '#fff';
+                                      }}
+                                      onMouseLeave={e => {
+                                        e.currentTarget.style.background = '#fff';
+                                        e.currentTarget.style.color = '#555';
+                                      }}
+                                      title={`Visit ${f.airline} website`}
+                                    >
+                                      {f.airline}
+                                      <Globe size={9} />
+                                    </a>
+                                  ) : (
+                                    <span style={{ fontSize: '11px', color: '#555', background: '#fff', padding: '2px 6px', borderRadius: '6px' }}>
+                                      {f.airline}
+                                    </span>
+                                  );
+                                })()}
                                 {f.aircraftType && <span style={{ fontSize: '11px', color: '#888' }}>{f.aircraftType}</span>}
                                 <span style={{ 
                                   fontSize: '10px', 
@@ -6582,7 +7168,7 @@ const FlightTracker = () => {
                  setShowForm(false);
                  setEditingFlight(null);
                  setFormData({ 
-                   origin: '', destination: '', date: '', returnDate: '', aircraftType: '', airline: '', 
+                   origin: '', destination: '', date: '', returnDate: '', flightNumber: '', aircraftType: '', airline: '', 
                    serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
                    viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
                    paymentType: 'money', paymentAmount: ''
@@ -7029,6 +7615,12 @@ const FlightTracker = () => {
                         placeholder="Airline (e.g. United, Delta)" 
                         value={formData.airline} 
                         onChange={e => setFormData({...formData, airline: e.target.value})} 
+                        style={inputStyle} 
+                      />
+                      <input 
+                        placeholder="Flight # (e.g. UA123, AA456)" 
+                        value={formData.flightNumber} 
+                        onChange={e => setFormData({...formData, flightNumber: e.target.value.toUpperCase()})} 
                         style={inputStyle} 
                       />
                       <input 
