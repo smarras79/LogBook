@@ -626,6 +626,32 @@ const getAirlineWebsite = (airlineName) => {
   return null;
 };
 
+// --- ID UTILS ---
+// Generates a truly unique ID (uses Web Crypto when available)
+const generateId = () =>
+  (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+// Ensure all flights have unique IDs; reassign duplicates with fresh IDs.
+const ensureUniqueIds = (arr) => {
+  const seen = new Set();
+  let changed = false;
+
+  const fixed = arr.map(f => {
+    let id = f.id || generateId();
+    if (seen.has(id)) {
+      id = generateId();
+      changed = true;
+    }
+    seen.add(id);
+    return { ...f, id };
+  });
+
+  return { fixed, changed };
+};
+
+
 // Helper function to get FlightRadar24 URL for a flight number
 const getFlightRadar24Url = (flightNumber, date) => {
   if (!flightNumber) return null;
@@ -1217,10 +1243,19 @@ const FlightTracker = () => {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
-          setFlights(userDoc.data().flights || []);
-          setContestOptIn(userDoc.data().contestOptIn || false);
-          setFlightMatchingOptIn(userDoc.data().flightMatchingOptIn || false);
-          setNickname(userDoc.data().nickname || '');
+	    const sourceFlights = userDoc.data().flights || [];
+	    const { fixed, changed } = ensureUniqueIds(sourceFlights);
+	    setFlights(fixed);
+            setContestOptIn(userDoc.data().contestOptIn || false);
+            setFlightMatchingOptIn(userDoc.data().flightMatchingOptIn || false);
+            setNickname(userDoc.data().nickname || '');
+	    if (changed) {
+		try {
+		    await updateDoc(userDocRef, { flights: fixed });
+		} catch (e) {
+		    console.error('Failed to persist ID migration', e);
+		}
+	    }
         } else {
           // Create user document if it doesn't exist
           await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false, flightMatchingOptIn: false, nickname: '' });
@@ -1230,15 +1265,20 @@ const FlightTracker = () => {
           setNickname('');
         }
       } else {
-        setAuthUser(null);
-        setContestOptIn(false);
-        setFlightMatchingOptIn(false);
-        setNickname('');
-        // Fall back to localStorage for non-authenticated users
-        const localFlights = localStorage.getItem('flights-data');
-        setFlights(localFlights ? JSON.parse(localFlights) : []);
+          setAuthUser(null);
+          setContestOptIn(false);
+          setFlightMatchingOptIn(false);
+          setNickname('');
+          // Fall back to localStorage for non-authenticated users
+          const localFlights = localStorage.getItem('flights-data');
+          const parsed = localFlights ? JSON.parse(localFlights) : [];
+	  const { fixed, changed } = ensureUniqueIds(parsed);
+	  setFlights(fixed);
+	  if (changed) {
+	      localStorage.setItem('flights-data', JSON.stringify(fixed));
+	  }
       }
-      setAuthLoading(false);
+	setAuthLoading(false);
     });
 
     return () => unsubscribe();
@@ -3199,35 +3239,30 @@ const detectLandmarksHybrid = async (origin, dest) => {
       
       try {
         // Add outbound flight
-        const outbound = flightData.outboundFlight;
-        const outboundId = Date.now();
-        await handleSaveOrImportSingle({ ...outbound, id: outboundId }, true, true);
-        
-        // Small delay to ensure unique ID
-        await new Promise(r => setTimeout(r, 50));
-        
-        // Add return flight
-        setStatusMsg('Adding return flight...');
-        const returnFlight = flightData.returnFlight;
-        const returnId = Date.now();
-        await handleSaveOrImportSingle({ ...returnFlight, id: returnId }, true, true);
-        
-        // Remove from suggestions
-        setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
-        
-        setIsVerifying(false);
-        setStatusMsg('');
+	  const outbound = flightData.outboundFlight;
+	  const outboundId = generateId();
+	  await handleSaveOrImportSingle({ ...outbound, id: outboundId }, true, true);
+	  
+	  // Add return flight
+	  const returnFlight = flightData.returnFlight;
+	  const returnId = generateId();
+	  await handleSaveOrImportSingle({ ...returnFlight, id: returnId }, true, true);
+          // Remove from suggestions
+          setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
+          
+          setIsVerifying(false);
+          setStatusMsg('');
       } catch (e) {
-        console.error('Error adding round trip:', e);
-        setIsVerifying(false);
-        setStatusMsg('');
-        alert('Error adding round trip. Check console for details.');
+          console.error('Error adding round trip:', e);
+          setIsVerifying(false);
+          setStatusMsg('');
+          alert('Error adding round trip. Check console for details.');
       }
-      return;
+	return;
     }
-    
-    // Regular single flight
-    await handleSaveOrImportSingle(flightData, isImport, false);
+      
+      // Regular single flight
+      await handleSaveOrImportSingle(flightData, isImport, false);
   };
 
   const handleSaveOrImportSingle = async (flightData, isImport = false, skipStatusReset = false, skipFormReset = false) => {
@@ -3366,7 +3401,7 @@ const detectLandmarksHybrid = async (origin, dest) => {
 
 	const newRecord = { 
 	    ...flightDataToSave, 
-	    id: flightData.id || Date.now(),
+	    id: flightData.id || generateId(),
 	    date: flightData.date,
 	    returnDate: flightData.returnDate || '',
 	    isRoundTrip: flightData.isRoundTrip || false,
@@ -4040,16 +4075,16 @@ const detectLandmarksHybrid = async (origin, dest) => {
 
   // Handler to delete a specific flight
   const handleDeleteFlight = async (flightId) => {
-    console.log('🗑️ Deleting flight:', flightId);
-    console.log('Current flights count:', flights.length);
-    
-    const updated = flights.filter(x => x.id !== flightId);
-    
-    console.log('Updated flights count:', updated.length);
-    console.log('Deleted flights:', flights.length - updated.length);
-    
-    setFlights(updated);
-    localStorage.setItem('flights-data', JSON.stringify(updated));
+      console.log('🗑️ Deleting flight:', flightId);
+      console.log('Current flights count:', flights.length);
+      
+      const updated = flights.filter(x => x.id !== flightId);
+      
+      console.log('Updated flights count:', updated.length);
+      console.log('Deleted flights:', flights.length - updated.length);
+      
+      setFlights(updated);
+      localStorage.setItem('flights-data', JSON.stringify(updated));
     
     // If user is authenticated, immediately update Firestore
     if (authUser) {
