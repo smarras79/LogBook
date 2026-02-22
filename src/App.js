@@ -1582,11 +1582,9 @@ const FlightTracker = () => {
             addedAt: p.addedAt
           })));
           
-          // Filter out current user and get other passengers
-          const others = passengers.filter(p => {
-            console.log(`Comparing: "${p.uid}" !== "${authUser.uid}" = ${p.uid !== authUser.uid}`);
-            return p.uid !== authUser.uid;
-          });
+          // Filter out current user (String() cast guards against type mismatches)
+          const myUid = String(authUser.uid);
+          const others = passengers.filter(p => String(p.uid) !== myUid);
           console.log(`Fellow passengers (excluding self): ${others.length}`);
           
           if (others.length > 0) {
@@ -5580,7 +5578,7 @@ const detectLandmarksHybrid = async (origin, dest) => {
                   Fellow Passengers
                 </div>
                 {/* Sort: favorites first */}
-                {[...fellowPassengers].sort((a, b) => {
+                {[...fellowPassengers].filter(p => String(p.uid) !== String(authUser?.uid)).sort((a, b) => {
                   const aFav = favoritePassengers.includes(a.uid) ? 0 : 1;
                   const bFav = favoritePassengers.includes(b.uid) ? 0 : 1;
                   return aFav - bFav;
