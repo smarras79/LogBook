@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
   LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
-  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon
+  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon, Heart, MessageCircle, Send
 } from 'lucide-react';
 // Firebase imports
 import { initializeApp } from 'firebase/app';
@@ -1233,6 +1233,17 @@ const FlightTracker = () => {
   const [fellowPassengers, setFellowPassengers] = useState([]);
   const [showFellowPassengers, setShowFellowPassengers] = useState(false);
 
+  // Favorites state (UIDs of favorited fellow passengers)
+  const [favoritePassengers, setFavoritePassengers] = useState([]);
+
+  // Chat state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPartner, setChatPartner] = useState(null); // { uid, nickname }
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatUnsubRef = useRef(null);
+
   // Firebase Auth State Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -1249,6 +1260,7 @@ const FlightTracker = () => {
             setContestOptIn(userDoc.data().contestOptIn || false);
             setFlightMatchingOptIn(userDoc.data().flightMatchingOptIn || false);
             setNickname(userDoc.data().nickname || '');
+            setFavoritePassengers(userDoc.data().favoritePassengers || []);
 	    if (changed) {
 		try {
 		    await updateDoc(userDocRef, { flights: fixed });
@@ -1269,6 +1281,10 @@ const FlightTracker = () => {
           setContestOptIn(false);
           setFlightMatchingOptIn(false);
           setNickname('');
+          setFavoritePassengers([]);
+          setChatOpen(false);
+          setChatPartner(null);
+          setChatMessages([]);
           // Fall back to localStorage for non-authenticated users
           const localFlights = localStorage.getItem('flights-data');
           const parsed = localFlights ? JSON.parse(localFlights) : [];
@@ -1617,6 +1633,111 @@ const FlightTracker = () => {
       checkFlightMatches();
     }
   }, [flights, flightMatchingOptIn, authUser, authLoading]);
+
+  // Toggle a fellow passenger as favorite
+  const toggleFavoritePassenger = async (passengerUid) => {
+    if (!authUser) return;
+    const isFav = favoritePassengers.includes(passengerUid);
+    const updated = isFav
+      ? favoritePassengers.filter(uid => uid !== passengerUid)
+      : [...favoritePassengers, passengerUid];
+    setFavoritePassengers(updated);
+    try {
+      const userDocRef = doc(db, 'users', authUser.uid);
+      await updateDoc(userDocRef, { favoritePassengers: updated });
+    } catch (e) {
+      console.error('Error saving favorites:', e);
+    }
+  };
+
+  // Generate a deterministic chat conversation ID from two UIDs
+  const getChatId = (uid1, uid2) => {
+    return [uid1, uid2].sort().join('_');
+  };
+
+  // Open chat with a fellow passenger
+  const openChat = (passenger) => {
+    if (!authUser) return;
+    setChatPartner({ uid: passenger.uid, nickname: passenger.nickname || 'Anonymous Traveler' });
+    setChatMessages([]);
+    setChatInput('');
+    setChatOpen(true);
+    setChatLoading(true);
+
+    // Subscribe to chat messages in real time
+    const chatId = getChatId(authUser.uid, passenger.uid);
+    const chatDocRef = doc(db, 'chats', chatId);
+
+    // Unsubscribe from any previous chat listener
+    if (chatUnsubRef.current) {
+      chatUnsubRef.current();
+      chatUnsubRef.current = null;
+    }
+
+    const unsub = onSnapshot(chatDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setChatMessages(data.messages || []);
+      } else {
+        setChatMessages([]);
+      }
+      setChatLoading(false);
+    }, (err) => {
+      console.error('Chat listener error:', err);
+      setChatLoading(false);
+    });
+
+    chatUnsubRef.current = unsub;
+  };
+
+  // Close chat and unsubscribe from listener
+  const closeChat = () => {
+    if (chatUnsubRef.current) {
+      chatUnsubRef.current();
+      chatUnsubRef.current = null;
+    }
+    setChatOpen(false);
+    setChatPartner(null);
+    setChatMessages([]);
+    setChatInput('');
+  };
+
+  // Send a chat message
+  const sendChatMessage = async () => {
+    if (!authUser || !chatPartner || !chatInput.trim()) return;
+    const chatId = getChatId(authUser.uid, chatPartner.uid);
+    const chatDocRef = doc(db, 'chats', chatId);
+    const newMsg = {
+      from: authUser.uid,
+      nickname: nickname || authUser.displayName || 'Anonymous',
+      text: chatInput.trim(),
+      ts: new Date().toISOString()
+    };
+    setChatInput('');
+    try {
+      const chatDoc = await getDoc(chatDocRef);
+      if (chatDoc.exists()) {
+        const existing = chatDoc.data().messages || [];
+        await updateDoc(chatDocRef, { messages: [...existing, newMsg] });
+      } else {
+        await setDoc(chatDocRef, {
+          participants: [authUser.uid, chatPartner.uid],
+          messages: [newMsg]
+        });
+      }
+    } catch (e) {
+      console.error('Error sending message:', e);
+    }
+  };
+
+  // Cleanup chat listener on unmount
+  useEffect(() => {
+    return () => {
+      if (chatUnsubRef.current) {
+        chatUnsubRef.current();
+      }
+    };
+  }, []);
 
   // Fetch leaderboard data
   const fetchLeaderboard = async () => {
@@ -3399,9 +3520,9 @@ const detectLandmarksHybrid = async (origin, dest) => {
         // Remove form-only fields from the data to be saved
         const { checkLandmarks, hasLayover, viaAirports, legAirlines, legAircraftTypes, legServiceClasses, ...flightDataToSave } = flightData;
 
-	const newRecord = { 
-	    ...flightDataToSave, 
-	    id: flightData.id || generateId(),
+	const newRecord = {
+	    ...flightDataToSave,
+	    id: (editingFlight ? flightData.id : null) || generateId(),
 	    date: flightData.date,
 	    returnDate: flightData.returnDate || '',
 	    isRoundTrip: flightData.isRoundTrip || false,
@@ -4073,27 +4194,41 @@ const detectLandmarksHybrid = async (origin, dest) => {
     setShowForm(true);
   };
 
-  // Handler to delete a specific flight
+  // Handler to delete a specific flight by unique ID
   const handleDeleteFlight = async (flightId) => {
-      console.log('🗑️ Deleting flight:', flightId);
-      console.log('Current flights count:', flights.length);
-      
-      const updated = flights.filter(x => x.id !== flightId);
-      
-      console.log('Updated flights count:', updated.length);
-      console.log('Deleted flights:', flights.length - updated.length);
-      
-      setFlights(updated);
+    if (!flightId) {
+      console.error('Cannot delete flight: no valid ID provided');
+      return;
+    }
+
+    if (!window.confirm('Delete this flight?')) return;
+
+    console.log('Deleting flight with ID:', flightId);
+
+    // Use functional update to avoid stale closure issues
+    let updated;
+    setFlights(prev => {
+      updated = prev.filter(x => x.id !== flightId);
+      console.log('Deleted flights:', prev.length - updated.length, 'of', prev.length);
+      return updated;
+    });
+
+    // Wait a tick so the functional update has settled
+    await new Promise(r => setTimeout(r, 0));
+
+    // Persist to localStorage
+    if (updated) {
       localStorage.setItem('flights-data', JSON.stringify(updated));
-    
+    }
+
     // If user is authenticated, immediately update Firestore
-    if (authUser) {
+    if (authUser && updated) {
       try {
         const userDocRef = doc(db, 'users', authUser.uid);
         await updateDoc(userDocRef, { flights: updated });
-        console.log('✓ Flight deleted from Firestore');
+        console.log('Flight deleted from Firestore');
       } catch (error) {
-        console.error('❌ Error deleting flight from Firestore:', error);
+        console.error('Error deleting flight from Firestore:', error);
       }
     }
   };
@@ -5341,25 +5476,29 @@ const detectLandmarksHybrid = async (origin, dest) => {
             
             {/* Fellow Passengers Popup */}
             {showFellowPassengers && fellowPassengers.length > 0 && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                marginTop: '8px',
-                background: 'white',
-                border: '1px solid #e2e8f0',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                padding: '16px',
-                zIndex: 1000,
-                minWidth: '300px',
-                maxWidth: '400px',
-                maxHeight: '400px',
-                overflowY: 'auto'
-              }}>
-                <div style={{ 
-                  fontSize: '13px', 
-                  fontWeight: '600', 
+              <div
+                onMouseEnter={() => setShowFellowPassengers(true)}
+                onMouseLeave={() => setShowFellowPassengers(false)}
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '8px',
+                  background: 'white',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  padding: '16px',
+                  zIndex: 1000,
+                  minWidth: '340px',
+                  maxWidth: '420px',
+                  maxHeight: '450px',
+                  overflowY: 'auto'
+                }}
+              >
+                <div style={{
+                  fontSize: '13px',
+                  fontWeight: '600',
                   color: '#475569',
                   marginBottom: '12px',
                   borderBottom: '1px solid #e2e8f0',
@@ -5367,48 +5506,75 @@ const detectLandmarksHybrid = async (origin, dest) => {
                 }}>
                   Fellow Passengers
                 </div>
-                {fellowPassengers.map((passenger, idx) => (
-                  <div key={idx} style={{
-                    padding: '12px',
-                    background: '#f8fafc',
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <div style={{ 
-                      fontSize: '14px', 
-                      fontWeight: '600', 
-                      color: '#1e293b',
-                      marginBottom: '6px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
+                {/* Sort: favorites first */}
+                {[...fellowPassengers].sort((a, b) => {
+                  const aFav = favoritePassengers.includes(a.uid) ? 0 : 1;
+                  const bFav = favoritePassengers.includes(b.uid) ? 0 : 1;
+                  return aFav - bFav;
+                }).map((passenger, idx) => {
+                  const isFav = favoritePassengers.includes(passenger.uid);
+                  return (
+                    <div key={`${passenger.uid}-${passenger.flightNumber}-${idx}`} style={{
+                      padding: '12px',
+                      background: isFav ? '#fef2f2' : '#f8fafc',
+                      borderRadius: '8px',
+                      marginBottom: '8px',
+                      border: isFav ? '1px solid #fca5a5' : '1px solid #e2e8f0'
                     }}>
-                      <User size={16} color="#16a34a" />
-                      {passenger.nickname || 'Anonymous Traveler'}
+                      <div style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b',
+                        marginBottom: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <User size={16} color="#16a34a" />
+                          {passenger.nickname || 'Anonymous Traveler'}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Heart
+                            size={16}
+                            fill={isFav ? '#ef4444' : 'none'}
+                            color={isFav ? '#ef4444' : '#94a3b8'}
+                            style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                            title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                            onClick={(e) => { e.stopPropagation(); toggleFavoritePassenger(passenger.uid); }}
+                          />
+                          <MessageCircle
+                            size={16}
+                            color="#3b82f6"
+                            style={{ cursor: 'pointer' }}
+                            title={`Chat with ${passenger.nickname || 'this passenger'}`}
+                            onClick={(e) => { e.stopPropagation(); openChat(passenger); }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: '#64748b',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Plane size={12} />
+                          <span style={{ fontWeight: '600' }}>{passenger.flightNumber}</span>
+                          {passenger.airline && <span>({passenger.airline})</span>}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <MapPin size={12} />
+                          <span>{passenger.origin} → {passenger.destination}</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                          {formatDate(passenger.date)}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ 
-                      fontSize: '12px', 
-                      color: '#64748b',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Plane size={12} />
-                        <span style={{ fontWeight: '600' }}>{passenger.flightNumber}</span>
-                        {passenger.airline && <span>({passenger.airline})</span>}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <MapPin size={12} />
-                        <span>{passenger.origin} → {passenger.destination}</span>
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                        {formatDate(passenger.date)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -8314,6 +8480,147 @@ const detectLandmarksHybrid = async (origin, dest) => {
                   </button>
                 </form>
              )}
+          </div>
+        </div>
+      )}
+
+      {/* Chat Modal */}
+      {chatOpen && chatPartner && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          width: '360px',
+          maxHeight: '480px',
+          background: '#fff',
+          borderRadius: '16px',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 2000,
+          overflow: 'hidden'
+        }}>
+          {/* Chat Header */}
+          <div style={{
+            padding: '14px 16px',
+            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <User size={18} />
+              <span style={{ fontWeight: '600', fontSize: '14px' }}>{chatPartner.nickname}</span>
+            </div>
+            <X size={18} style={{ cursor: 'pointer', opacity: 0.9 }} onClick={closeChat} />
+          </div>
+
+          {/* Chat Messages */}
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            minHeight: '250px',
+            maxHeight: '320px',
+            background: '#f8fafc'
+          }}>
+            {chatLoading ? (
+              <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0' }}>
+                <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                <div style={{ marginTop: '8px', fontSize: '13px' }}>Loading messages...</div>
+              </div>
+            ) : chatMessages.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 16px', fontSize: '13px' }}>
+                No messages yet. Say hi to {chatPartner.nickname}!
+              </div>
+            ) : (
+              chatMessages.map((msg, i) => {
+                const isMe = msg.from === authUser?.uid;
+                return (
+                  <div key={i} style={{
+                    alignSelf: isMe ? 'flex-end' : 'flex-start',
+                    maxWidth: '80%'
+                  }}>
+                    {!isMe && (
+                      <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '2px', marginLeft: '4px' }}>
+                        {msg.nickname || chatPartner.nickname}
+                      </div>
+                    )}
+                    <div style={{
+                      padding: '8px 12px',
+                      borderRadius: isMe ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                      background: isMe ? '#3b82f6' : '#fff',
+                      color: isMe ? '#fff' : '#1e293b',
+                      fontSize: '13px',
+                      lineHeight: '1.4',
+                      border: isMe ? 'none' : '1px solid #e2e8f0',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                    }}>
+                      {msg.text}
+                    </div>
+                    <div style={{
+                      fontSize: '10px',
+                      color: '#94a3b8',
+                      marginTop: '2px',
+                      textAlign: isMe ? 'right' : 'left',
+                      marginLeft: '4px',
+                      marginRight: '4px'
+                    }}>
+                      {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Chat Input */}
+          <div style={{
+            padding: '10px 12px',
+            borderTop: '1px solid #e2e8f0',
+            display: 'flex',
+            gap: '8px',
+            background: '#fff'
+          }}>
+            <input
+              type="text"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+              placeholder="Type a message..."
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: '20px',
+                border: '1px solid #e2e8f0',
+                fontSize: '13px',
+                outline: 'none'
+              }}
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={!chatInput.trim()}
+              style={{
+                background: chatInput.trim() ? '#3b82f6' : '#94a3b8',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '50%',
+                width: '36px',
+                height: '36px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: chatInput.trim() ? 'pointer' : 'default',
+                transition: 'background 0.2s'
+              }}
+            >
+              <Send size={16} />
+            </button>
           </div>
         </div>
       )}
