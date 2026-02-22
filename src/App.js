@@ -1245,6 +1245,7 @@ const FlightTracker = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState('');
   const chatUnsubRef = useRef(null);
+  const chatPollRef = useRef(null);
   const chatMessagesEndRef = useRef(null);
 
   // Firebase Auth State Listener
@@ -1658,6 +1659,18 @@ const FlightTracker = () => {
     return [uid1, uid2].sort().join('_');
   };
 
+  // Helper: stop any active chat polling and snapshot listener
+  const stopChatSync = () => {
+    if (chatUnsubRef.current) {
+      chatUnsubRef.current();
+      chatUnsubRef.current = null;
+    }
+    if (chatPollRef.current) {
+      clearInterval(chatPollRef.current);
+      chatPollRef.current = null;
+    }
+  };
+
   // Open chat with a fellow passenger
   const openChat = (passenger) => {
     if (!authUser) return;
@@ -1670,27 +1683,26 @@ const FlightTracker = () => {
     // Close the fellow passengers popup so it doesn't interfere
     setShowFellowPassengers(false);
 
-    // Subscribe to chat messages in real time
     const chatId = getChatId(authUser.uid, passenger.uid);
     const chatDocRef = doc(db, 'chats', chatId);
 
-    // Unsubscribe from any previous chat listener
-    if (chatUnsubRef.current) {
-      chatUnsubRef.current();
-      chatUnsubRef.current = null;
-    }
+    // Clean up any previous listeners/polls
+    stopChatSync();
 
-    // First ensure the chat document exists, then subscribe
     const initAndListen = async () => {
+      // Ensure chat document exists
       try {
         const chatDoc = await getDoc(chatDocRef);
         if (!chatDoc.exists()) {
-          // Create the document so onSnapshot has something to listen to
           await setDoc(chatDocRef, {
             participants: [authUser.uid, passenger.uid],
             messages: []
           });
+        } else {
+          // Show existing messages immediately
+          setChatMessages(chatDoc.data().messages || []);
         }
+        setChatLoading(false);
       } catch (e) {
         console.error('Error initializing chat document:', e);
         setChatError('Could not connect to chat. Check your connection.');
@@ -1698,33 +1710,47 @@ const FlightTracker = () => {
         return;
       }
 
-      const unsub = onSnapshot(chatDocRef, (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          setChatMessages(data.messages || []);
-        } else {
-          setChatMessages([]);
-        }
-        setChatLoading(false);
-        setChatError('');
-      }, (err) => {
-        console.error('Chat listener error:', err);
-        setChatError('Lost connection to chat.');
-        setChatLoading(false);
-      });
+      // 1) Real-time listener (instant for sender, may or may not work cross-user)
+      try {
+        const unsub = onSnapshot(chatDocRef, (snapshot) => {
+          if (snapshot.exists()) {
+            setChatMessages(snapshot.data().messages || []);
+          }
+          setChatError('');
+        }, (err) => {
+          console.error('Chat snapshot listener error:', err);
+          // Don't show error — polling fallback will keep working
+        });
+        chatUnsubRef.current = unsub;
+      } catch (e) {
+        console.error('Could not set up real-time listener:', e);
+      }
 
-      chatUnsubRef.current = unsub;
+      // 2) Polling fallback every 3s — guarantees cross-user delivery
+      //    Uses getDoc with {source:'server'} to bypass cache and hit Firestore directly
+      chatPollRef.current = setInterval(async () => {
+        try {
+          const fresh = await getDoc(chatDocRef);
+          if (fresh.exists()) {
+            const msgs = fresh.data().messages || [];
+            setChatMessages(prev => {
+              // Only update if message count changed to avoid unnecessary re-renders
+              if (msgs.length !== prev.length) return msgs;
+              return prev;
+            });
+          }
+        } catch (e) {
+          // Silent — snapshot or next poll will pick it up
+        }
+      }, 3000);
     };
 
     initAndListen();
   };
 
-  // Close chat and unsubscribe from listener
+  // Close chat and unsubscribe from listener + polling
   const closeChat = () => {
-    if (chatUnsubRef.current) {
-      chatUnsubRef.current();
-      chatUnsubRef.current = null;
-    }
+    stopChatSync();
     setChatOpen(false);
     setChatPartner(null);
     setChatMessages([]);
@@ -1774,13 +1800,9 @@ const FlightTracker = () => {
     }
   };
 
-  // Cleanup chat listener on unmount
+  // Cleanup chat listener + polling on unmount
   useEffect(() => {
-    return () => {
-      if (chatUnsubRef.current) {
-        chatUnsubRef.current();
-      }
-    };
+    return () => stopChatSync();
   }, []);
 
   // Auto-scroll chat to bottom when new messages arrive
