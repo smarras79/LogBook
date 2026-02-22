@@ -16,17 +16,18 @@ import {
   GoogleAuthProvider,
   signInWithPopup
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc, 
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
   updateDoc,
   onSnapshot,
   collection,
   query,
   where,
-  getDocs
+  getDocs,
+  arrayUnion
 } from 'firebase/firestore';
 
 // Landmark detection version - increment when detection logic improves
@@ -1242,7 +1243,9 @@ const FlightTracker = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState('');
   const chatUnsubRef = useRef(null);
+  const chatMessagesEndRef = useRef(null);
 
   // Firebase Auth State Listener
   useEffect(() => {
@@ -1661,8 +1664,11 @@ const FlightTracker = () => {
     setChatPartner({ uid: passenger.uid, nickname: passenger.nickname || 'Anonymous Traveler' });
     setChatMessages([]);
     setChatInput('');
+    setChatError('');
     setChatOpen(true);
     setChatLoading(true);
+    // Close the fellow passengers popup so it doesn't interfere
+    setShowFellowPassengers(false);
 
     // Subscribe to chat messages in real time
     const chatId = getChatId(authUser.uid, passenger.uid);
@@ -1674,20 +1680,43 @@ const FlightTracker = () => {
       chatUnsubRef.current = null;
     }
 
-    const unsub = onSnapshot(chatDocRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setChatMessages(data.messages || []);
-      } else {
-        setChatMessages([]);
+    // First ensure the chat document exists, then subscribe
+    const initAndListen = async () => {
+      try {
+        const chatDoc = await getDoc(chatDocRef);
+        if (!chatDoc.exists()) {
+          // Create the document so onSnapshot has something to listen to
+          await setDoc(chatDocRef, {
+            participants: [authUser.uid, passenger.uid],
+            messages: []
+          });
+        }
+      } catch (e) {
+        console.error('Error initializing chat document:', e);
+        setChatError('Could not connect to chat. Check your connection.');
+        setChatLoading(false);
+        return;
       }
-      setChatLoading(false);
-    }, (err) => {
-      console.error('Chat listener error:', err);
-      setChatLoading(false);
-    });
 
-    chatUnsubRef.current = unsub;
+      const unsub = onSnapshot(chatDocRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          setChatMessages(data.messages || []);
+        } else {
+          setChatMessages([]);
+        }
+        setChatLoading(false);
+        setChatError('');
+      }, (err) => {
+        console.error('Chat listener error:', err);
+        setChatError('Lost connection to chat.');
+        setChatLoading(false);
+      });
+
+      chatUnsubRef.current = unsub;
+    };
+
+    initAndListen();
   };
 
   // Close chat and unsubscribe from listener
@@ -1700,33 +1729,48 @@ const FlightTracker = () => {
     setChatPartner(null);
     setChatMessages([]);
     setChatInput('');
+    setChatError('');
   };
 
-  // Send a chat message
+  // Send a chat message using arrayUnion for atomic append
   const sendChatMessage = async () => {
     if (!authUser || !chatPartner || !chatInput.trim()) return;
+    const text = chatInput.trim();
+    setChatInput('');
+    setChatError('');
+
     const chatId = getChatId(authUser.uid, chatPartner.uid);
     const chatDocRef = doc(db, 'chats', chatId);
     const newMsg = {
       from: authUser.uid,
       nickname: nickname || authUser.displayName || 'Anonymous',
-      text: chatInput.trim(),
+      text,
       ts: new Date().toISOString()
     };
-    setChatInput('');
+
     try {
-      const chatDoc = await getDoc(chatDocRef);
-      if (chatDoc.exists()) {
-        const existing = chatDoc.data().messages || [];
-        await updateDoc(chatDocRef, { messages: [...existing, newMsg] });
-      } else {
-        await setDoc(chatDocRef, {
-          participants: [authUser.uid, chatPartner.uid],
-          messages: [newMsg]
-        });
-      }
+      // Use arrayUnion for atomic, conflict-free append
+      await updateDoc(chatDocRef, {
+        messages: arrayUnion(newMsg)
+      });
     } catch (e) {
-      console.error('Error sending message:', e);
+      // If document doesn't exist yet (shouldn't happen since openChat creates it), create it
+      if (e.code === 'not-found') {
+        try {
+          await setDoc(chatDocRef, {
+            participants: [authUser.uid, chatPartner.uid],
+            messages: [newMsg]
+          });
+        } catch (e2) {
+          console.error('Error creating chat:', e2);
+          setChatError('Failed to send. Please try again.');
+          setChatInput(text); // Restore the message so user can retry
+        }
+      } else {
+        console.error('Error sending message:', e);
+        setChatError('Failed to send. Please try again.');
+        setChatInput(text); // Restore the message so user can retry
+      }
     }
   };
 
@@ -1738,6 +1782,13 @@ const FlightTracker = () => {
       }
     };
   }, []);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages]);
 
   // Fetch leaderboard data
   const fetchLeaderboard = async () => {
@@ -8532,7 +8583,7 @@ const detectLandmarksHybrid = async (origin, dest) => {
             {chatLoading ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0' }}>
                 <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-                <div style={{ marginTop: '8px', fontSize: '13px' }}>Loading messages...</div>
+                <div style={{ marginTop: '8px', fontSize: '13px' }}>Connecting...</div>
               </div>
             ) : chatMessages.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 16px', fontSize: '13px' }}>
@@ -8577,7 +8628,23 @@ const detectLandmarksHybrid = async (origin, dest) => {
                 );
               })
             )}
+            {/* Scroll anchor */}
+            <div ref={chatMessagesEndRef} />
           </div>
+
+          {/* Error banner */}
+          {chatError && (
+            <div style={{
+              padding: '6px 12px',
+              background: '#fef2f2',
+              color: '#dc2626',
+              fontSize: '12px',
+              textAlign: 'center',
+              borderTop: '1px solid #fecaca'
+            }}>
+              {chatError}
+            </div>
+          )}
 
           {/* Chat Input */}
           <div style={{
@@ -8593,6 +8660,7 @@ const detectLandmarksHybrid = async (origin, dest) => {
               onChange={e => setChatInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
               placeholder="Type a message..."
+              autoFocus
               style={{
                 flex: 1,
                 padding: '8px 12px',
