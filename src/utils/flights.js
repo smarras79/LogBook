@@ -60,3 +60,72 @@ export const getFlightsNeedingLandmarkRefresh = (flights) => {
 export const getFlightsForLandmarkAddition = (flights) => {
   return flights.filter(f => flightCouldHaveLandmarks(f));
 };
+
+// Estimate passenger count based on aircraft type
+export const getPassengerEstimate = (aircraftType) => {
+  const type = (aircraftType || "").toUpperCase();
+  let capacity = 150;
+  if (type.includes("380")) capacity = 500;
+  else if (type.includes("747")) capacity = 416;
+  else if (type.includes("777") || type.includes("350")) capacity = 350;
+  else if (type.includes("787") || type.includes("330")) capacity = 250;
+  else if (type.includes("767")) capacity = 220;
+  else if (type.includes("CRJ") || type.includes("ERJ") || type.includes("EMB")) capacity = 70;
+  return Math.round(capacity * 0.82);
+};
+
+// Estimate personal CO2 emissions in kg based on distance (miles) and service class
+// Base rate: ~0.14 kg CO2 per passenger-mile for economy (industry standard per-person rate)
+// Class multipliers account for seat space/fuel share per passenger
+export const getCarbonEstimate = (distance, serviceClass) => {
+  const baseRatePerMile = 0.14; // kg CO2 per passenger-mile for economy
+  const classMultipliers = {
+    'Economy': 1.0,
+    'Premium Economy': 1.5,
+    'Business': 2.5,
+    'First': 4.0
+  };
+  const multiplier = classMultipliers[serviceClass] || 1.0;
+  return Math.round(distance * baseRatePerMile * multiplier);
+};
+
+// Calculate user stats for contest/leaderboard
+export const calculateUserStats = (userFlights) => {
+  // For round trips, count distance twice (outbound + return)
+  const totalMiles = userFlights.reduce((sum, f) => {
+    const multiplier = f.isRoundTrip ? 2 : 1;
+    return sum + (f.distance || 0) * multiplier;
+  }, 0);
+
+  // For round trips, count as 2 flights (or 2x legs for multi-leg)
+  const totalFlightLegs = userFlights.reduce((count, f) => {
+    const baseCount = f.legs && f.legs.length > 1 ? f.legs.length : 1;
+    const multiplier = f.isRoundTrip ? 2 : 1;
+    return count + (baseCount * multiplier);
+  }, 0);
+
+  const uniqueCountries = [...new Set(userFlights.flatMap(f => [f.originCountry, f.destCountry].filter(Boolean)))].length;
+  const uniqueAirports = [...new Set(userFlights.flatMap(f => [f.origin, f.destination]))].length;
+
+  // Calculate CO2 emissions (round trips = 2x emissions)
+  const classMultipliers = { 'Economy': 1.0, 'Premium Economy': 1.5, 'Business': 2.5, 'First': 4.0 };
+  const totalCO2 = userFlights.reduce((sum, f) => {
+    const rtMultiplier = f.isRoundTrip ? 2 : 1;
+    if (f.legs && f.legs.length > 1) {
+      return sum + f.legs.reduce((legSum, leg) => {
+        const mult = classMultipliers[leg.serviceClass] || 1.0;
+        return legSum + Math.round((leg.distance || 0) * 0.14 * mult);
+      }, 0) * rtMultiplier;
+    }
+    const mult = classMultipliers[f.serviceClass] || 1.0;
+    return sum + Math.round((f.distance || 0) * 0.14 * mult) * rtMultiplier;
+  }, 0);
+
+  return {
+    totalMiles,
+    totalFlights: totalFlightLegs,
+    uniqueCountries,
+    uniqueAirports,
+    totalCO2
+  };
+};
