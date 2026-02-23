@@ -27,7 +27,8 @@ import {
   query,
   where,
   getDocs,
-  arrayUnion
+  arrayUnion,
+  deleteDoc
 } from 'firebase/firestore';
 
 // Landmark detection version - increment when detection logic improves
@@ -1248,6 +1249,13 @@ const FlightTracker = () => {
   const chatPollRef = useRef(null);
   const chatMessagesEndRef = useRef(null);
 
+  // Poke / chat-request state
+  const [pokeStatus, setPokeStatus] = useState(null); // null | 'sending' | 'pending' | 'accepted' | 'declined'
+  const [pokeTarget, setPokeTarget] = useState(null);  // passenger being poked
+  const [incomingPoke, setIncomingPoke] = useState(null); // { requestId, fromUid, fromNickname }
+  const pokeUnsubRef = useRef(null);      // listener: incoming pokes for this user
+  const pokeSentUnsubRef = useRef(null);  // listener: watching sent poke for acceptance
+
   // Firebase Auth State Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -1582,9 +1590,11 @@ const FlightTracker = () => {
             addedAt: p.addedAt
           })));
           
-          // Filter out current user (String() cast guards against type mismatches)
-          const myUid = String(authUser.uid);
-          const others = passengers.filter(p => String(p.uid) !== myUid);
+          // Filter out current user and get other passengers
+          const others = passengers.filter(p => {
+            console.log(`Comparing: "${p.uid}" !== "${authUser.uid}" = ${p.uid !== authUser.uid}`);
+            return p.uid !== authUser.uid;
+          });
           console.log(`Fellow passengers (excluding self): ${others.length}`);
           
           if (others.length > 0) {
@@ -1746,6 +1756,121 @@ const FlightTracker = () => {
     initAndListen();
   };
 
+  // ── POKE SYSTEM ──────────────────────────────────────────────────────────────
+
+  // Check if a chat already has messages (if so, no poke needed)
+  const chatHasMessages = async (partnerUid) => {
+    const chatId = getChatId(authUser.uid, partnerUid);
+    const snap = await getDoc(doc(db, 'chats', chatId));
+    return snap.exists() && (snap.data().messages || []).length > 0;
+  };
+
+  // Called when user clicks the MessageCircle / chat icon
+  const handleChatIconClick = async (passenger) => {
+    if (!authUser) return;
+    try {
+      const hasHistory = await chatHasMessages(passenger.uid);
+      if (hasHistory) {
+        openChat(passenger);
+      } else {
+        // Show poke button state — actual send happens on explicit Poke click
+        setPokeTarget(passenger);
+        setPokeStatus('idle'); // 'idle' = show the poke CTA popup
+        setShowFellowPassengers(false);
+      }
+    } catch (e) {
+      console.error('Error checking chat history:', e);
+      // Fall back to poke flow on error
+      setPokeTarget(passenger);
+      setPokeStatus('idle');
+      setShowFellowPassengers(false);
+    }
+  };
+
+  // Stop watching a sent poke request
+  const stopPokeSentListener = () => {
+    if (pokeSentUnsubRef.current) {
+      pokeSentUnsubRef.current();
+      pokeSentUnsubRef.current = null;
+    }
+  };
+
+  // Send a poke to a passenger
+  const sendPoke = async () => {
+    if (!authUser || !pokeTarget) return;
+    setPokeStatus('sending');
+    const requestId = `${authUser.uid}_to_${pokeTarget.uid}`;
+    const requestRef = doc(db, 'chatRequests', requestId);
+    try {
+      await setDoc(requestRef, {
+        fromUid: authUser.uid,
+        fromNickname: nickname || authUser.displayName || 'A fellow traveler',
+        toUid: pokeTarget.uid,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
+      setPokeStatus('pending');
+
+      // Watch the request doc for a response
+      stopPokeSentListener();
+      pokeSentUnsubRef.current = onSnapshot(requestRef, (snap) => {
+        if (!snap.exists()) return;
+        const status = snap.data().status;
+        if (status === 'accepted') {
+          setPokeStatus('accepted');
+          stopPokeSentListener();
+          // Small delay so the accepted message is visible, then open chat
+          setTimeout(() => {
+            setPokeStatus(null);
+            setPokeTarget(null);
+            openChat(pokeTarget);
+          }, 1200);
+        } else if (status === 'declined') {
+          setPokeStatus('declined');
+          stopPokeSentListener();
+          // Clean up the request doc
+          deleteDoc(requestRef).catch(() => {});
+          setTimeout(() => {
+            setPokeStatus(null);
+            setPokeTarget(null);
+          }, 3000);
+        }
+      });
+    } catch (e) {
+      console.error('Error sending poke:', e);
+      setPokeStatus(null);
+    }
+  };
+
+  // Cancel a pending poke (sender side)
+  const cancelPoke = async () => {
+    stopPokeSentListener();
+    if (authUser && pokeTarget) {
+      const requestId = `${authUser.uid}_to_${pokeTarget.uid}`;
+      deleteDoc(doc(db, 'chatRequests', requestId)).catch(() => {});
+    }
+    setPokeStatus(null);
+    setPokeTarget(null);
+  };
+
+  // Recipient: accept or decline an incoming poke
+  const respondToPoke = async (accept) => {
+    if (!incomingPoke) return;
+    const requestRef = doc(db, 'chatRequests', incomingPoke.requestId);
+    try {
+      await updateDoc(requestRef, { status: accept ? 'accepted' : 'declined' });
+      setIncomingPoke(null);
+      if (accept) {
+        // Open chat on recipient's side too
+        openChat({ uid: incomingPoke.fromUid, nickname: incomingPoke.fromNickname });
+      }
+    } catch (e) {
+      console.error('Error responding to poke:', e);
+    }
+  };
+
+  // ── End poke system ───────────────────────────────────────────────────────────
+
   // Close chat and unsubscribe from listener + polling
   const closeChat = () => {
     stopChatSync();
@@ -1800,8 +1925,39 @@ const FlightTracker = () => {
 
   // Cleanup chat listener + polling on unmount
   useEffect(() => {
-    return () => stopChatSync();
+    return () => {
+      stopChatSync();
+      stopPokeSentListener();
+    };
   }, []);
+
+  // Listen for incoming poke requests directed at the current user
+  useEffect(() => {
+    if (!authUser) {
+      if (pokeUnsubRef.current) { pokeUnsubRef.current(); pokeUnsubRef.current = null; }
+      return;
+    }
+    const q = query(
+      collection(db, 'chatRequests'),
+      where('toUid', '==', authUser.uid),
+      where('status', '==', 'pending')
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const docSnap = snapshot.docs[0];
+        const data = docSnap.data();
+        setIncomingPoke({
+          requestId: docSnap.id,
+          fromUid: data.fromUid,
+          fromNickname: data.fromNickname || 'A fellow traveler'
+        });
+      } else {
+        setIncomingPoke(null);
+      }
+    }, (err) => console.error('Poke listener error:', err));
+    pokeUnsubRef.current = unsub;
+    return () => { unsub(); pokeUnsubRef.current = null; };
+  }, [authUser]);
 
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
@@ -5578,7 +5734,7 @@ const detectLandmarksHybrid = async (origin, dest) => {
                   Fellow Passengers
                 </div>
                 {/* Sort: favorites first */}
-                {[...fellowPassengers].filter(p => String(p.uid) !== String(authUser?.uid)).sort((a, b) => {
+                {[...fellowPassengers].sort((a, b) => {
                   const aFav = favoritePassengers.includes(a.uid) ? 0 : 1;
                   const bFav = favoritePassengers.includes(b.uid) ? 0 : 1;
                   return aFav - bFav;
@@ -5619,7 +5775,7 @@ const detectLandmarksHybrid = async (origin, dest) => {
                             color="#3b82f6"
                             style={{ cursor: 'pointer' }}
                             title={`Chat with ${passenger.nickname || 'this passenger'}`}
-                            onClick={(e) => { e.stopPropagation(); openChat(passenger); }}
+                            onClick={(e) => { e.stopPropagation(); handleChatIconClick(passenger); }}
                           />
                         </div>
                       </div>
@@ -8551,6 +8707,146 @@ const detectLandmarksHybrid = async (origin, dest) => {
                   </button>
                 </form>
              )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Poke / Chat-Request UI ────────────────────────────────────────── */}
+
+      {/* SENDER: poke CTA / status popup */}
+      {pokeStatus && pokeTarget && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 3000
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: '20px', padding: '32px 28px',
+            width: '340px', textAlign: 'center',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.25)'
+          }}>
+            {/* Idle: confirm poke */}
+            {pokeStatus === 'idle' && (
+              <>
+                <div style={{ fontSize: '48px', marginBottom: '12px' }}>👋</div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: '#1e293b' }}>
+                  Poke {pokeTarget.nickname || 'this traveler'}?
+                </h3>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 24px', lineHeight: '1.5' }}>
+                  They'll get a notification asking if they want to chat. You can only start chatting once they accept.
+                </p>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                  <button onClick={cancelPoke} style={{
+                    padding: '10px 20px', borderRadius: '10px', border: '1px solid #e2e8f0',
+                    background: '#f8fafc', color: '#64748b', fontWeight: '600', cursor: 'pointer', fontSize: '14px'
+                  }}>Cancel</button>
+                  <button onClick={sendPoke} style={{
+                    padding: '10px 24px', borderRadius: '10px', border: 'none',
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    color: '#fff', fontWeight: '700', cursor: 'pointer', fontSize: '14px',
+                    display: 'flex', alignItems: 'center', gap: '8px'
+                  }}>👋 Send Poke</button>
+                </div>
+              </>
+            )}
+
+            {/* Sending */}
+            {pokeStatus === 'sending' && (
+              <>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>⏳</div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '17px', color: '#1e293b' }}>Sending poke…</h3>
+              </>
+            )}
+
+            {/* Pending: waiting for response */}
+            {pokeStatus === 'pending' && (
+              <>
+                <div style={{ fontSize: '48px', marginBottom: '12px', animation: 'wave 1s ease-in-out infinite' }}>👋</div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: '#1e293b' }}>
+                  Poke sent!
+                </h3>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 24px', lineHeight: '1.5' }}>
+                  Waiting for <strong>{pokeTarget.nickname || 'them'}</strong> to accept your chat request…
+                </p>
+                <button onClick={cancelPoke} style={{
+                  padding: '10px 20px', borderRadius: '10px', border: '1px solid #e2e8f0',
+                  background: '#f8fafc', color: '#64748b', fontWeight: '600', cursor: 'pointer', fontSize: '14px'
+                }}>Cancel</button>
+              </>
+            )}
+
+            {/* Accepted */}
+            {pokeStatus === 'accepted' && (
+              <>
+                <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎉</div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: '#059669' }}>
+                  {pokeTarget.nickname || 'They'} accepted!
+                </h3>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Opening chat…</p>
+              </>
+            )}
+
+            {/* Declined */}
+            {pokeStatus === 'declined' && (
+              <>
+                <div style={{ fontSize: '48px', marginBottom: '12px' }}>😔</div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: '#dc2626' }}>
+                  {pokeTarget.nickname || 'They'} declined.
+                </h3>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 20px' }}>
+                  Maybe another time!
+                </p>
+                <button onClick={() => { setPokeStatus(null); setPokeTarget(null); }} style={{
+                  padding: '10px 20px', borderRadius: '10px', border: '1px solid #e2e8f0',
+                  background: '#f8fafc', color: '#64748b', fontWeight: '600', cursor: 'pointer', fontSize: '14px'
+                }}>Close</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* RECIPIENT: incoming poke popup */}
+      {incomingPoke && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 3100
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: '20px', padding: '32px 28px',
+            width: '340px', textAlign: 'center',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ fontSize: '52px', marginBottom: '12px' }}>👋</div>
+            <h3 style={{ margin: '0 0 10px', fontSize: '19px', color: '#1e293b' }}>
+              You've been poked!
+            </h3>
+            <p style={{ fontSize: '14px', color: '#475569', margin: '0 0 8px', lineHeight: '1.5' }}>
+              <strong>{incomingPoke.fromNickname}</strong> wants to chat with you.
+            </p>
+            <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 28px' }}>
+              You were both on the same flight ✈️
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button onClick={() => respondToPoke(false)} style={{
+                padding: '12px 22px', borderRadius: '12px', border: '1px solid #fecaca',
+                background: '#fff', color: '#dc2626', fontWeight: '700', cursor: 'pointer',
+                fontSize: '15px', flex: 1
+              }}>
+                ✗ Decline
+              </button>
+              <button onClick={() => respondToPoke(true)} style={{
+                padding: '12px 22px', borderRadius: '12px', border: 'none',
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                color: '#fff', fontWeight: '700', cursor: 'pointer',
+                fontSize: '15px', flex: 1
+              }}>
+                ✓ Accept
+              </button>
+            </div>
           </div>
         </div>
       )}
