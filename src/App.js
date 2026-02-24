@@ -3,7 +3,7 @@ import {
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
   LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
-  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon, Heart, MessageCircle, Send
+  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon, Heart, MessageCircle
 } from 'lucide-react';
 // Firebase imports
 import {
@@ -39,6 +39,9 @@ import { formatDate } from './utils/formatters';
 import { statCard, statVal, statLbl, inputStyle, modalOverlay, modalContent } from './styles/constants';
 import LandingPage from './components/LandingPage';
 import LeaderboardModal from './components/LeaderboardModal';
+import ChatModal from './components/ChatModal';
+import GmailImportProgressModal from './components/GmailImportProgressModal';
+import ImportSuggestionsModal from './components/ImportSuggestionsModal';
 
 // All data constants, utilities, and Firebase config are now imported from
 // ./data/, ./utils/, and ./config/ modules above.
@@ -3587,281 +3590,19 @@ const detectLandmarksHybrid = async (origin, dest) => {
         </div>
       )}
 
-      {/* Import Modal */}
       {/* Gmail Import Progress Modal */}
       {importProgress.show && (
-        <div style={modalOverlay}>
-          <div style={{
-            ...modalContent, 
-            maxWidth: '450px',
-            textAlign: 'center'
-          }}>
-            <div style={{marginBottom: '25px'}}>
-              <div style={{
-                width: '60px',
-                height: '60px',
-                margin: '0 auto 20px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #4285F4 0%, #34A853 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 0 0 0 rgba(66, 133, 244, 0.4)'
-              }}>
-                <Loader2 size={28} color="#fff" className="animate-spin" />
-              </div>
-              <h2 style={{margin: '0 0 8px 0', fontSize: '20px', fontWeight: '600'}}>
-                {importProgress.phase === 'searching' ? 'Searching Gmail...' : 'Analyzing Emails...'}
-              </h2>
-              <p style={{margin: 0, color: '#666', fontSize: '14px'}}>
-                {importProgress.currentQueryText}
-              </p>
-            </div>
-            
-            {/* Progress Bar */}
-            <div style={{
-              background: '#f0f0f0',
-              borderRadius: '10px',
-              height: '12px',
-              overflow: 'hidden',
-              marginBottom: '15px'
-            }}>
-              <div style={{
-                background: 'linear-gradient(90deg, #4285F4 0%, #34A853 100%)',
-                height: '100%',
-                borderRadius: '10px',
-                transition: 'width 0.3s ease',
-                width: importProgress.phase === 'searching' 
-                  ? `${(importProgress.currentQuery / importProgress.totalQueries) * 100}%`
-                  : `${importProgress.totalEmails > 0 ? (importProgress.currentEmail / importProgress.totalEmails) * 100 : 0}%`
-              }} />
-            </div>
-            
-            {/* Progress Stats */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '15px',
-              marginBottom: '20px'
-            }}>
-              <div style={{
-                background: '#f8f9fa',
-                padding: '12px',
-                borderRadius: '10px'
-              }}>
-                <div style={{fontSize: '24px', fontWeight: '700', color: '#4285F4'}}>
-                  {importProgress.phase === 'searching' 
-                    ? `${importProgress.currentQuery}/${importProgress.totalQueries}`
-                    : `${importProgress.currentEmail}/${importProgress.totalEmails}`
-                  }
-                </div>
-                <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>
-                  {importProgress.phase === 'searching' ? 'Queries' : 'Emails'}
-                </div>
-              </div>
-              <div style={{
-                background: '#f0fdf4',
-                padding: '12px',
-                borderRadius: '10px'
-              }}>
-                <div style={{fontSize: '24px', fontWeight: '700', color: '#16a34a'}}>
-                  {importProgress.foundFlights}
-                </div>
-                <div style={{fontSize: '11px', color: '#666', marginTop: '4px'}}>
-                  Flights Found
-                </div>
-              </div>
-            </div>
-            
-            {/* Percentage */}
-            <div style={{
-              fontSize: '13px',
-              color: '#999'
-            }}>
-              {importProgress.phase === 'searching' 
-                ? `${Math.round((importProgress.currentQuery / importProgress.totalQueries) * 100)}% complete`
-                : importProgress.totalEmails > 0 
-                  ? `${Math.round((importProgress.currentEmail / importProgress.totalEmails) * 100)}% complete`
-                  : 'Starting...'
-              }
-            </div>
-          </div>
-        </div>
+        <GmailImportProgressModal importProgress={importProgress} />
       )}
 
       {showImport && (
-        <div style={modalOverlay}>
-          <div style={{...modalContent, maxWidth: '650px'}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
-              <h2 style={{margin: 0}}>Flights Found ({suggestedFlights.length})</h2>
-              <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                {suggestedFlights.length > 0 && (
-                  <>
-                    <button
-                      onClick={() => setSuggestedFlights([])}
-                      style={{
-                        padding: '6px 12px',
-                        border: '1px solid #fecaca',
-                        background: '#fff',
-                        color: '#dc2626',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '500'
-                      }}
-                    >
-                      Clear All
-                    </button>
-                  </>
-                )}
-                <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
-              </div>
-            </div>
-            {suggestedFlights.length === 0 ? (
-              <div style={{textAlign:'center', padding:'30px', color:'#666'}}>
-                <AlertCircle size={40} style={{marginBottom:'15px', color:'#ccc'}}/>
-                <p style={{fontWeight:'500', marginBottom:'10px'}}>No flight emails found</p>
-                <p style={{fontSize:'13px', color:'#999', lineHeight:'1.5'}}>
-                  We searched your Gmail using multiple queries:<br/>
-                  • Gmail's reservation category<br/>
-                  • Flight confirmation keywords<br/>
-                  • Emails from known airline domains<br/><br/>
-                  <strong>Tip:</strong> Open browser console (F12) to see detailed search logs.
-                </p>
-              </div>
-            ) : (
-              <div style={{maxHeight: '450px', overflowY: 'auto'}}>
-                {suggestedFlights.map(f => (
-                  <div key={f.id} style={{
-                    padding:'15px', 
-                    borderBottom:'1px solid #eee', 
-                    display:'flex', 
-                    justifyContent:'space-between', 
-                    alignItems:'flex-start',
-                    gap:'12px',
-                    background: f.isRoundTrip ? '#f0fdf4' : 'transparent'
-                  }}>
-                    <div style={{flex: 1}}>
-                      <div style={{fontWeight:'bold', fontSize:'16px', marginBottom:'4px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-                        {f.isRoundTrip ? (
-                          <>
-                            {f.origin} ⇄ {f.destination}
-                            <span style={{
-                              fontSize: '10px',
-                              background: '#16a34a',
-                              color: '#fff',
-                              padding: '2px 8px',
-                              borderRadius: '10px',
-                              fontWeight: '600'
-                            }}>
-                              Round Trip
-                            </span>
-                          </>
-                        ) : (
-                          <>{f.origin} → {f.destination}</>
-                        )}
-                      </div>
-                      <div style={{fontSize:'13px', color:'#555', marginBottom:'6px'}}>
-                        {f.isRoundTrip ? (
-                          <>
-                            <span>Outbound: {formatDate(f.date)}</span>
-                            <span style={{marginLeft: '12px'}}>Return: {formatDate(f.returnDate)}</span>
-                          </>
-                        ) : (
-                          formatDate(f.date)
-                        )}
-                        {f.flightNumber && !f.isRoundTrip && <span style={{marginLeft:'10px', fontWeight:'500'}}>✈ {f.flightNumber}</span>}
-                      </div>
-                      <div style={{display:'flex', gap:'6px', flexWrap:'wrap', alignItems:'center'}}>
-                        {f.airline && (
-                          <span style={{
-                            fontSize:'11px', 
-                            background:'#e8f4fd', 
-                            color:'#1e3a5f',
-                            padding:'2px 8px', 
-                            borderRadius:'10px'
-                          }}>
-                            {f.airline}
-                          </span>
-                        )}
-                        {f.confirmationNumber && (
-                          <span style={{
-                            fontSize:'11px', 
-                            background:'#fef2f2', 
-                            color:'#991b1b',
-                            padding:'2px 8px', 
-                            borderRadius:'10px'
-                          }}>
-                            PNR: {f.confirmationNumber}
-                          </span>
-                        )}
-                        {f.source === 'json-ld' && (
-                          <span style={{
-                            fontSize:'10px', 
-                            background:'#dcfce7', 
-                            color:'#166534',
-                            padding:'2px 6px', 
-                            borderRadius:'8px'
-                          }}>
-                            ✓ Verified
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
-                      <button 
-                        onClick={() => handleDeleteSuggestion(f.id)}
-                        title="Remove from list"
-                        style={{
-                          background: '#fff', 
-                          color: '#dc2626', 
-                          border: '1px solid #fecaca', 
-                          padding: '8px 10px', 
-                          borderRadius: '8px', 
-                          cursor:'pointer', 
-                          display:'flex', 
-                          alignItems:'center',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseOver={(e) => {
-                          e.currentTarget.style.background = '#fef2f2';
-                          e.currentTarget.style.borderColor = '#dc2626';
-                        }}
-                        onMouseOut={(e) => {
-                          e.currentTarget.style.background = '#fff';
-                          e.currentTarget.style.borderColor = '#fecaca';
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleSaveOrImport(f, true)} 
-                        style={{
-                          background: f.isRoundTrip ? '#16a34a' : '#00C851', 
-                          color: '#fff', 
-                          border: 'none', 
-                          padding: '10px 16px', 
-                          borderRadius: '8px', 
-                          cursor:'pointer', 
-                          display:'flex', 
-                          alignItems:'center', 
-                          gap:'6px',
-                          fontWeight:'500',
-                          whiteSpace:'nowrap'
-                        }}
-                      >
-                        <Check size={16} /> {f.isRoundTrip ? 'Add Both' : 'Add'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{marginTop:'15px', paddingTop:'15px', borderTop:'1px solid #eee', fontSize:'11px', color:'#999', textAlign:'center'}}>
-              Searched using multiple Gmail queries. "Verified" = extracted from structured email data (JSON-LD).
-            </div>
-          </div>
-        </div>
+        <ImportSuggestionsModal
+          suggestedFlights={suggestedFlights}
+          setSuggestedFlights={setSuggestedFlights}
+          setShowImport={setShowImport}
+          handleDeleteSuggestion={handleDeleteSuggestion}
+          handleSaveOrImport={handleSaveOrImport}
+        />
       )}
 
 	      {/* Landmark Detection Banner - Shows for refresh OR initial addition */}
@@ -6756,160 +6497,18 @@ const detectLandmarksHybrid = async (origin, dest) => {
 
       {/* Chat Modal */}
       {chatOpen && chatPartner && (
-        <div style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '20px',
-          width: '360px',
-          maxHeight: '480px',
-          background: '#fff',
-          borderRadius: '16px',
-          boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
-          border: '1px solid #e2e8f0',
-          display: 'flex',
-          flexDirection: 'column',
-          zIndex: 2000,
-          overflow: 'hidden'
-        }}>
-          {/* Chat Header */}
-          <div style={{
-            padding: '14px 16px',
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <User size={18} />
-              <span style={{ fontWeight: '600', fontSize: '14px' }}>{chatPartner.nickname}</span>
-            </div>
-            <X size={18} style={{ cursor: 'pointer', opacity: 0.9 }} onClick={closeChat} />
-          </div>
-
-          {/* Chat Messages */}
-          <div style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '12px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            minHeight: '250px',
-            maxHeight: '320px',
-            background: '#f8fafc'
-          }}>
-            {chatLoading ? (
-              <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0' }}>
-                <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-                <div style={{ marginTop: '8px', fontSize: '13px' }}>Connecting...</div>
-              </div>
-            ) : chatMessages.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 16px', fontSize: '13px' }}>
-                No messages yet. Say hi to {chatPartner.nickname}!
-              </div>
-            ) : (
-              chatMessages.map((msg, i) => {
-                const isMe = msg.from === authUser?.uid;
-                return (
-                  <div key={i} style={{
-                    alignSelf: isMe ? 'flex-end' : 'flex-start',
-                    maxWidth: '80%'
-                  }}>
-                    {!isMe && (
-                      <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '2px', marginLeft: '4px' }}>
-                        {msg.nickname || chatPartner.nickname}
-                      </div>
-                    )}
-                    <div style={{
-                      padding: '8px 12px',
-                      borderRadius: isMe ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                      background: isMe ? '#3b82f6' : '#fff',
-                      color: isMe ? '#fff' : '#1e293b',
-                      fontSize: '13px',
-                      lineHeight: '1.4',
-                      border: isMe ? 'none' : '1px solid #e2e8f0',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                    }}>
-                      {msg.text}
-                    </div>
-                    <div style={{
-                      fontSize: '10px',
-                      color: '#94a3b8',
-                      marginTop: '2px',
-                      textAlign: isMe ? 'right' : 'left',
-                      marginLeft: '4px',
-                      marginRight: '4px'
-                    }}>
-                      {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-            {/* Scroll anchor */}
-            <div ref={chatMessagesEndRef} />
-          </div>
-
-          {/* Error banner */}
-          {chatError && (
-            <div style={{
-              padding: '6px 12px',
-              background: '#fef2f2',
-              color: '#dc2626',
-              fontSize: '12px',
-              textAlign: 'center',
-              borderTop: '1px solid #fecaca'
-            }}>
-              {chatError}
-            </div>
-          )}
-
-          {/* Chat Input */}
-          <div style={{
-            padding: '10px 12px',
-            borderTop: '1px solid #e2e8f0',
-            display: 'flex',
-            gap: '8px',
-            background: '#fff'
-          }}>
-            <input
-              type="text"
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
-              placeholder="Type a message..."
-              autoFocus
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '20px',
-                border: '1px solid #e2e8f0',
-                fontSize: '13px',
-                outline: 'none'
-              }}
-            />
-            <button
-              onClick={sendChatMessage}
-              disabled={!chatInput.trim()}
-              style={{
-                background: chatInput.trim() ? '#3b82f6' : '#94a3b8',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '50%',
-                width: '36px',
-                height: '36px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: chatInput.trim() ? 'pointer' : 'default',
-                transition: 'background 0.2s'
-              }}
-            >
-              <Send size={16} />
-            </button>
-          </div>
-        </div>
+        <ChatModal
+          chatPartner={chatPartner}
+          chatMessages={chatMessages}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          chatLoading={chatLoading}
+          chatError={chatError}
+          chatMessagesEndRef={chatMessagesEndRef}
+          authUser={authUser}
+          closeChat={closeChat}
+          sendChatMessage={sendChatMessage}
+        />
       )}
     </div>
   );
