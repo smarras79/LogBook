@@ -76,6 +76,15 @@ const FlightListSection = ({
                   <span style={{ fontSize: '20px', fontWeight: 'bold' }}>
                     {group.origin} {allRoundTrips ? '⇄' : '→'} {group.destination}
                   </span>
+                  <a
+                    href={getGoogleFlightsUrl(group.origin, group.destination)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Search on Google Flights"
+                    style={{ display: 'inline-flex', alignItems: 'center', color: '#4285f4', verticalAlign: 'middle', marginLeft: '8px' }}
+                  >
+                    <Search size={16} />
+                  </a>
                   {allRoundTrips && (
                     <span style={{ 
                       marginLeft: '10px',
@@ -600,15 +609,6 @@ const FlightListSection = ({
                     
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <a
-                        href={getGoogleFlightsUrl(f.origin, f.destination)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Search on Google Flights"
-                        style={{ display: 'flex', color: '#4285f4' }}
-                      >
-                        <Search size={14} />
-                      </a>
                       <ArrowLeftRight
                         size={14}
                         style={{ cursor: 'pointer', color: '#888' }}
@@ -954,7 +954,18 @@ const FlightListSection = ({
                     {/* Route Header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                       <div>
-                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                          {group.origin} → {group.destination}
+                          <a
+                            href={getGoogleFlightsUrl(group.origin, group.destination)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Search on Google Flights"
+                            style={{ display: 'inline-flex', alignItems: 'center', color: '#4285f4', verticalAlign: 'middle', marginLeft: '8px' }}
+                          >
+                            <Search size={16} />
+                          </a>
+                        </span>
                         <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>
                           {group.originCity} to {group.destCity}
                           {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
@@ -1064,7 +1075,6 @@ const FlightListSection = ({
                                 )}
                               </div>
                               <div style={{ display: 'flex', gap: '8px' }}>
-                                <a href={getGoogleFlightsUrl(f.origin, f.destination)} target="_blank" rel="noopener noreferrer" title="Search on Google Flights" style={{ display: 'flex', color: '#4285f4' }}><Search size={14} /></a>
                                 <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
                                 <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
                               </div>
@@ -1126,7 +1136,18 @@ const FlightListSection = ({
                     {/* Route Header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                       <div>
-                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
+                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                          {group.origin} → {group.destination}
+                          <a
+                            href={getGoogleFlightsUrl(group.origin, group.destination)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Search on Google Flights"
+                            style={{ display: 'inline-flex', alignItems: 'center', color: '#4285f4', verticalAlign: 'middle', marginLeft: '8px' }}
+                          >
+                            <Search size={16} />
+                          </a>
+                        </span>
                         <div style={{ color: '#666', fontSize: '13px', marginTop: '4px' }}>
                           {group.originCity} to {group.destCity}
                           {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
@@ -1241,7 +1262,6 @@ const FlightListSection = ({
                                 )}
                               </div>
                               <div style={{ display: 'flex', gap: '8px' }}>
-                                <a href={getGoogleFlightsUrl(f.origin, f.destination)} target="_blank" rel="noopener noreferrer" title="Search on Google Flights" style={{ display: 'flex', color: '#4285f4' }}><Search size={14} /></a>
                                 <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
                                 <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
                               </div>
