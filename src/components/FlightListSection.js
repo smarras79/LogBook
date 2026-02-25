@@ -1,12 +1,15 @@
 import React from 'react';
 import {
   Trash2, Edit2, Copy, ArrowLeftRight, Globe, Flag,
-  Users, CloudRain
+  Users, CloudRain, Search
 } from 'lucide-react';
 import { formatDate } from '../utils/formatters';
 import { getFlightRadar24Url, getCarbonEstimate } from '../utils/flights';
 import { getAirlineAlliance, getAirlineWebsite, isAirlineMatch } from '../utils/airlines';
 import { ALLIANCE_STYLES, ALLIANCE_MEMBERS_DISPLAY } from '../data/airlines';
+
+const getGoogleFlightsUrl = (origin, destination) =>
+  `https://www.google.com/travel/flights?q=flights+from+${encodeURIComponent(origin)}+to+${encodeURIComponent(destination)}`;
 
 const FlightListSection = ({
   flights, sortMode, setSortMode, sortedGroups,
@@ -597,30 +600,39 @@ const FlightListSection = ({
                     
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <ArrowLeftRight 
-                        size={14} 
-                        style={{ cursor: 'pointer', color: '#888' }} 
+                      <a
+                        href={getGoogleFlightsUrl(f.origin, f.destination)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Search on Google Flights"
+                        style={{ display: 'flex', color: '#4285f4' }}
+                      >
+                        <Search size={14} />
+                      </a>
+                      <ArrowLeftRight
+                        size={14}
+                        style={{ cursor: 'pointer', color: '#888' }}
                         title="Add return flight (reverse route)"
-                        onClick={() => handleReverseFlight(f)} 
+                        onClick={() => handleReverseFlight(f)}
                       />
-                      <Copy 
-                        size={14} 
-                        style={{ cursor: 'pointer', color: '#888' }} 
+                      <Copy
+                        size={14}
+                        style={{ cursor: 'pointer', color: '#888' }}
                         title="Duplicate this flight"
-                        onClick={() => handleCopyFlight(f)} 
+                        onClick={() => handleCopyFlight(f)}
                       />
-                      <Edit2 
-                        size={14} 
-                        style={{ cursor: 'pointer', color: '#888' }} 
+                      <Edit2
+                        size={14}
+                        style={{ cursor: 'pointer', color: '#888' }}
                         title="Edit this flight"
-                        onClick={() => handleEditFlight(f)} 
+                        onClick={() => handleEditFlight(f)}
                       />
-                      <Trash2 
-                        size={14} 
-                        color="#e57373" 
-                        style={{ cursor: 'pointer' }} 
+                      <Trash2
+                        size={14}
+                        color="#e57373"
+                        style={{ cursor: 'pointer' }}
                         title="Delete this flight"
-                        onClick={() => handleDeleteFlight(f.id)} 
+                        onClick={() => handleDeleteFlight(f.id)}
                       />
                     </div>
                   </div>
@@ -1052,6 +1064,7 @@ const FlightListSection = ({
                                 )}
                               </div>
                               <div style={{ display: 'flex', gap: '8px' }}>
+                                <a href={getGoogleFlightsUrl(f.origin, f.destination)} target="_blank" rel="noopener noreferrer" title="Search on Google Flights" style={{ display: 'flex', color: '#4285f4' }}><Search size={14} /></a>
                                 <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
                                 <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
                               </div>
@@ -1228,6 +1241,7 @@ const FlightListSection = ({
                                 )}
                               </div>
                               <div style={{ display: 'flex', gap: '8px' }}>
+                                <a href={getGoogleFlightsUrl(f.origin, f.destination)} target="_blank" rel="noopener noreferrer" title="Search on Google Flights" style={{ display: 'flex', color: '#4285f4' }}><Search size={14} /></a>
                                 <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
                                 <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
                               </div>
