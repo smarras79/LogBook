@@ -129,3 +129,37 @@ export const calculateUserStats = (userFlights) => {
     totalCO2
   };
 };
+
+// Fetch airport data from local database or OpenFlights API fallback
+export const fetchAirportData = async (AIRPORTS_DATABASE, code) => {
+    const cleanCode = code.trim().toUpperCase();
+    const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
+    if (local) return local;
+
+    try {
+      const response = await fetch(`https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat`);
+      const text = await response.text();
+      const rows = text.split('\n');
+      for (let row of rows) {
+        if (row.includes(`"${cleanCode}"`)) {
+          const parts = row.split(',');
+          // Robust check for lat/lon parsing
+          const lat = parseFloat(parts[parts.length - 8]);
+          const lon = parseFloat(parts[parts.length - 7]);
+          // Get country from parts[3] (format: ID, Name, City, Country, IATA, ICAO, Lat, Lon, ...)
+          const country = parts[3] ? parts[3].replace(/"/g, '') : '';
+
+          if (!isNaN(lat) && !isNaN(lon)) {
+              return {
+                code: cleanCode,
+                city: parts[2].replace(/"/g, ''),
+                country: country,
+                lat: lat,
+                lon: lon
+              };
+          }
+        }
+      }
+    } catch (e) { console.error(e); }
+    return null;
+};
