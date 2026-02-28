@@ -111,8 +111,10 @@ export const extractFlightInfo = (message) => {
       'emirates.com': { name: 'Emirates', code: 'EK' },
       'qatarairways.com': { name: 'Qatar Airways', code: 'QR' },
       'singaporeair.com': { name: 'Singapore Airlines', code: 'SQ' },
+      'silkair.com': { name: 'SilkAir', code: 'MI' },
       'cathaypacific.com': { name: 'Cathay Pacific', code: 'CX' },
       'turkishairlines.com': { name: 'Turkish Airlines', code: 'TK' },
+      'thy.com': { name: 'Turkish Airlines', code: 'TK' },
       'aircanada.com': { name: 'Air Canada', code: 'AC' },
       'qantas.com': { name: 'Qantas', code: 'QF' },
       'iberia.com': { name: 'Iberia', code: 'IB' },
@@ -134,9 +136,53 @@ export const extractFlightInfo = (message) => {
       'spirit.com': { name: 'Spirit Airlines', code: 'NK' },
       'flyfrontier.com': { name: 'Frontier Airlines', code: 'F9' },
       'norwegian.com': { name: 'Norwegian', code: 'DY' },
+      'flypgs.com': { name: 'Pegasus Airlines', code: 'PC' },
+      'flypeach.com': { name: 'Peach Aviation', code: 'MM' },
+      'airasia.com': { name: 'AirAsia', code: 'AK' },
+      'lionair.co.id': { name: 'Lion Air', code: 'JT' },
+      'ethiopianairlines.com': { name: 'Ethiopian Airlines', code: 'ET' },
+      'egyptair.com': { name: 'EgyptAir', code: 'MS' },
+      'saudia.com': { name: 'Saudia', code: 'SV' },
+      'airarabia.com': { name: 'Air Arabia', code: 'G9' },
+      'flydubai.com': { name: 'flydubai', code: 'FZ' },
+      'flynas.com': { name: 'flynas', code: 'XY' },
+      'airindigo.com': { name: 'IndiGo', code: '6E' },
+      'goindigo.in': { name: 'IndiGo', code: '6E' },
+      'airindia.in': { name: 'Air India', code: 'AI' },
+      'spicejet.com': { name: 'SpiceJet', code: 'SG' },
+      'vistara.com': { name: 'Vistara', code: 'UK' },
+      'aeromexico.com': { name: 'Aeroméxico', code: 'AM' },
+      'copaair.com': { name: 'Copa Airlines', code: 'CM' },
+      'avianca.com': { name: 'Avianca', code: 'AV' },
+      'latam.com': { name: 'LATAM', code: 'LA' },
+      'tam.com.br': { name: 'LATAM Brasil', code: 'JJ' },
+      'gol.com': { name: 'GOL', code: 'G3' },
+      'azul.com.br': { name: 'Azul', code: 'AD' },
+      'skyairline.com': { name: 'Sky Airline', code: 'H2' },
+      'aeroflot.ru': { name: 'Aeroflot', code: 'SU' },
+      'transavia.com': { name: 'Transavia', code: 'HV' },
+      'volotea.com': { name: 'Volotea', code: 'V7' },
+      'eurowings.com': { name: 'Eurowings', code: 'EW' },
+      'brusselsairlines.com': { name: 'Brussels Airlines', code: 'SN' },
+      'lot.com': { name: 'LOT Polish Airlines', code: 'LO' },
+      'airserbia.com': { name: 'Air Serbia', code: 'JU' },
+      'airmalta.com': { name: 'Air Malta', code: 'KM' },
+      'aegeanair.com': { name: 'Aegean Airlines', code: 'A3' },
+      'flyone.eu': { name: 'FlyOne', code: '5F' },
+      'pegasusairlines.com': { name: 'Pegasus Airlines', code: 'PC' },
+      'sunexpress.com': { name: 'SunExpress', code: 'XQ' },
+      'alibaba.com': { name: '', code: '' },
       'expedia.com': { name: '', code: '' },
       'booking.com': { name: '', code: '' },
       'kayak.com': { name: '', code: '' },
+      'orbitz.com': { name: '', code: '' },
+      'priceline.com': { name: '', code: '' },
+      'tripadvisor.com': { name: '', code: '' },
+      'opodo.com': { name: '', code: '' },
+      'edreams.com': { name: '', code: '' },
+      'lastminute.com': { name: '', code: '' },
+      'travelport.com': { name: '', code: '' },
+      'amadeus.com': { name: '', code: '' },
     };
     
     let isFromAirline = false;
@@ -156,8 +202,8 @@ export const extractFlightInfo = (message) => {
     }
     
     // Subject or content indicators
-    const hasFlightIndicator = /\b(e-?ticket|itinerary|boarding\s*pass|flight\s*confirm|booking\s*confirm|trip\s*confirm|check-?in|your\s*flight|your\s*trip|reservation|confirmation)\b/i.test(subject + ' ' + fullText);
-    
+    const hasFlightIndicator = /\b(e-?ticket|itinerary|boarding\s*pass|flight\s*confirm|booking\s*confirm|trip\s*confirm|check-?in|your\s*flight|your\s*trip|reservation|confirmation|ticket\s*(number|no)|booking\s*(ref|reference)|passenger\s*name|flight\s*number|departure\s*(date|time|airport)|pnr\b)\b/i.test(subject + ' ' + fullText);
+
     // If not from airline/booking site and no flight indicators, skip
     if (!isFromAirline && !hasFlightIndicator) {
       return null;
@@ -170,19 +216,26 @@ export const extractFlightInfo = (message) => {
       'JFK','LGA','EWR','LAX','SFO','ORD','ATL','DFW','DEN','SEA','PHX','MIA','FLL','MCO',
       'BOS','IAD','DCA','PHL','MSP','DTW','CLT','LAS','IAH','HOU','AUS','SLC','TPA','HNL',
       'YYZ','YVR','YUL','MEX','CUN',
-      // Europe - Major hubs only
-      'LHR','LGW','CDG','ORY','FRA','MUC','BER','AMS','BRU','ZRH','VIE','PRG','WAW',
-      'FCO','MXP','BCN','MAD','LIS','ATH','IST','DUB','CPH','OSL','ARN','HEL',
-      // Middle East - Major hubs only
-      'DXB','AUH','DOH','TLV','CAI',
-      // Asia - Major hubs only
-      'SIN','KUL','BKK','HKG','TPE','NRT','HND','ICN','PEK','PVG','DEL','BOM',
+      // Europe - Major hubs
+      'LHR','LGW','STN','LTN','LCY','MAN','BHX','EDI','GLA','BRS',
+      'CDG','ORY','NCE','FRA','MUC','BER','DUS','HAM',
+      'AMS','BRU','ZRH','GVA','VIE','PRG','WAW','KRK','BUD',
+      'FCO','MXP','LIN','BGY','VCE','NAP','BLQ','CTA','PSA','PMO','BRI','GOA','TRN',
+      'BCN','MAD','PMI','AGP','LIS','OPO','ATH','IST','SAW','DUB','CPH','OSL','ARN','HEL',
+      'SVO','LED',
+      // Middle East
+      'DXB','DWC','AUH','DOH','KWI','BAH','MCT','TLV','BEY','AMM','BGW','IKA','RUH','JED',
+      // Asia
+      'SIN','KUL','BKK','DMK','HKG','TPE','NRT','HND','KIX','ICN','GMP',
+      'PEK','PKX','PVG','SHA','CAN','HAN','SGN',
+      'DEL','BOM','BLR','MAA','CCU','HYD','COK','AMD',
+      'CMB','KTM','DAC','RGN','MNL','CGK','DPS','PNH','REP','VTE',
       // Oceania
       'SYD','MEL','AKL',
       // South America - Major hubs only
       'GRU','GIG','EZE','SCL','LIM','BOG',
-      // Africa - Major hubs only
-      'JNB','CPT','NBO','CAI','CMN','RAK',
+      // Africa - Major hubs
+      'JNB','CPT','NBO','CAI','CMN','RAK','ACC','LOS','ABV','ADD','DAR','EBB','MBA','DKR','ABJ','TUN','ALG',
     ]);
     
     // Check against our local airport database (most reliable)
@@ -258,6 +311,20 @@ export const extractFlightInfo = (message) => {
         }
       }
       
+      // Method 1b: FlightNum-before-Date style (e.g. Emirates: "EK788 Wed 30Dec15 ... (ACC) ... (DXB)")
+      if (segments.length === 0) {
+        const rowPatternB = /([A-Z]{2}\d{2,4})\s*((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s*\d{1,2}[A-Z]{3}\d{2,4})[^]{0,600}?\(([A-Z]{3})\)[^]{0,400}?\(([A-Z]{3})\)/gi;
+        while ((match = rowPatternB.exec(text)) !== null) {
+          const flightNum = match[1];
+          const dateStr = match[2];
+          const code1 = match[3].toUpperCase();
+          const code2 = match[4].toUpperCase();
+          if (isValidAirportCode(code1) && isValidAirportCode(code2) && code1 !== code2) {
+            segments.push({ date: dateStr, flightNumber: flightNum, origin: code1, destination: code2 });
+          }
+        }
+      }
+
       // Method 2: Simpler - find all (CODE) pairs in sequence with flight context
       if (segments.length === 0) {
         const codeSequence = [];
@@ -423,41 +490,43 @@ export const extractFlightInfo = (message) => {
     ]);
     
     // If still no route, try to find two IATA codes in close proximity with flight context
+    // Only match codes NOT immediately followed by another uppercase word (avoids "LOS ANGELES" → LOS)
     if (!origin || !destination) {
-      const contextPattern = /(?:flight|depart|arrive|from|to|origin|destination|airport).{0,40}?\b([A-Z]{3})\b/gi;
+      const contextPattern = /(?:flight|depart|arrive|from|to|origin|destination|airport).{0,40}?\b([A-Z]{3})\b(?!\s*[A-Z])/gi;
       const contextMatches = [...fullText.matchAll(contextPattern)];
       const foundCodes = [];
-      
+
       for (const match of contextMatches) {
         const code = match[1].toUpperCase();
         if (isValidAirportCode(code) && !excludeCodes.has(code) && !foundCodes.includes(code)) {
           foundCodes.push(code);
         }
       }
-      
+
       if (foundCodes.length >= 2) {
         origin = foundCodes[0];
         destination = foundCodes[1];
       }
     }
     
-    // Last resort: if email is from airline, find any two valid IATA codes in the text
+    // Last resort: if email is from airline, find IATA codes in parentheses only
+    // Using \(CODE\) format avoids matching city-name words like "LOS" in "LOS ANGELES"
     if ((!origin || !destination) && isFromAirline) {
-      const allCodesPattern = /\b([A-Z]{3})\b/g;
-      const allMatches = [...fullText.matchAll(allCodesPattern)];
+      const parenCodesPattern = /\(([A-Z]{3})\)/g;
+      const allMatches = [...fullText.matchAll(parenCodesPattern)];
       const validCodes = [];
-      
+
       for (const match of allMatches) {
         const code = match[1].toUpperCase();
         if (isValidAirportCode(code) && !excludeCodes.has(code) && !validCodes.includes(code)) {
           validCodes.push(code);
         }
       }
-      
+
       if (validCodes.length >= 2) {
         origin = validCodes[0];
         destination = validCodes[1];
-        console.log(`Found codes from airline email (last resort): ${origin} → ${destination}`);
+        console.log(`Found codes from airline email (last resort paren): ${origin} → ${destination}`);
       }
     }
     
@@ -506,7 +575,7 @@ export const extractFlightInfo = (message) => {
         try {
           flightDate = parse(match);
           const d = new Date(flightDate);
-          if (d.getFullYear() >= 2020 && d.getFullYear() <= 2030) break;
+          if (d.getFullYear() >= 1990 && d.getFullYear() <= 2040) break;
           flightDate = '';
         } catch (e) { flightDate = ''; }
       }
