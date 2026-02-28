@@ -222,8 +222,12 @@ const FlightTracker = () => {
             // Auto-grant admin to primary admin if not already set
             const shouldBeAdmin = data.isAdmin || firebaseUser.email === INITIAL_ADMIN_EMAIL;
             setIsAdmin(shouldBeAdmin);
-            if (shouldBeAdmin && !data.isAdmin) {
-              try { await updateDoc(userDocRef, { isAdmin: true }); } catch (e) {}
+            const updates = {};
+            if (shouldBeAdmin && !data.isAdmin) updates.isAdmin = true;
+            // Backfill email if missing (existing accounts pre-date this field)
+            if (!data.email && firebaseUser.email) updates.email = firebaseUser.email;
+            if (Object.keys(updates).length > 0) {
+              try { await updateDoc(userDocRef, updates); } catch (e) {}
             }
 
 	    if (changed) {
@@ -238,6 +242,7 @@ const FlightTracker = () => {
           const isInitialAdmin = firebaseUser.email === INITIAL_ADMIN_EMAIL;
           await setDoc(userDocRef, {
             flights: [],
+            email: firebaseUser.email || '',
             createdAt: new Date().toISOString(),
             contestOptIn: false,
             flightMatchingOptIn: false,
