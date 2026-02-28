@@ -3,7 +3,7 @@ import {
   Plane, Plus, Trash2, Edit2, X, Copy,
   Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
   LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
-  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon, Heart, MessageCircle
+  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon, Heart, MessageCircle, Shield
 } from 'lucide-react';
 // Firebase imports
 import {
@@ -46,6 +46,10 @@ import StatsSection from './components/StatsSection';
 import AuthModal from './components/AuthModal';
 import FlightListSection from './components/FlightListSection';
 import FlightMatchingSection from './components/FlightMatchingSection';
+import AdminDashboard from './components/AdminDashboard';
+
+// The primary admin email — this user is auto-granted admin on first sign-in
+const INITIAL_ADMIN_EMAIL = 'simone.marras@gmail.com';
 
 // All data constants, utilities, and Firebase config are now imported from
 // ./data/, ./utils/, and ./config/ modules above.
@@ -55,6 +59,8 @@ const FlightTracker = () => {
   const [user, setUser] = useState(null);
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
   const [authEmail, setAuthEmail] = useState('');
@@ -189,18 +195,37 @@ const FlightTracker = () => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setAuthLoading(true);
       if (firebaseUser) {
-        setAuthUser(firebaseUser);
         // Load user's flights from Firestore
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
-	    const sourceFlights = userDoc.data().flights || [];
+          const data = userDoc.data();
+
+          // Block check: sign out immediately if blocked
+          if (data.blocked) {
+            await signOut(auth);
+            setAuthError('Your account has been suspended. Please contact the administrator.');
+            setAuthMode('login');
+            setShowAuthModal(true);
+            setAuthLoading(false);
+            return;
+          }
+
+	    const sourceFlights = data.flights || [];
 	    const { fixed, changed } = ensureUniqueIds(sourceFlights);
 	    setFlights(fixed);
-            setContestOptIn(userDoc.data().contestOptIn || false);
-            setFlightMatchingOptIn(userDoc.data().flightMatchingOptIn || false);
-            setNickname(userDoc.data().nickname || '');
-            setFavoritePassengers(userDoc.data().favoritePassengers || []);
+            setContestOptIn(data.contestOptIn || false);
+            setFlightMatchingOptIn(data.flightMatchingOptIn || false);
+            setNickname(data.nickname || '');
+            setFavoritePassengers(data.favoritePassengers || []);
+
+            // Auto-grant admin to primary admin if not already set
+            const shouldBeAdmin = data.isAdmin || firebaseUser.email === INITIAL_ADMIN_EMAIL;
+            setIsAdmin(shouldBeAdmin);
+            if (shouldBeAdmin && !data.isAdmin) {
+              try { await updateDoc(userDocRef, { isAdmin: true }); } catch (e) {}
+            }
+
 	    if (changed) {
 		try {
 		    await updateDoc(userDocRef, { flights: fixed });
@@ -209,15 +234,27 @@ const FlightTracker = () => {
 		}
 	    }
         } else {
-          // Create user document if it doesn't exist
-          await setDoc(userDocRef, { flights: [], createdAt: new Date().toISOString(), contestOptIn: false, flightMatchingOptIn: false, nickname: '' });
+          // Create user document — auto-seed admin for the primary admin email
+          const isInitialAdmin = firebaseUser.email === INITIAL_ADMIN_EMAIL;
+          await setDoc(userDocRef, {
+            flights: [],
+            createdAt: new Date().toISOString(),
+            contestOptIn: false,
+            flightMatchingOptIn: false,
+            nickname: '',
+            isAdmin: isInitialAdmin,
+            blocked: false
+          });
+          setIsAdmin(isInitialAdmin);
           setFlights([]);
           setContestOptIn(false);
           setFlightMatchingOptIn(false);
           setNickname('');
         }
+        setAuthUser(firebaseUser);
       } else {
           setAuthUser(null);
+          setIsAdmin(false);
           setContestOptIn(false);
           setFlightMatchingOptIn(false);
           setNickname('');
@@ -2610,6 +2647,30 @@ const FlightTracker = () => {
               <Users size={14} />
               Leaderboard
             </button>
+
+            {/* Admin Dashboard button — only visible to admins */}
+            {isAdmin && (
+              <button
+                onClick={() => setShowAdminDashboard(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '6px 14px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(245,158,11,0.35)'
+                }}
+              >
+                <Shield size={14} />
+                Admin
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2641,6 +2702,14 @@ const FlightTracker = () => {
           contestLoading={contestLoading}
           handleContestOptInToggle={handleContestOptInToggle}
           fetchLeaderboard={fetchLeaderboard}
+        />
+      )}
+
+      {/* Admin Dashboard Modal */}
+      {showAdminDashboard && isAdmin && (
+        <AdminDashboard
+          authUser={authUser}
+          onClose={() => setShowAdminDashboard(false)}
         />
       )}
 
