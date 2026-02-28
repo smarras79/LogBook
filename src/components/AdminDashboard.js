@@ -97,6 +97,7 @@ const AdminDashboard = ({ authUser, onClose }) => {
   const [confirm, setConfirm] = useState(null); // { message, onConfirm }
   const [actionLoading, setActionLoading] = useState(null); // uid of user being acted on
   const [toast, setToast] = useState(null);
+  const [permissionError, setPermissionError] = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -106,10 +107,10 @@ const AdminDashboard = ({ authUser, onClose }) => {
   // ── Fetch all users ──────────────────────────────────────────────────────
   const fetchUsers = useCallback(async () => {
     setLoading(true);
+    setPermissionError(false);
     try {
       const snap = await getDocs(collection(db, 'users'));
       const list = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
-      // Enrich stats
       const enriched = list.map(u => ({
         ...u,
         _stats: calculateUserStats(u.flights || [])
@@ -117,7 +118,11 @@ const AdminDashboard = ({ authUser, onClose }) => {
       setUsers(enriched);
     } catch (err) {
       console.error('Admin: failed to fetch users', err);
-      showToast('Failed to load users: ' + err.message, 'error');
+      if (err.code === 'permission-denied' || err.message?.includes('permission')) {
+        setPermissionError(true);
+      } else {
+        showToast('Failed to load users: ' + err.message, 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -392,7 +397,47 @@ const AdminDashboard = ({ authUser, onClose }) => {
 
             {/* ─── Table ─── */}
             <div style={{ overflowX: 'auto', padding: '0 28px 28px' }}>
-              {loading ? (
+              {permissionError ? (
+                <div style={{
+                  background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px',
+                  padding: '28px 32px', margin: '8px 0'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                    <AlertTriangle size={24} color="#dc2626" />
+                    <span style={{ fontWeight: '700', fontSize: '15px', color: '#dc2626' }}>
+                      Firestore permission denied
+                    </span>
+                  </div>
+                  <p style={{ color: '#7f1d1d', fontSize: '13px', lineHeight: '1.6', margin: '0 0 16px' }}>
+                    The Firestore security rules need to be updated to allow admin access to the
+                    <code style={{ background: '#fee2e2', padding: '1px 5px', borderRadius: '4px' }}>users</code> collection.
+                    Deploy the included <code style={{ background: '#fee2e2', padding: '1px 5px', borderRadius: '4px' }}>firestore.rules</code> file:
+                  </p>
+                  <pre style={{
+                    background: '#1e293b', color: '#a5f3fc', padding: '12px 16px',
+                    borderRadius: '8px', fontSize: '13px', overflowX: 'auto', margin: '0 0 16px'
+                  }}>
+{`# Install Firebase CLI once (if not already installed):
+npm install -g firebase-tools
+
+# From the project root:
+firebase login
+firebase use --add          # pick your project (flightlog-82a3c)
+firebase deploy --only firestore`}
+                  </pre>
+                  <p style={{ color: '#7f1d1d', fontSize: '12px', margin: 0 }}>
+                    After deploying the rules, click Retry below.
+                  </p>
+                  <button onClick={fetchUsers} style={{
+                    marginTop: '16px', padding: '8px 20px', borderRadius: '8px',
+                    background: '#dc2626', color: '#fff', border: 'none',
+                    cursor: 'pointer', fontWeight: '600', fontSize: '13px',
+                    display: 'flex', alignItems: 'center', gap: '6px'
+                  }}>
+                    <RefreshCw size={14} /> Retry
+                  </button>
+                </div>
+              ) : loading ? (
                 <div style={{ textAlign: 'center', padding: '60px', color: '#64748b' }}>
                   <Loader2 size={30} style={{ animation: 'spin 1s linear infinite' }} />
                   <p style={{ marginTop: '12px' }}>Loading users…</p>
