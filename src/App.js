@@ -1307,30 +1307,33 @@ const FlightTracker = () => {
         const searchQueries = [
           // 1. Gmail's reservation category (when available)
           `category:reservations after:${afterDate} before:${beforeDate}`,
-          
-          // 2. Flight-specific subject keywords
-          `subject:(itinerary OR "flight confirmation" OR "booking confirmation" OR "e-ticket" OR eticket OR "boarding pass") after:${afterDate} before:${beforeDate}`,
-          
+
+          // 2. Strong flight subject keywords
+          `subject:(itinerary OR "flight confirmation" OR "booking confirmation" OR "e-ticket" OR eticket OR "boarding pass" OR "ticket number" OR "booking reference") after:${afterDate} before:${beforeDate}`,
+
           // 3. Check-in and trip emails
-          `subject:("check-in" OR "your trip" OR "your flight" OR "trip confirmation") after:${afterDate} before:${beforeDate}`,
-          
-          // 4. Major US airlines (including subdomains)
-          `from:(united.com OR delta.com OR aa.com OR southwest.com OR jetblue.com OR alaskaair.com OR email.aa.com OR email.united.com OR email.delta.com) after:${afterDate} before:${beforeDate}`,
-          
-          // 5. European airlines
-          `from:(britishairways.com OR lufthansa.com OR airfrance.com OR klm.com OR iberia.com OR vueling.com OR tap.pt OR swiss.com) after:${afterDate} before:${beforeDate}`,
-          
-          // 6. Middle East & Asian airlines
-          `from:(emirates.com OR qatarairways.com OR singaporeair.com OR cathaypacific.com OR turkishairlines.com OR thaiairways.com) after:${afterDate} before:${beforeDate}`,
-          
-          // 7. Other major airlines
-          `from:(aircanada.com OR qantas.com OR ana.co.jp OR jal.com OR koreanair.com OR evaair.com) after:${afterDate} before:${beforeDate}`,
-          
-          // 8. Low-cost carriers
-          `from:(ryanair.com OR easyjet.com OR wizzair.com OR norwegian.com OR spirit.com OR flyfrontier.com) after:${afterDate} before:${beforeDate}`,
-          
-          // 9. Travel booking sites
-          `from:(expedia.com OR booking.com OR kayak.com OR priceline.com OR orbitz.com OR travelocity.com OR tripadvisor.com) after:${afterDate} before:${beforeDate}`,
+          `subject:("check-in" OR "your trip" OR "your flight" OR "trip confirmation" OR "travel itinerary" OR "flight receipt") after:${afterDate} before:${beforeDate}`,
+
+          // 4. Body content search — airline names and booking terms (catches emails not covered by domain/subject)
+          `(itinerary OR "e-ticket" OR eticket OR "boarding pass" OR "booking reference" OR "reservation number" OR "flight number" OR "departure date" OR "passenger name") after:${afterDate} before:${beforeDate}`,
+
+          // 5. US airlines (incl. common marketing subdomains)
+          `from:(united.com OR delta.com OR aa.com OR southwest.com OR jetblue.com OR alaskaair.com OR email.aa.com OR email.united.com OR email.delta.com OR info.alaskaair.com) after:${afterDate} before:${beforeDate}`,
+
+          // 6. European airlines
+          `from:(britishairways.com OR lufthansa.com OR airfrance.com OR klm.com OR iberia.com OR vueling.com OR tap.pt OR swiss.com OR austrian.com OR finnair.com OR sas.se OR norwegian.com OR easyjet.com OR ryanair.com OR wizzair.com OR transavia.com OR eurowings.com OR brusselsairlines.com OR lot.com OR aegeanair.com) after:${afterDate} before:${beforeDate}`,
+
+          // 7. Middle East, African, Turkish airlines
+          `from:(emirates.com OR qatarairways.com OR turkishairlines.com OR thy.com OR flypgs.com OR pegasusairlines.com OR sunexpress.com OR saudia.com OR airarabia.com OR flydubai.com OR flynas.com OR egyptair.com OR ethiopianairlines.com OR kenyanairways.com) after:${afterDate} before:${beforeDate}`,
+
+          // 8. Asian & Pacific airlines
+          `from:(singaporeair.com OR cathaypacific.com OR airasia.com OR thaiairways.com OR ana.co.jp OR jal.com OR koreanair.com OR evaair.com OR qantas.com OR airnewzealand.com OR flypeach.com OR lionair.co.id OR airindia.in OR goindigo.in OR vistara.com OR spicejet.com) after:${afterDate} before:${beforeDate}`,
+
+          // 9. Latin American airlines
+          `from:(latam.com OR gol.com OR azul.com.br OR avianca.com OR aeromexico.com OR copaair.com OR tam.com.br OR skyairline.com OR aeroflot.ru) after:${afterDate} before:${beforeDate}`,
+
+          // 10. Travel booking sites & OTAs
+          `from:(expedia.com OR booking.com OR kayak.com OR priceline.com OR orbitz.com OR travelocity.com OR tripadvisor.com OR edreams.com OR opodo.com OR lastminute.com OR volagratis.com OR gotogate.com OR bravofly.com OR cheapflights.com OR skyscanner.com OR momondo.com OR travelport.com OR amadeus.com) after:${afterDate} before:${beforeDate}`,
         ];
         
         // Query labels for display
@@ -1338,12 +1341,13 @@ const FlightTracker = () => {
           'Gmail Reservations',
           'Flight Confirmations',
           'Check-in & Trip Emails',
+          'Body Content Search',
           'US Airlines',
-          'European Airlines',
-          'Middle East & Asian Airlines',
-          'Other Major Airlines',
-          'Low-cost Carriers',
-          'Travel Booking Sites'
+          'European & LCC Airlines',
+          'Middle East & African Airlines',
+          'Asian & Pacific Airlines',
+          'Latin American Airlines',
+          'Travel Booking Sites & OTAs',
         ];
 
         const allMessageIds = new Set();
