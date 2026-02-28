@@ -463,10 +463,10 @@ const FlightFormModal = ({
                     style={inputStyle}
                   />
                   <input
-                    placeholder="Aircraft (e.g. Boeing 737)"
-                    value={formData.aircraftType}
-                    onChange={e => setFormData({...formData, aircraftType: e.target.value})}
-                    style={inputStyle}
+                   placeholder="Aircraft (e.g. Boeing 737)"
+                   value={formData.aircraftType && formData.aircraftType !== 'UNKNOWN' ? formData.aircraftType : ''}
+                   onChange={e => setFormData({ ...formData, aircraftType: e.target.value })}
+                   style={inputStyle}
                   />
                   <select
                     value={formData.serviceClass}
