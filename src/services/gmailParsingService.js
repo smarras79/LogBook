@@ -270,8 +270,11 @@ export const extractFlightInfo = (message) => {
   } catch (_) { /* no JSON-LD */ }
 
   if (jsonLdFlights.length > 0) {
-    console.log(`JSON-LD: ${jsonLdFlights.length} flight(s) in "${subject}"`);
-    return jsonLdFlights;
+    const valid = jsonLdFlights.filter(f => f.origin && f.destination && f.origin !== f.destination);
+    if (valid.length > 0) {
+      console.log(`JSON-LD: ${valid.length} flight(s) in "${subject}"`);
+      return valid;
+    }
   }
 
   // ── PHASE 1: Is this a flight email? ─────────────────────────────────────
@@ -379,12 +382,25 @@ export const extractFlightInfo = (message) => {
       }
     }
 
-    // A3. All (CODE) pairs in document order — simplest and most universal
+    // A3. All (CODE) pairs in document order — simplest and most universal.
+    // Only start a new leg from an airport that is either (a) the first airport
+    // in the sequence, or (b) a genuine transit — meaning it appeared twice
+    // consecutively in the sequence (arrival code immediately followed by the
+    // same departure code). This prevents "FLL → JFK → [status text mentions
+    // FLL again]" from generating a phantom JFK→FLL return leg.
     if (segs.length === 0) {
       const parenCodes = extractParenCodes(text);
+      // Find transit airports: those that appear consecutively (arr then dep)
+      const transitAirports = new Set();
+      for (let i = 0; i < parenCodes.length - 1; i++) {
+        if (parenCodes[i] === parenCodes[i + 1]) transitAirports.add(parenCodes[i]);
+      }
       for (let i = 0; i < parenCodes.length - 1; i++) {
         const orig = parenCodes[i], dest = parenCodes[i + 1];
-        if (orig !== dest && !segs.some(s => s.origin === orig && s.destination === dest))
+        if (orig === dest) continue;
+        const origIsStart = i === 0;
+        const origIsTransit = transitAirports.has(orig);
+        if ((origIsStart || origIsTransit) && !segs.some(s => s.origin === orig && s.destination === dest))
           segs.push({ date: '', flightNumber: '', origin: orig, destination: dest });
       }
     }
@@ -456,7 +472,8 @@ export const extractFlightInfo = (message) => {
 
   // ── Strategy D: last resort — any parenthesised codes ────────────────────
   if (!origin) {
-    const paren = extractParenCodes(fullText).filter(c => !EXCLUDE_CODES.has(c));
+    // Deduplicate to prevent (FLL)…(FLL)…(JFK) producing FLL→FLL
+    const paren = [...new Set(extractParenCodes(fullText).filter(c => !EXCLUDE_CODES.has(c)))];
     if (paren.length >= 2) { origin = paren[0]; destination = paren[1]; }
   }
 
@@ -475,7 +492,7 @@ export const extractFlightInfo = (message) => {
     }
   }
 
-  if (!origin || !destination) return null;
+  if (!origin || !destination || origin === destination) return null;
 
   // ── Extract flight number ─────────────────────────────────────────────────
   let flightNumber = '';
@@ -490,9 +507,9 @@ export const extractFlightInfo = (message) => {
 
   // ── Extract service class ─────────────────────────────────────────────────
   let serviceClass = 'Economy';
-  if (/\b(first\s*class|first)\b/i.test(fullText)) serviceClass = 'First';
-  else if (/\b(business\s*class|business)\b/i.test(fullText)) serviceClass = 'Business';
-  else if (/\b(premium\s*economy|premium)\b/i.test(fullText)) serviceClass = 'Premium Economy';
+  if (/\bfirst\s*class\b/i.test(fullText)) serviceClass = 'First';
+  else if (/\bbusiness\s*class\b/i.test(fullText)) serviceClass = 'Business';
+  else if (/\bpremium\s*economy\b/i.test(fullText)) serviceClass = 'Premium Economy';
 
   // ── Extract date ──────────────────────────────────────────────────────────
   let flightDate = findDate(fullText);
