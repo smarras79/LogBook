@@ -109,10 +109,18 @@ const AdminDashboard = ({ authUser, onClose }) => {
     setLoading(true);
     setPermissionError(false);
     try {
-      const snap = await getDocs(collection(db, 'users'));
-      const list = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+      const [usersSnap, statsSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'publicStats')),
+      ]);
+      const emailByUid = {};
+      statsSnap.docs.forEach(d => {
+        if (d.data().email) emailByUid[d.id] = d.data().email;
+      });
+      const list = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
       const enriched = list.map(u => ({
         ...u,
+        email: u.email || emailByUid[u.uid] || '',
         _stats: calculateUserStats(u.flights || [])
       }));
       setUsers(enriched);
