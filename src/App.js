@@ -2295,13 +2295,37 @@ const FlightTracker = () => {
                   <Edit2 size={12} style={{ opacity: 0.6 }} />
                 </div>
               )}
-              <button 
+              {/* Admin button — only for the admin user */}
+              {isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
+                <button
+                  onClick={() => setShowAdminDashboard(true)}
+                  title="Admin Dashboard"
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 8px rgba(245,158,11,0.35)'
+                  }}
+                >
+                  <Shield size={15} />
+                  Admin
+                </button>
+              )}
+              <button
                 onClick={handleLogout}
-                style={{ 
-                  background: 'transparent', 
-                  border: '1px solid #ddd', 
-                  padding: '8px 12px', 
-                  borderRadius: '8px', 
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #ddd',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -2648,29 +2672,6 @@ const FlightTracker = () => {
               Leaderboard
             </button>
 
-            {/* Admin Dashboard button — only visible to admins */}
-            {isAdmin && (
-              <button
-                onClick={() => setShowAdminDashboard(true)}
-                style={{
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '6px 14px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  fontSize: '13px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 2px 8px rgba(245,158,11,0.35)'
-                }}
-              >
-                <Shield size={14} />
-                Admin
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -2706,7 +2707,7 @@ const FlightTracker = () => {
       )}
 
       {/* Admin Dashboard Modal */}
-      {showAdminDashboard && isAdmin && (
+      {showAdminDashboard && isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
         <AdminDashboard
           authUser={authUser}
           onClose={() => setShowAdminDashboard(false)}
