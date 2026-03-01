@@ -1,326 +1,870 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Plane, Plus, Trash2, Edit2, X, Copy,
-  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain 
+  Globe, BarChart3, Trophy, Loader2, Mail, Check, AlertCircle, Users, Map, Mountain, CloudRain,
+  LogIn, LogOut, User, Eye, EyeOff, DollarSign, CreditCard, ArrowLeftRight,
+  ChevronDown, ChevronUp, Settings, Flag, MapPin, Moon, Heart, MessageCircle, Shield
 } from 'lucide-react';
+// Firebase imports
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  signInWithPopup
+} from 'firebase/auth';
+import {
+  doc,
+  setDoc,
+  getDoc,
+  updateDoc,
+  onSnapshot,
+  collection,
+  getDocs,
+  arrayUnion
+} from 'firebase/firestore';
 
-//const GOOGLE_API_KEY = "AIzaSyDYzKON-9m0NYBIVZEXD434wDrmqMpyeQQ";
-const GOOGLE_CLIENT_ID = "870884007039-9got7ia77t611u2fugedlq6j7kftf51p.apps.googleusercontent.com"; 
-const GOOGLE_API_KEY = "AIzaSyArv6AbTjFIM_nuCm4VKZAZTdfP_y2G0ag";
-const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"];
-const SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
+// App modules
+import { auth, db, googleProvider, GOOGLE_CLIENT_ID, GOOGLE_API_KEY, DISCOVERY_DOCS, SCOPES } from './config/firebase';
+import AIRPORTS_DATABASE from './data/airports';
+import { ALLIANCE_STYLES, ALLIANCE_MEMBERS_DISPLAY } from './data/airlines';
+import { getContinent, calculateDistance } from './utils/geo';
+import { isAirlineMatch, getAirlineWebsite, getAirlineAlliance } from './utils/airlines';
+import { LANDMARK_DETECTION_VERSION, generateId, ensureUniqueIds, getFlightRadar24Url, getFlightsNeedingLandmarkRefresh, getFlightsForLandmarkAddition, getPassengerEstimate, getCarbonEstimate, calculateUserStats, fetchAirportData } from './utils/flights';
+import { detectLandmarksHybrid } from './services/landmarkService';
+import { extractFlightInfo } from './services/gmailParsingService';
+import { formatDate } from './utils/formatters';
+import { statCard, statVal, statLbl, inputStyle, modalOverlay, modalContent } from './styles/constants';
+import useFlightStats from './hooks/useFlightStats';
+import LandingPage from './components/LandingPage';
+import LeaderboardModal from './components/LeaderboardModal';
+import ChatModal from './components/ChatModal';
+import GmailImportProgressModal from './components/GmailImportProgressModal';
+import ImportSuggestionsModal from './components/ImportSuggestionsModal';
+import FlightFormModal from './components/FlightFormModal';
+import StatsSection from './components/StatsSection';
+import AuthModal from './components/AuthModal';
+import FlightListSection from './components/FlightListSection';
+import FlightMatchingSection from './components/FlightMatchingSection';
+import AdminDashboard from './components/AdminDashboard';
 
+// The primary admin email — this user is auto-granted admin on first sign-in
+const INITIAL_ADMIN_EMAIL = 'simone.marras@gmail.com';
 
-const AIRPORTS_DATABASE = [
-  { code: 'JFK', name: 'John F. Kennedy Intl', city: 'New York', lat: 40.6413, lon: -73.7781 },
-  { code: 'LHR', name: 'London Heathrow', city: 'London', lat: 51.4700, lon: -0.4543 },
-  { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', lat: 41.2753, lon: 28.7519 },
-  { code: 'SFO', name: 'San Francisco Intl', city: 'San Francisco', lat: 37.6188, lon: -122.3749 },
-  { code: 'DXB', name: 'Dubai Intl', city: 'Dubai', lat: 25.2532, lon: 55.3657 },
-  { code: 'SIN', name: 'Singapore Changi', city: 'Singapore', lat: 1.3644, lon: 103.9915 },
-  { code: 'SYD', name: 'Sydney Kingsford Smith', city: 'Sydney', lat: -33.9399, lon: 151.1753 },
-  { code: 'HND', name: 'Tokyo Haneda', city: 'Tokyo', lat: 35.5494, lon: 139.7798 },
-  { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', lat: 49.0097, lon: 2.5479 },
-  { code: 'LAX', name: 'Los Angeles Intl', city: 'Los Angeles', lat: 33.9416, lon: -118.4085 },
-  { code: 'MIA', name: 'Miami Intl', city: 'Miami', lat: 25.7959, lon: -80.2870 },
-  { code: 'ORD', name: "O'Hare Intl", city: 'Chicago', lat: 41.9742, lon: -87.9073 },
-  { code: 'DFW', name: 'Dallas/Fort Worth Intl', city: 'Dallas', lat: 32.8998, lon: -97.0403 },
-  { code: 'DEN', name: 'Denver Intl', city: 'Denver', lat: 39.8561, lon: -104.6737 },
-  { code: 'SEA', name: 'Seattle-Tacoma Intl', city: 'Seattle', lat: 47.4502, lon: -122.3088 },
-  { code: 'PHX', name: 'Phoenix Sky Harbor', city: 'Phoenix', lat: 33.4373, lon: -112.0078 },
-  { code: 'ATL', name: 'Hartsfield-Jackson Atlanta', city: 'Atlanta', lat: 33.6407, lon: -84.4277 },
-];
+// All data constants, utilities, and Firebase config are now imported from
+// ./data/, ./utils/, and ./config/ modules above.
 
-const serviceClasses = ['Economy', 'Premium Economy', 'Business', 'First'];
-
-// --- MATH UTILS ---
-const toRad = (val) => val * Math.PI / 180;
-const toDeg = (val) => val * 180 / Math.PI;
-
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 3958.8;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Math.round(R * c);
-};
-
-// Robust Great Circle Interpolation
-const getIntermediatePoint = (lat1, lon1, lat2, lon2, f) => {
-  const phi1 = toRad(lat1);
-  const lam1 = toRad(lon1);
-  const phi2 = toRad(lat2);
-  const lam2 = toRad(lon2);
-  
-  // Calculate angular distance with clamp to prevent NaN
-  const sinSqLat = Math.pow(Math.sin((phi2 - phi1) / 2), 2);
-  const sinSqLon = Math.pow(Math.sin((lam2 - lam1) / 2), 2);
-  const underRoot = sinSqLat + Math.cos(phi1) * Math.cos(phi2) * sinSqLon;
-  const clamped = Math.min(1, Math.max(0, underRoot));
-  const d = 2 * Math.asin(Math.sqrt(clamped));
-
-  if (d === 0) return { lat: lat1, lon: lon1 };
-
-  const A = Math.sin((1 - f) * d) / Math.sin(d);
-  const B = Math.sin(f * d) / Math.sin(d);
-  
-  const x = A * Math.cos(phi1) * Math.cos(lam1) + B * Math.cos(phi2) * Math.cos(lam2);
-  const y = A * Math.cos(phi1) * Math.sin(lam1) + B * Math.cos(phi2) * Math.sin(lam2);
-  const z = A * Math.sin(phi1) + B * Math.sin(phi2);
-  
-  return { lat: toDeg(Math.atan2(z, Math.sqrt(x * x + y * y))), lon: toDeg(Math.atan2(y, x)) };
-};
-
-// --- COMPREHENSIVE LANDMARKS DATABASE ---
-// Each landmark has: name, lat, lon, radius (in miles for detection)
-const LANDMARKS_DB = [
-  // US National Parks - Western
-  { name: "Grand Canyon National Park", lat: 36.0544, lon: -112.1401, radius: 40 },
-  { name: "Joshua Tree National Park", lat: 33.8734, lon: -115.9010, radius: 35 },
-  { name: "Death Valley National Park", lat: 36.5054, lon: -117.0794, radius: 50 },
-  { name: "Yosemite National Park", lat: 37.8651, lon: -119.5383, radius: 35 },
-  { name: "Sequoia National Park", lat: 36.4864, lon: -118.5658, radius: 25 },
-  { name: "Kings Canyon National Park", lat: 36.8879, lon: -118.5551, radius: 25 },
-  { name: "Zion National Park", lat: 37.2982, lon: -113.0263, radius: 25 },
-  { name: "Bryce Canyon National Park", lat: 37.5930, lon: -112.1871, radius: 20 },
-  { name: "Arches National Park", lat: 38.7331, lon: -109.5925, radius: 20 },
-  { name: "Canyonlands National Park", lat: 38.3269, lon: -109.8783, radius: 35 },
-  { name: "Capitol Reef National Park", lat: 38.2833, lon: -111.2471, radius: 30 },
-  { name: "Mesa Verde National Park", lat: 37.2309, lon: -108.4618, radius: 20 },
-  { name: "Petrified Forest National Park", lat: 34.9100, lon: -109.8068, radius: 25 },
-  { name: "Saguaro National Park", lat: 32.2967, lon: -111.1666, radius: 20 },
-  { name: "Carlsbad Caverns National Park", lat: 32.1479, lon: -104.5567, radius: 20 },
-  { name: "Big Bend National Park", lat: 29.2500, lon: -103.2502, radius: 40 },
-  { name: "Guadalupe Mountains National Park", lat: 31.9231, lon: -104.8645, radius: 20 },
-  { name: "White Sands National Park", lat: 32.7872, lon: -106.3257, radius: 25 },
-  
-  // US National Parks - Pacific Coast
-  { name: "Redwood National Park", lat: 41.2132, lon: -124.0046, radius: 25 },
-  { name: "Crater Lake National Park", lat: 42.8684, lon: -122.1685, radius: 20 },
-  { name: "Olympic National Park", lat: 47.8021, lon: -123.6044, radius: 35 },
-  { name: "Mount Rainier National Park", lat: 46.8800, lon: -121.7269, radius: 30 },
-  { name: "North Cascades National Park", lat: 48.7718, lon: -121.2985, radius: 30 },
-  { name: "Lassen Volcanic National Park", lat: 40.4977, lon: -121.5080, radius: 20 },
-  { name: "Channel Islands National Park", lat: 34.0069, lon: -119.7785, radius: 25 },
-  { name: "Pinnacles National Park", lat: 36.4906, lon: -121.1825, radius: 15 },
-  
-  // US National Parks - Rocky Mountains
-  { name: "Yellowstone National Park", lat: 44.4280, lon: -110.5885, radius: 50 },
-  { name: "Grand Teton National Park", lat: 43.7904, lon: -110.6818, radius: 30 },
-  { name: "Glacier National Park", lat: 48.7596, lon: -113.7870, radius: 40 },
-  { name: "Rocky Mountain National Park", lat: 40.3428, lon: -105.6836, radius: 30 },
-  { name: "Great Sand Dunes National Park", lat: 37.7916, lon: -105.5943, radius: 20 },
-  { name: "Black Canyon of the Gunnison", lat: 38.5754, lon: -107.7416, radius: 15 },
-  
-  // US National Parks - Midwest & East
-  { name: "Badlands National Park", lat: 43.8554, lon: -102.3397, radius: 30 },
-  { name: "Theodore Roosevelt National Park", lat: 46.9790, lon: -103.4590, radius: 25 },
-  { name: "Wind Cave National Park", lat: 43.5724, lon: -103.4213, radius: 15 },
-  { name: "Voyageurs National Park", lat: 48.4839, lon: -92.8318, radius: 25 },
-  { name: "Isle Royale National Park", lat: 48.0000, lon: -88.8269, radius: 25 },
-  { name: "Mammoth Cave National Park", lat: 37.1862, lon: -86.0996, radius: 20 },
-  { name: "Great Smoky Mountains National Park", lat: 35.6532, lon: -83.5070, radius: 35 },
-  { name: "Shenandoah National Park", lat: 38.4755, lon: -78.4535, radius: 30 },
-  { name: "Acadia National Park", lat: 44.3386, lon: -68.2733, radius: 20 },
-  { name: "Cuyahoga Valley National Park", lat: 41.2808, lon: -81.5678, radius: 15 },
-  { name: "Indiana Dunes National Park", lat: 41.6533, lon: -87.0524, radius: 15 },
-  
-  // US National Parks - South
-  { name: "Everglades National Park", lat: 25.2866, lon: -80.8987, radius: 50 },
-  { name: "Biscayne National Park", lat: 25.4824, lon: -80.2083, radius: 20 },
-  { name: "Dry Tortugas National Park", lat: 24.6285, lon: -82.8732, radius: 20 },
-  { name: "Congaree National Park", lat: 33.7948, lon: -80.7821, radius: 15 },
-  { name: "Hot Springs National Park", lat: 34.5217, lon: -93.0424, radius: 10 },
-  
-  // Major Geographic Features - US
-  { name: "Great Lakes Region", lat: 44.0, lon: -84.5, radius: 150 },
-  { name: "Lake Superior", lat: 47.5, lon: -88.0, radius: 100 },
-  { name: "Lake Michigan", lat: 43.5, lon: -87.0, radius: 80 },
-  { name: "Lake Erie", lat: 42.2, lon: -81.2, radius: 60 },
-  { name: "Mississippi River Delta", lat: 29.5, lon: -89.5, radius: 40 },
-  { name: "Appalachian Mountains", lat: 37.0, lon: -81.0, radius: 80 },
-  { name: "Ozark Mountains", lat: 36.0, lon: -93.0, radius: 60 },
-  { name: "Sierra Nevada", lat: 37.5, lon: -119.5, radius: 60 },
-  { name: "Cascade Range", lat: 44.0, lon: -121.5, radius: 50 },
-  { name: "Colorado Plateau", lat: 37.0, lon: -110.5, radius: 100 },
-  { name: "Mojave Desert", lat: 35.0, lon: -116.0, radius: 70 },
-  { name: "Sonoran Desert", lat: 32.0, lon: -112.0, radius: 80 },
-  { name: "Chihuahuan Desert", lat: 31.0, lon: -106.0, radius: 70 },
-  { name: "Great Basin", lat: 39.5, lon: -117.0, radius: 100 },
-  
-  // US National Monuments & Other Protected Areas
-  { name: "Monument Valley", lat: 36.9983, lon: -110.0985, radius: 25 },
-  { name: "Sedona Red Rocks", lat: 34.8697, lon: -111.7610, radius: 20 },
-  { name: "Lake Tahoe", lat: 39.0968, lon: -120.0324, radius: 20 },
-  { name: "Lake Powell", lat: 37.0683, lon: -111.2433, radius: 30 },
-  { name: "Lake Mead", lat: 36.1460, lon: -114.3901, radius: 30 },
-  { name: "Hoover Dam", lat: 36.0161, lon: -114.7377, radius: 10 },
-  { name: "Mount Whitney", lat: 36.5785, lon: -118.2920, radius: 15 },
-  { name: "Mount Shasta", lat: 41.4092, lon: -122.1949, radius: 20 },
-  { name: "Denali (Mount McKinley)", lat: 63.0695, lon: -151.0074, radius: 40 },
-  
-  // International Landmarks
-  { name: "Canadian Rockies", lat: 51.5, lon: -116.0, radius: 80 },
-  { name: "Banff National Park", lat: 51.4968, lon: -115.9281, radius: 40 },
-  { name: "Niagara Falls", lat: 43.0962, lon: -79.0377, radius: 15 },
-  { name: "Alps", lat: 46.5, lon: 9.5, radius: 150 },
-  { name: "Pyrenees", lat: 42.6, lon: 1.0, radius: 80 },
-  { name: "Scottish Highlands", lat: 57.0, lon: -5.0, radius: 60 },
-  { name: "English Channel", lat: 50.2, lon: -1.0, radius: 40 },
-  { name: "Amazon Rainforest", lat: -3.0, lon: -60.0, radius: 500 },
-  { name: "Sahara Desert", lat: 23.0, lon: 12.0, radius: 800 },
-  { name: "Himalayas", lat: 28.0, lon: 84.0, radius: 200 },
-  { name: "Great Barrier Reef", lat: -18.2871, lon: 147.6992, radius: 150 },
-  { name: "Uluru (Ayers Rock)", lat: -25.3444, lon: 131.0369, radius: 20 },
-  { name: "Mount Fuji", lat: 35.3606, lon: 138.7274, radius: 30 },
-  { name: "Gobi Desert", lat: 42.5, lon: 103.0, radius: 300 },
-  { name: "Siberian Taiga", lat: 60.0, lon: 100.0, radius: 500 },
-];
-
-// --- IMPROVED OCEANS DATABASE ---
-// Using bounding boxes instead of just center + radius for better accuracy
-const OCEANS_DB = [
-  { 
-    name: "North Atlantic Ocean", 
-    // Bounding box: roughly between North America and Europe
-    bounds: { minLat: 10, maxLat: 60, minLon: -80, maxLon: -5 },
-    center: { lat: 35.0, lon: -40.0 }
-  },
-  { 
-    name: "South Atlantic Ocean", 
-    bounds: { minLat: -60, maxLat: 0, minLon: -70, maxLon: 20 },
-    center: { lat: -25.0, lon: -15.0 }
-  },
-  { 
-    name: "North Pacific Ocean", 
-    // This is the key fix - more restrictive bounds that don't include US mainland
-    bounds: { minLat: 10, maxLat: 60, minLon: -180, maxLon: -125 },
-    center: { lat: 35.0, lon: -155.0 }
-  },
-  { 
-    name: "South Pacific Ocean", 
-    bounds: { minLat: -60, maxLat: 0, minLon: -180, maxLon: -70 },
-    center: { lat: -30.0, lon: -130.0 }
-  },
-  { 
-    name: "Indian Ocean", 
-    bounds: { minLat: -60, maxLat: 25, minLon: 20, maxLon: 120 },
-    center: { lat: -10.0, lon: 80.0 }
-  },
-  { 
-    name: "Arctic Ocean", 
-    bounds: { minLat: 66, maxLat: 90, minLon: -180, maxLon: 180 },
-    center: { lat: 85.0, lon: 0.0 }
-  },
-  { 
-    name: "Caribbean Sea", 
-    bounds: { minLat: 9, maxLat: 23, minLon: -88, maxLon: -60 },
-    center: { lat: 15.0, lon: -75.0 }
-  },
-  { 
-    name: "Mediterranean Sea", 
-    bounds: { minLat: 30, maxLat: 46, minLon: -6, maxLon: 36 },
-    center: { lat: 35.0, lon: 18.0 }
-  },
-  { 
-    name: "Gulf of Mexico", 
-    bounds: { minLat: 18, maxLat: 30.5, minLon: -98, maxLon: -81 },
-    center: { lat: 25.0, lon: -90.0 }
-  },
-  {
-    name: "Bering Sea",
-    bounds: { minLat: 51, maxLat: 66, minLon: 162, maxLon: -157 },
-    center: { lat: 58.0, lon: -175.0 }
-  },
-  {
-    name: "Sea of Japan",
-    bounds: { minLat: 33, maxLat: 52, minLon: 127, maxLon: 142 },
-    center: { lat: 40.0, lon: 135.0 }
-  },
-  {
-    name: "South China Sea",
-    bounds: { minLat: 0, maxLat: 25, minLon: 99, maxLon: 121 },
-    center: { lat: 12.0, lon: 113.0 }
-  },
-  {
-    name: "Bay of Bengal",
-    bounds: { minLat: 5, maxLat: 22, minLon: 80, maxLon: 95 },
-    center: { lat: 15.0, lon: 88.0 }
-  },
-  {
-    name: "Arabian Sea",
-    bounds: { minLat: 5, maxLat: 25, minLon: 50, maxLon: 77 },
-    center: { lat: 15.0, lon: 65.0 }
-  },
-  {
-    name: "Red Sea",
-    bounds: { minLat: 12, maxLat: 30, minLon: 32, maxLon: 44 },
-    center: { lat: 20.0, lon: 38.0 }
-  },
-  {
-    name: "Persian Gulf",
-    bounds: { minLat: 24, maxLat: 30, minLon: 48, maxLon: 56 },
-    center: { lat: 27.0, lon: 51.0 }
-  },
-  {
-    name: "Tasman Sea",
-    bounds: { minLat: -47, maxLat: -28, minLon: 147, maxLon: 175 },
-    center: { lat: -38.0, lon: 160.0 }
-  },
-  {
-    name: "Coral Sea",
-    bounds: { minLat: -28, maxLat: -10, minLon: 143, maxLon: 165 },
-    center: { lat: -18.0, lon: 155.0 }
-  }
-];
-
-// --- HELPERS ---
-const decodeEmailBody = (payload) => {
-  let body = '';
-  if (payload.parts) {
-    payload.parts.forEach(part => {
-      if (part.mimeType === 'text/plain' && part.body.data) {
-        body += atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-      }
-    });
-  } else if (payload.body.data) {
-    body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-  }
-  return body;
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) return "";
-  const [year, month, day] = dateString.split('-');
-  return `${month}-${day}-${year}`;
-};
 
 const FlightTracker = () => {
   const [user, setUser] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [flights, setFlights] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [landmarkRefreshDismissed, setLandmarkRefreshDismissed] = useState(() => {
+      return localStorage.getItem('landmarkRefreshDismissed') === 'true';
+  });
+  
+  // Store setImporting in window so error callbacks can access it
+  useEffect(() => {
+    window._setGmailImporting = setImporting;
+    return () => { window._setGmailImporting = null; };
+  }, []);
   const [suggestedFlights, setSuggestedFlights] = useState([]);
+  
+  // Contest opt-in state
+  const [contestOptIn, setContestOptIn] = useState(false);
+  const [contestLoading, setContestLoading] = useState(false);
+  const [leaderboardData, setLeaderboardData] = useState([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [leaderboardSortBy, setLeaderboardSortBy] = useState('miles'); // 'miles', 'flights', 'countries', 'co2'
+  
+  // Flight matching opt-in state (find fellow passengers on same flight)
+  const [flightMatchingOptIn, setFlightMatchingOptIn] = useState(false);
+  const [flightMatches, setFlightMatches] = useState({}); // { flightKey: [{ nickname, uid }] }
+  
+  // User nickname state
+  const [nickname, setNickname] = useState('');
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState('');
+  
+  
+  // Sort/organization mode for flight cards
+  const [sortMode, setSortMode] = useState(() => {
+    const saved = localStorage.getItem('flightSortMode');
+    return saved || 'date';
+  });
+  
+  // Landing page state - show landing if not logged in and hasn't dismissed it
+  const [showLanding, setShowLanding] = useState(() => {
+    const dismissed = localStorage.getItem('landingDismissed');
+    return !dismissed;
+  });
+  
+  // Progress tracking for Gmail import
+  const [importProgress, setImportProgress] = useState({
+    show: false,
+    phase: 'searching', // 'searching' | 'processing'
+    currentQuery: 0,
+    totalQueries: 9,
+    currentEmail: 0,
+    totalEmails: 0,
+    foundFlights: 0,
+    currentQueryText: ''
+  });
   const [gapiInited, setGapiInited] = useState(false);
   const [tokenClient, setTokenClient] = useState(null);
   const [editingFlight, setEditingFlight] = useState(null);
-  const [isVerifying, setIsVerifying] = useState(false); 
+  const [isVerifying, setIsVerifying] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
+  const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null); // tracks which alliance dropdown is open
+
+  // Database reprocessing state
+  const [isReprocessing, setIsReprocessing] = useState(false);
+  const [reprocessProgress, setReprocessProgress] = useState({ current: 0, total: 0 });
+
+  // Gmail date range defaults (3 years ago to today)
+  const getDefaultFromDate = () => {
+    const date = new Date();
+    date.setFullYear(date.getFullYear() - 3);
+    return date.toISOString().split('T')[0];
+  };
+  const getDefaultToDate = () => {
+    return new Date().toISOString().split('T')[0];
+  };
+  const gmailDateFrom = getDefaultFromDate();
+  const gmailDateTo = getDefaultToDate();
+
   const geocoder = useRef(null);
 
   const [formData, setFormData] = useState({
-    origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false
+    origin: '', 
+    destination: '', 
+    date: '', 
+    returnDate: '', // For round trip
+    flightNumber: '', // Flight number (e.g., UA123, AA456)
+    aircraftType: '', 
+    airline: '', 
+    serviceClass: 'Economy', 
+    checkLandmarks: false,
+    hasLayover: false,
+    isRoundTrip: false, // New: round trip option
+    viaAirports: [''], // Array of connection airport codes
+    legAirlines: ['', ''], // Airlines for each leg
+    legAircraftTypes: ['', ''], // Aircraft for each leg
+    legServiceClasses: ['Economy', 'Economy'], // Service class for each leg
+    paymentType: 'money', // 'money' or 'miles'
+    paymentAmount: ''
   });
+  
+  // Airport autocomplete state
+  const [airportSuggestions, setAirportSuggestions] = useState([]);
+  const [activeAirportField, setActiveAirportField] = useState(null); // 'origin', 'destination', or 'via-0', 'via-1', etc.
+  
+  // Fellow passengers state
+  const [fellowPassengers, setFellowPassengers] = useState([]);
+  const [showFellowPassengers, setShowFellowPassengers] = useState(false);
+
+  // Favorites state (UIDs of favorited fellow passengers)
+  const [favoritePassengers, setFavoritePassengers] = useState([]);
+
+  // Chat state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPartner, setChatPartner] = useState(null); // { uid, nickname }
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const chatUnsubRef = useRef(null);
+  const chatPollRef = useRef(null);
+  const chatMessagesEndRef = useRef(null);
+
+  // Firebase Auth State Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setAuthLoading(true);
+      if (firebaseUser) {
+        // Load user's flights from Firestore
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+
+          // Block check: sign out immediately if blocked
+          if (data.blocked) {
+            await signOut(auth);
+            setAuthError('Your account has been suspended. Please contact the administrator.');
+            setAuthMode('login');
+            setShowAuthModal(true);
+            setAuthLoading(false);
+            return;
+          }
+
+	    const sourceFlights = data.flights || [];
+	    const { fixed, changed } = ensureUniqueIds(sourceFlights);
+	    setFlights(fixed);
+            setContestOptIn(data.contestOptIn || false);
+            setFlightMatchingOptIn(data.flightMatchingOptIn || false);
+            setNickname(data.nickname || '');
+            setFavoritePassengers(data.favoritePassengers || []);
+
+            // Auto-grant admin to primary admin if not already set
+            const shouldBeAdmin = data.isAdmin || firebaseUser.email === INITIAL_ADMIN_EMAIL;
+            setIsAdmin(shouldBeAdmin);
+            const updates = {};
+            if (shouldBeAdmin && !data.isAdmin) updates.isAdmin = true;
+            // Backfill email if missing (existing accounts pre-date this field)
+            if (!data.email && firebaseUser.email) updates.email = firebaseUser.email;
+            if (Object.keys(updates).length > 0) {
+              try { await updateDoc(userDocRef, updates); } catch (e) {}
+            }
+
+	    if (changed) {
+		try {
+		    await updateDoc(userDocRef, { flights: fixed });
+		} catch (e) {
+		    console.error('Failed to persist ID migration', e);
+		}
+	    }
+        } else {
+          // Create user document — auto-seed admin for the primary admin email
+          const isInitialAdmin = firebaseUser.email === INITIAL_ADMIN_EMAIL;
+          await setDoc(userDocRef, {
+            flights: [],
+            email: firebaseUser.email || '',
+            createdAt: new Date().toISOString(),
+            contestOptIn: false,
+            flightMatchingOptIn: false,
+            nickname: '',
+            isAdmin: isInitialAdmin,
+            blocked: false
+          });
+          setIsAdmin(isInitialAdmin);
+          setFlights([]);
+          setContestOptIn(false);
+          setFlightMatchingOptIn(false);
+          setNickname('');
+        }
+        setAuthUser(firebaseUser);
+      } else {
+          setAuthUser(null);
+          setIsAdmin(false);
+          setContestOptIn(false);
+          setFlightMatchingOptIn(false);
+          setNickname('');
+          setFavoritePassengers([]);
+          setChatOpen(false);
+          setChatPartner(null);
+          setChatMessages([]);
+          // Fall back to localStorage for non-authenticated users
+          const localFlights = localStorage.getItem('flights-data');
+          const parsed = localFlights ? JSON.parse(localFlights) : [];
+	  const { fixed, changed } = ensureUniqueIds(parsed);
+	  setFlights(fixed);
+	  if (changed) {
+	      localStorage.setItem('flights-data', JSON.stringify(fixed));
+	  }
+      }
+	setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Save flights to Firestore when they change (for authenticated users)
+  // CRITICAL: Use a ref to track if we're in the middle of loading to prevent race conditions
+  const isSavingRef = useRef(false);
+  
+  useEffect(() => {
+    // Don't save if we're still loading or if we're already saving
+    if (authLoading || isSavingRef.current) {
+      console.log('⏸️ Skipping save - authLoading:', authLoading, 'isSaving:', isSavingRef.current);
+      return;
+    }
+    
+    if (authUser) {
+      isSavingRef.current = true;
+      const userDocRef = doc(db, 'users', authUser.uid);
+      console.log('💾 Saving flights to Firestore:', flights.length, 'flights');
+      
+      updateDoc(userDocRef, { flights: flights })
+        .then(() => {
+          console.log('✓ Flights saved successfully to Firestore');
+          isSavingRef.current = false;
+        })
+        .catch((error) => {
+          console.error('❌ Error saving flights to Firestore:', error);
+          console.error('Error code:', error.code);
+          console.error('Error message:', error.message);
+          isSavingRef.current = false;
+        });
+    } else if (!authUser) {
+      // Save to localStorage for non-authenticated users
+      console.log('💾 Saving flights to localStorage:', flights.length, 'flights');
+      localStorage.setItem('flights-data', JSON.stringify(flights));
+    }
+  }, [flights, authUser, authLoading]);
+
+
+  // Update public stats when opted in and flights change
+  useEffect(() => {
+    const updatePublicStats = async () => {
+      // Don't run during toggle operation or if not opted in
+      if (authUser && contestOptIn && !authLoading && !contestLoading) {
+        const stats = calculateUserStats(flights);
+        const publicStatsRef = doc(db, 'publicStats', authUser.uid);
+        try {
+          await setDoc(publicStatsRef, {
+            displayName: nickname || authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+            email: authUser.email,
+            ...stats,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('Error updating public stats:', error);
+        }
+      }
+    };
+    updatePublicStats();
+  }, [flights, contestOptIn, authUser, authLoading, contestLoading, nickname]);
+
+  // Handle contest opt-in toggle
+  const handleContestOptInToggle = async (newValue) => {
+    if (!authUser || contestLoading) return;
+    
+    setContestLoading(true);
+    const userDocRef = doc(db, 'users', authUser.uid);
+    
+    try {
+      // First update the user's preference
+      await updateDoc(userDocRef, { contestOptIn: newValue });
+      
+      // Then update public stats
+      const publicStatsRef = doc(db, 'publicStats', authUser.uid);
+      if (newValue) {
+        // Add stats to public collection
+        const stats = calculateUserStats(flights);
+        await setDoc(publicStatsRef, {
+          displayName: nickname || authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+          email: authUser.email,
+          ...stats,
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        // Remove from public collection by setting opted out flag
+        await setDoc(publicStatsRef, { optedOut: true, updatedAt: new Date().toISOString() });
+      }
+      
+      // Only update local state after successful Firebase writes
+      setContestOptIn(newValue);
+    } catch (error) {
+      console.error('Error updating contest opt-in:', error);
+      alert('Failed to update contest preference. Please check your connection and try again.');
+      // Don't change local state on error
+    } finally {
+      setContestLoading(false);
+    }
+  };
+
+  // Handle flight matching opt-in toggle
+  const handleFlightMatchingToggle = async (newValue) => {
+    if (!authUser) return;
+    
+    const userDocRef = doc(db, 'users', authUser.uid);
+    
+    try {
+      // Update user's preference
+      await updateDoc(userDocRef, { flightMatchingOptIn: newValue });
+      
+      // If opting in, register all flights with flight numbers to the shared registry
+      if (newValue) {
+        const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+        console.log(`Registering ${flightsWithNumbers.length} flights for user ${authUser.uid}`);
+        
+        for (const flight of flightsWithNumbers) {
+          const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+          console.log(`Registering flight: "${flight.flightNumber}" on ${flight.date} as key: "${flightKey}"`);
+          
+          const registryRef = doc(db, 'flightRegistry', flightKey);
+          const registryDoc = await getDoc(registryRef);
+          
+          const userEntry = {
+            uid: authUser.uid,
+            nickname: nickname || authUser.displayName || 'Anonymous',
+            addedAt: new Date().toISOString()
+          };
+          
+          if (registryDoc.exists()) {
+            const existing = registryDoc.data().passengers || [];
+            console.log(`Flight ${flightKey} already has ${existing.length} passengers`);
+            // Don't add duplicate
+            if (!existing.some(p => p.uid === authUser.uid)) {
+              await updateDoc(registryRef, { 
+                passengers: [...existing, userEntry]
+              });
+              console.log(`Added user to existing flight ${flightKey}`);
+            } else {
+              console.log(`User already registered for flight ${flightKey}`);
+            }
+          } else {
+            await setDoc(registryRef, {
+              flightNumber: flight.flightNumber,
+              date: flight.date,
+              passengers: [userEntry]
+            });
+            console.log(`Created new registry for flight ${flightKey}`);
+          }
+        }
+      } else {
+        // If opting out, remove user from all flight registries
+        const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+        for (const flight of flightsWithNumbers) {
+          const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+          const registryRef = doc(db, 'flightRegistry', flightKey);
+          const registryDoc = await getDoc(registryRef);
+          
+          if (registryDoc.exists()) {
+            const existing = registryDoc.data().passengers || [];
+            const filtered = existing.filter(p => p.uid !== authUser.uid);
+            await updateDoc(registryRef, { passengers: filtered });
+          }
+        }
+      }
+      
+      setFlightMatchingOptIn(newValue);
+      
+      // Refresh flight matches if opting in
+      if (newValue) {
+        checkFlightMatches();
+      } else {
+        setFlightMatches({});
+        setFellowPassengers([]);
+      }
+    } catch (error) {
+      console.error('Error updating flight matching preference:', error);
+      alert('Failed to update flight matching preference. Please try again.');
+    }
+  };
+
+  // Check for flight matches (other users on same flights)
+  const checkFlightMatches = async () => {
+    if (!authUser || !flightMatchingOptIn) {
+      console.log('Skipping flight match check - not authenticated or not opted in');
+      return;
+    }
+    
+    console.log('========== CHECKING FLIGHT MATCHES ==========');
+    console.log('Current user ID:', authUser.uid);
+    console.log('Current user nickname:', nickname);
+    
+    // First, let's see ALL documents in flightRegistry for debugging
+    try {
+      console.log('\n--- Listing ALL flightRegistry documents ---');
+      const registrySnapshot = await getDocs(collection(db, 'flightRegistry'));
+      console.log(`Total documents in flightRegistry: ${registrySnapshot.size}`);
+      registrySnapshot.forEach((doc) => {
+        console.log(`Document ID: ${doc.id}`);
+        console.log('Data:', JSON.stringify(doc.data(), null, 2));
+      });
+      console.log('--- End of flightRegistry listing ---\n');
+    } catch (listError) {
+      console.error('Error listing flightRegistry:', listError);
+    }
+    
+    const matches = {};
+    const fellowPassengersData = [];
+    const flightsWithNumbers = flights.filter(f => f.flightNumber && f.date);
+    
+    console.log('Flights with numbers:', flightsWithNumbers.length);
+    console.log('Flight details:', flightsWithNumbers.map(f => ({
+      flightNumber: f.flightNumber,
+      date: f.date,
+      origin: f.origin,
+      destination: f.destination
+    })));
+    
+    for (const flight of flightsWithNumbers) {
+      const flightKey = `${flight.flightNumber}_${flight.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+      console.log(`\n--- Checking Flight ---`);
+      console.log(`Original flight number: "${flight.flightNumber}"`);
+      console.log(`Original date: "${flight.date}"`);
+      console.log(`Generated key: "${flightKey}"`);
+      
+      try {
+        const registryRef = doc(db, 'flightRegistry', flightKey);
+        console.log(`Attempting to read from: flightRegistry/${flightKey}`);
+        
+        const registryDoc = await getDoc(registryRef);
+        console.log(`Document exists: ${registryDoc.exists()}`);
+        
+        if (registryDoc.exists()) {
+          const docData = registryDoc.data();
+          console.log('Full document data:', JSON.stringify(docData, null, 2));
+          
+          const passengers = docData.passengers || [];
+          console.log(`Total passengers in registry: ${passengers.length}`);
+          console.log('All passengers:', passengers.map(p => ({
+            uid: p.uid,
+            nickname: p.nickname,
+            addedAt: p.addedAt
+          })));
+          
+          // Filter out current user (String() cast guards against type mismatches)
+          const myUid = String(authUser.uid);
+          const others = passengers.filter(p => String(p.uid) !== myUid);
+          console.log(`Fellow passengers (excluding self): ${others.length}`);
+          
+          if (others.length > 0) {
+            console.log('✓ MATCH FOUND! Other passengers:', others.map(p => p.nickname));
+            matches[flightKey] = others;
+            
+            // Add to fellow passengers with flight details
+            others.forEach(passenger => {
+              const passengerData = {
+                ...passenger,
+                flightNumber: flight.flightNumber,
+                date: flight.date,
+                origin: flight.origin,
+                destination: flight.destination,
+                airline: flight.airline
+              };
+              console.log('Adding fellow passenger:', passengerData);
+              fellowPassengersData.push(passengerData);
+            });
+          } else {
+            console.log('✗ No other passengers on this flight (only you)');
+          }
+        } else {
+          console.log(`✗ No registry document found for flight ${flightKey}`);
+          console.log('This means no one has registered for this flight yet.');
+        }
+      } catch (e) {
+        console.error(`❌ ERROR checking flight ${flightKey}:`, e);
+        console.error('Error name:', e.name);
+        console.error('Error message:', e.message);
+        console.error('Error code:', e.code);
+      }
+    }
+    
+    console.log('\n========== FINAL RESULTS ==========');
+    console.log('Total fellow passengers found:', fellowPassengersData.length);
+    console.log('Fellow passengers data:', fellowPassengersData);
+    console.log('Matches object:', matches);
+    console.log('=====================================\n');
+    
+    setFlightMatches(matches);
+    setFellowPassengers(fellowPassengersData);
+  };
+
+  // Check flight matches when flights change and user is opted in
+  useEffect(() => {
+    if (authUser && flightMatchingOptIn && !authLoading) {
+      checkFlightMatches();
+    }
+  }, [flights, flightMatchingOptIn, authUser, authLoading]);
+
+  // Toggle a fellow passenger as favorite
+  const toggleFavoritePassenger = async (passengerUid) => {
+    if (!authUser) return;
+    const isFav = favoritePassengers.includes(passengerUid);
+    const updated = isFav
+      ? favoritePassengers.filter(uid => uid !== passengerUid)
+      : [...favoritePassengers, passengerUid];
+    setFavoritePassengers(updated);
+    try {
+      const userDocRef = doc(db, 'users', authUser.uid);
+      await updateDoc(userDocRef, { favoritePassengers: updated });
+    } catch (e) {
+      console.error('Error saving favorites:', e);
+    }
+  };
+
+  // Generate a deterministic chat conversation ID from two UIDs
+  const getChatId = (uid1, uid2) => {
+    return [uid1, uid2].sort().join('_');
+  };
+
+  // Helper: stop any active chat polling and snapshot listener
+  const stopChatSync = () => {
+    if (chatUnsubRef.current) {
+      chatUnsubRef.current();
+      chatUnsubRef.current = null;
+    }
+    if (chatPollRef.current) {
+      clearInterval(chatPollRef.current);
+      chatPollRef.current = null;
+    }
+  };
+
+  // Open chat with a fellow passenger
+  const openChat = (passenger) => {
+    if (!authUser) return;
+    setChatPartner({ uid: passenger.uid, nickname: passenger.nickname || 'Anonymous Traveler' });
+    setChatMessages([]);
+    setChatInput('');
+    setChatError('');
+    setChatOpen(true);
+    setChatLoading(true);
+    // Close the fellow passengers popup so it doesn't interfere
+    setShowFellowPassengers(false);
+
+    const chatId = getChatId(authUser.uid, passenger.uid);
+    const chatDocRef = doc(db, 'chats', chatId);
+
+    // Clean up any previous listeners/polls
+    stopChatSync();
+
+    const initAndListen = async () => {
+      // Ensure chat document exists
+      try {
+        const chatDoc = await getDoc(chatDocRef);
+        if (!chatDoc.exists()) {
+          await setDoc(chatDocRef, {
+            participants: [authUser.uid, passenger.uid],
+            messages: []
+          });
+        } else {
+          // Show existing messages immediately
+          setChatMessages(chatDoc.data().messages || []);
+        }
+        setChatLoading(false);
+      } catch (e) {
+        console.error('Error initializing chat document:', e);
+        setChatError('Could not connect to chat. Check your connection.');
+        setChatLoading(false);
+        return;
+      }
+
+      // 1) Real-time listener (instant for sender, may or may not work cross-user)
+      try {
+        const unsub = onSnapshot(chatDocRef, (snapshot) => {
+          if (snapshot.exists()) {
+            setChatMessages(snapshot.data().messages || []);
+          }
+          setChatError('');
+        }, (err) => {
+          console.error('Chat snapshot listener error:', err);
+          // Don't show error — polling fallback will keep working
+        });
+        chatUnsubRef.current = unsub;
+      } catch (e) {
+        console.error('Could not set up real-time listener:', e);
+      }
+
+      // 2) Polling fallback every 3s — guarantees cross-user delivery
+      //    Uses getDoc with {source:'server'} to bypass cache and hit Firestore directly
+      chatPollRef.current = setInterval(async () => {
+        try {
+          const fresh = await getDoc(chatDocRef);
+          if (fresh.exists()) {
+            const msgs = fresh.data().messages || [];
+            setChatMessages(prev => {
+              // Only update if message count changed to avoid unnecessary re-renders
+              if (msgs.length !== prev.length) return msgs;
+              return prev;
+            });
+          }
+        } catch (e) {
+          // Silent — snapshot or next poll will pick it up
+        }
+      }, 3000);
+    };
+
+    initAndListen();
+  };
+
+  // Close chat and unsubscribe from listener + polling
+  const closeChat = () => {
+    stopChatSync();
+    setChatOpen(false);
+    setChatPartner(null);
+    setChatMessages([]);
+    setChatInput('');
+    setChatError('');
+  };
+
+  // Send a chat message using arrayUnion for atomic append
+  const sendChatMessage = async () => {
+    if (!authUser || !chatPartner || !chatInput.trim()) return;
+    const text = chatInput.trim();
+    setChatInput('');
+    setChatError('');
+
+    const chatId = getChatId(authUser.uid, chatPartner.uid);
+    const chatDocRef = doc(db, 'chats', chatId);
+    const newMsg = {
+      from: authUser.uid,
+      nickname: nickname || authUser.displayName || 'Anonymous',
+      text,
+      ts: new Date().toISOString()
+    };
+
+    try {
+      // Use arrayUnion for atomic, conflict-free append
+      await updateDoc(chatDocRef, {
+        messages: arrayUnion(newMsg)
+      });
+    } catch (e) {
+      // If document doesn't exist yet (shouldn't happen since openChat creates it), create it
+      if (e.code === 'not-found') {
+        try {
+          await setDoc(chatDocRef, {
+            participants: [authUser.uid, chatPartner.uid],
+            messages: [newMsg]
+          });
+        } catch (e2) {
+          console.error('Error creating chat:', e2);
+          setChatError('Failed to send. Please try again.');
+          setChatInput(text); // Restore the message so user can retry
+        }
+      } else {
+        console.error('Error sending message:', e);
+        setChatError('Failed to send. Please try again.');
+        setChatInput(text); // Restore the message so user can retry
+      }
+    }
+  };
+
+  // Cleanup chat listener + polling on unmount
+  useEffect(() => {
+    return () => stopChatSync();
+  }, []);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages]);
+
+  // Fetch leaderboard data
+  const fetchLeaderboard = async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const publicStatsRef = collection(db, 'publicStats');
+      const snapshot = await getDocs(publicStatsRef);
+      const leaderboard = [];
+      
+      console.log('Fetching leaderboard, found documents:', snapshot.size);
+      
+      snapshot.forEach((docSnapshot) => {
+        const data = docSnapshot.data();
+        console.log('Document:', docSnapshot.id, data);
+        
+        // Only exclude if explicitly opted out, include all others with any miles
+        const isOptedOut = data.optedOut === true;
+        const hasMiles = data.totalMiles !== undefined && data.totalMiles !== null;
+        
+        if (!isOptedOut && hasMiles) {
+          leaderboard.push({
+            id: docSnapshot.id,
+            ...data,
+            totalMiles: data.totalMiles || 0,
+            totalFlights: data.totalFlights || 0,
+            uniqueCountries: data.uniqueCountries || 0,
+            uniqueAirports: data.uniqueAirports || 0,
+            totalCO2: data.totalCO2 || 0,
+            isCurrentUser: authUser && docSnapshot.id === authUser.uid
+          });
+        }
+      });
+      
+      console.log('Filtered leaderboard entries:', leaderboard.length);
+      
+      // Sort by total miles descending by default
+      leaderboard.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
+      setLeaderboardData(leaderboard);
+    } catch (error) {
+      console.error('Error fetching leaderboard:', error);
+      // Show the error to user for debugging
+      alert('Error loading leaderboard: ' + error.message);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  };
+
+  // Get sorted leaderboard data based on current sort selection
+  const getSortedLeaderboard = () => {
+    const sorted = [...leaderboardData];
+    switch (leaderboardSortBy) {
+      case 'miles':
+        sorted.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
+        break;
+      case 'flights':
+        sorted.sort((a, b) => (b.totalFlights || 0) - (a.totalFlights || 0));
+        break;
+      case 'countries':
+        sorted.sort((a, b) => (b.uniqueCountries || 0) - (a.uniqueCountries || 0));
+        break;
+      case 'co2':
+        // Lower CO2 is better, so sort ascending
+        sorted.sort((a, b) => (a.totalCO2 || 0) - (b.totalCO2 || 0));
+        break;
+      default:
+        sorted.sort((a, b) => (b.totalMiles || 0) - (a.totalMiles || 0));
+    }
+    return sorted;
+  };
+
+  // Fetch leaderboard when showing it
+  useEffect(() => {
+    if (showLeaderboard) {
+      fetchLeaderboard();
+    }
+  }, [showLeaderboard, authUser]);
+
+  // Handle nickname save
+  const handleSaveNickname = async () => {
+    if (!authUser) return;
+    
+    const trimmedNickname = nicknameInput.trim();
+    const userDocRef = doc(db, 'users', authUser.uid);
+    
+    try {
+      await updateDoc(userDocRef, { nickname: trimmedNickname });
+      setNickname(trimmedNickname);
+      setEditingNickname(false);
+      
+      // Also update public stats if opted in
+      if (contestOptIn) {
+        const publicStatsRef = doc(db, 'publicStats', authUser.uid);
+        const stats = calculateUserStats(flights);
+        await setDoc(publicStatsRef, {
+          displayName: trimmedNickname || authUser.displayName || authUser.email?.split('@')[0] || 'Anonymous Flyer',
+          email: authUser.email,
+          ...stats,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      console.error('Error saving nickname:', error);
+      alert('Failed to save nickname. Please try again.');
+    }
+  };
+
+  // Get display name (nickname or email prefix)
+  const getDisplayName = () => {
+    if (nickname) return nickname;
+    if (authUser?.displayName) return authUser.displayName;
+    if (authUser?.email) return authUser.email.split('@')[0];
+    return 'User';
+  };
 
   useEffect(() => {
     const session = localStorage.getItem('user-profile');
     if (session) {
       setUser(JSON.parse(session));
-      setFlights(JSON.parse(localStorage.getItem('flights-data') || '[]'));
     }
 
     // 1. Singleton Script Loading for GAPI
@@ -343,15 +887,55 @@ const FlightTracker = () => {
       script2.src = "https://accounts.google.com/gsi/client";
       script2.onload = () => {
         const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: SCOPES,
-          callback: '', 
+            client_id: GOOGLE_CLIENT_ID,
+            scope: SCOPES,
+            callback: '',
+            ux_mode: 'popup',
+            error_callback: (error) => {
+              console.error('Google OAuth error:', error);
+              // Clear timeout and reset importing state
+              if (window._gmailAuthTimeout) {
+                clearTimeout(window._gmailAuthTimeout);
+                window._gmailAuthTimeout = null;
+              }
+              if (window._setGmailImporting) {
+                window._setGmailImporting(false);
+              }
+              // Handle popup blocked or other errors
+              if (error.type === 'popup_closed' || error.type === 'popup_failed_to_open') {
+                alert('Popup was blocked or closed. Please allow popups for this site and try again.');
+              }
+            }
         });
         setTokenClient(client);
       };
       document.body.appendChild(script2);
+    } else if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+      // Script already loaded, just initialize the client
+      const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SCOPES,
+          callback: '',
+          ux_mode: 'popup',
+          error_callback: (error) => {
+            console.error('Google OAuth error:', error);
+            // Clear timeout and reset importing state
+            if (window._gmailAuthTimeout) {
+              clearTimeout(window._gmailAuthTimeout);
+              window._gmailAuthTimeout = null;
+            }
+            if (window._setGmailImporting) {
+              window._setGmailImporting(false);
+            }
+            if (error.type === 'popup_closed' || error.type === 'popup_failed_to_open') {
+              alert('Popup was blocked or closed. Please allow popups for this site and try again.');
+            }
+          }
+      });
+      setTokenClient(client);
     }
 
+    
     // 2. Singleton Script Loading for Google Maps
     const mapScriptId = 'google-maps-script';
     
@@ -375,239 +959,717 @@ const FlightTracker = () => {
     }
   }, []);
 
-  // --- IMPROVED LANDMARK DETECTION ---
-  // Check if a point is within an ocean's bounding box
-  const isPointInOceanBounds = (point, ocean) => {
-    const { minLat, maxLat, minLon, maxLon } = ocean.bounds;
+  // Close alliance dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      if (openAllianceDropdown) {
+        setOpenAllianceDropdown(null);
+      }
+    };
     
-    // Handle longitude wrap-around for areas crossing the date line
-    if (minLon > maxLon) {
-      // Crosses date line (e.g., Bering Sea)
-      return point.lat >= minLat && point.lat <= maxLat && 
-             (point.lon >= minLon || point.lon <= maxLon);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openAllianceDropdown]);
+
+  // --- AUTHENTICATION HANDLERS ---
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          setAuthError('This email is already registered. Try logging in.');
+          break;
+        case 'auth/weak-password':
+          setAuthError('Password should be at least 6 characters.');
+          break;
+        case 'auth/invalid-email':
+          setAuthError('Please enter a valid email address.');
+          break;
+        default:
+          setAuthError(error.message);
+      }
     }
-    
-    return point.lat >= minLat && point.lat <= maxLat && 
-           point.lon >= minLon && point.lon <= maxLon;
   };
 
-  // Check if a point is near a landmark
-  const isPointNearLandmark = (point, landmark) => {
-    const dist = calculateDistance(point.lat, point.lon, landmark.lat, landmark.lon);
-    return dist <= landmark.radius;
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      switch (error.code) {
+        case 'auth/user-not-found':
+          setAuthError('No account found with this email.');
+          break;
+        case 'auth/wrong-password':
+          setAuthError('Incorrect password.');
+          break;
+        case 'auth/invalid-email':
+          setAuthError('Please enter a valid email address.');
+          break;
+        case 'auth/too-many-requests':
+          setAuthError('Too many failed attempts. Please try again later.');
+          break;
+        default:
+          setAuthError('Invalid email or password.');
+      }
+    }
   };
 
-  // Main hybrid detection function
-  const detectLandmarksHybrid = async (origin, dest) => {
-    const steps = 20; // Increased from 12 for better coverage
-    const detected = new Set();
-    const landPointsFound = []; // Track which points are confirmed over land
+  const handleGoogleSignIn = async () => {
+    setAuthError('');
+    try {
+      await signInWithPopup(auth, googleProvider);
+      setShowAuthModal(false);
+    } catch (error) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setAuthError('Google sign-in failed. Please try again.');
+      }
+    }
+  };
     
-    // First pass: Check all points against our landmarks database
-    for (let i = 1; i < steps; i++) {
-      const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, i / steps);
-      
-      if (!point || isNaN(point.lat) || isNaN(point.lon)) continue;
-      
-      // Check against landmarks database
-      LANDMARKS_DB.forEach(landmark => {
-        if (isPointNearLandmark(point, landmark)) {
-          detected.add(landmark.name);
-        }
+  const handleLogout = async () => {
+      try {
+	  await signOut(auth);
+      } catch (error) {
+	  console.error('Logout error:', error);
+      } finally {
+	  try { localStorage.removeItem('landingDismissed'); } catch(e) {}
+	  if (typeof setShowLanding === 'function') setShowLanding(true);
+	  if (typeof window !== 'undefined' && window.scrollTo) {
+	      window.scrollTo({ top: 0, behavior: 'smooth' });
+	  }
+      }
+  };
+
+  const openAuthModal = (mode) => {
+    setAuthMode(mode);
+    setAuthError('');
+    setAuthEmail('');
+    setAuthPassword('');
+    setShowAuthModal(true);
+  };
+
+  // Combined auth submit handler
+  const handleAuthSubmit = (e) => {
+    if (authMode === 'signup') {
+      handleSignup(e);
+    } else {
+      handleLogin(e);
+    }
+  };
+
+  // --- DATABASE REPROCESSING ---
+  // Define the current schema version - increment this when new fields are added
+  const CURRENT_SCHEMA_VERSION = 3; // v3 fixed country fetching for external airports
+
+  // Check if a flight needs reprocessing (missing new fields)
+  const flightNeedsReprocessing = (flight) => {
+    // If schema version is current, no reprocessing needed
+    if (flight.schemaVersion && flight.schemaVersion >= CURRENT_SCHEMA_VERSION) return false;
+    // Otherwise, check for missing country/continent data
+    if (flight.originCountry === undefined || flight.destCountry === undefined) return true;
+    if (flight.originContinent === undefined || flight.destContinent === undefined) return true;
+    // Also reprocess if continent is 'Unknown' (country might not have been fetched properly)
+    if (flight.originContinent === 'Unknown' || flight.destContinent === 'Unknown') return true;
+    // Also reprocess if country is empty string
+    if (flight.originCountry === '' || flight.destCountry === '') return true;
+    return true; // schemaVersion is outdated
+  };
+
+  // Count flights that need reprocessing
+  const getFlightsNeedingUpdate = () => {
+    return flights.filter(f => flightNeedsReprocessing(f));
+  };
+
+  // Reprocess a single flight to add missing data
+  const reprocessFlight = (flight) => {
+    const originAirport = AIRPORTS_DATABASE.find(a => a.code === flight.origin);
+    const destAirport = AIRPORTS_DATABASE.find(a => a.code === flight.destination);
+    
+    // Get country - use existing if valid, otherwise look up
+    const originCountry = (flight.originCountry && flight.originCountry !== '') 
+      ? flight.originCountry 
+      : (originAirport?.country || '');
+    const destCountry = (flight.destCountry && flight.destCountry !== '') 
+      ? flight.destCountry 
+      : (destAirport?.country || '');
+    
+    // Get continent - recalculate from country (in case country was fixed)
+    const originContinent = getContinent(originCountry);
+    const destContinent = getContinent(destCountry);
+    
+    const updatedFlight = {
+      ...flight,
+      originCountry,
+      destCountry,
+      originContinent: originContinent !== 'Unknown' ? originContinent : (flight.originContinent || 'Unknown'),
+      destContinent: destContinent !== 'Unknown' ? destContinent : (flight.destContinent || 'Unknown'),
+      schemaVersion: CURRENT_SCHEMA_VERSION
+    };
+
+    // Also update legs if present
+    if (updatedFlight.legs && updatedFlight.legs.length > 0) {
+      updatedFlight.legs = updatedFlight.legs.map(leg => {
+        const legOrigin = AIRPORTS_DATABASE.find(a => a.code === leg.origin);
+        const legDest = AIRPORTS_DATABASE.find(a => a.code === leg.destination);
+        
+        const legOriginCountry = (leg.originCountry && leg.originCountry !== '') 
+          ? leg.originCountry 
+          : (legOrigin?.country || '');
+        const legDestCountry = (leg.destCountry && leg.destCountry !== '') 
+          ? leg.destCountry 
+          : (legDest?.country || '');
+        
+        return {
+          ...leg,
+          originCountry: legOriginCountry,
+          destCountry: legDestCountry,
+          originContinent: getContinent(legOriginCountry),
+          destContinent: getContinent(legDestCountry)
+        };
       });
     }
-    
-    // Second pass: Use geocoding to verify water vs land and detect additional features
-    if (geocoder.current) {
-      // Sample fewer points for geocoding to stay within rate limits
-      const geocodeSteps = [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9];
-      
-      for (let frac of geocodeSteps) {
-        const point = getIntermediatePoint(origin.lat, origin.lon, dest.lat, dest.lon, frac);
-        
-        if (!point || isNaN(point.lat) || isNaN(point.lon)) continue;
-        
-        setStatusMsg(`Scanning point ${Math.round(frac * 100)}%...`);
-        
-        try {
-          await new Promise(r => setTimeout(r, 300));
-          
-          const googlePoint = { lat: point.lat, lng: point.lon };
-          
-          const results = await new Promise((resolve) => {
-            geocoder.current.geocode({ location: googlePoint }, (res, status) => resolve({res, status}));
-          });
-          
-          if (results.status === "OK" && results.res && results.res.length > 0) {
-            // We got land results - this point is over land
-            landPointsFound.push(point);
-            
-            // Check for additional features from geocoding
-            results.res.forEach(r => {
-              const types = r.types || [];
-              if (types.includes('natural_feature') || types.includes('park') || types.includes('establishment')) {
-                r.address_components?.forEach(comp => {
-                  const compTypes = comp.types || [];
-                  // Skip administrative areas
-                  if (compTypes.includes('country') || 
-                      compTypes.includes('administrative_area_level_1') ||
-                      compTypes.includes('administrative_area_level_2') ||
-                      compTypes.includes('locality')) {
-                    return;
-                  }
-                  
-                  const name = comp.long_name;
-                  // Look for meaningful natural features
-                  if (name.includes("National Park") || 
-                      name.includes("National Forest") ||
-                      name.includes("National Monument") ||
-                      name.includes("Wilderness") ||
-                      name.includes("Mountain") ||
-                      name.includes("Lake") ||
-                      name.includes("River") ||
-                      name.includes("Canyon") ||
-                      name.includes("Desert") ||
-                      name.includes("Valley")) {
-                    detected.add(name);
-                  }
-                });
-              }
-            });
-          } else if (results.status === "ZERO_RESULTS") {
-            // No results means we're over water - check oceans
-            checkOceansImproved(point, detected);
-          }
-        } catch (e) { 
-          console.warn("Geocoding skip:", e); 
+
+    return updatedFlight;
+  };
+
+  // Reprocess all flights that need updating
+  const handleReprocessDatabase = async () => {
+    const flightsToUpdate = getFlightsNeedingUpdate();
+    if (flightsToUpdate.length === 0) return;
+
+    setIsReprocessing(true);
+    setReprocessProgress({ current: 0, total: flightsToUpdate.length });
+
+    try {
+      const updatedFlights = flights.map((flight, index) => {
+        if (flightNeedsReprocessing(flight)) {
+          setReprocessProgress(prev => ({ ...prev, current: prev.current + 1 }));
+          return reprocessFlight(flight);
         }
+        return flight;
+      });
+
+      setFlights(updatedFlights);
+      localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
+
+      // Also update Firestore if logged in
+      if (authUser) {
+        const userDocRef = doc(db, 'users', authUser.uid);
+        await updateDoc(userDocRef, { flights: updatedFlights });
       }
+
+      alert(`Successfully updated ${flightsToUpdate.length} flight${flightsToUpdate.length > 1 ? 's' : ''} with new data!`);
+    } catch (error) {
+      console.error('Error reprocessing database:', error);
+      alert('Error updating flights. Please try again.');
+    } finally {
+      setIsReprocessing(false);
+      setReprocessProgress({ current: 0, total: 0 });
     }
-    
-    setStatusMsg('');
-    return Array.from(detected);
   };
 
-  // Improved ocean checking using bounding boxes
-  const checkOceansImproved = (point, detectedSet) => {
-    OCEANS_DB.forEach(ocean => {
-      if (isPointInOceanBounds(point, ocean)) {
-        detectedSet.add(ocean.name);
-      }
-    });
-  };
-
-  // --- GMAIL LOGIC ---
-  const extractFlightInfo = (message) => {
-    const headers = message.payload.headers;
-    const subject = headers.find(h => h.name === 'Subject')?.value || '';
-    const from = headers.find(h => h.name === 'From')?.value || '';
-    const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
-    const fullText = (subject + " " + message.snippet + " " + decodeEmailBody(message.payload)).replace(/\s+/g, ' ');
-
-    const isTicket = /ticket number|booking ref|confirmation code|eticket|itinerary/i.test(fullText);
-    if (!isTicket) return null;
-
-    const originRegex = /(?:from|depart|departure|origin)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
-    const destRegex = /(?:to|arrive|arrival|destination)[\s\S]{0,50}?\(?([A-Z]{3})\)?/i;
-    const simpleRouteRegex = /\b([A-Z]{3})\s*(?:to|-|->|–)\s*([A-Z]{3})\b/i;
-
-    let origin = '', destination = '';
-    const simpleMatch = fullText.match(simpleRouteRegex);
-    if (simpleMatch) {
-      origin = simpleMatch[1];
-      destination = simpleMatch[2];
-    } else {
-      const originMatch = fullText.match(originRegex);
-      const destMatch = fullText.match(destRegex);
-      if (originMatch) origin = originMatch[1];
-      if (destMatch) destination = destMatch[1];
-    }
-
-    const flightNumRegex = /([A-Z]{2}|[A-Z]\d|\d[A-Z])\s?(\d{3,4})\b/; 
-    const numMatch = fullText.match(flightNumRegex);
-    let flightNum = numMatch ? numMatch[0].replace(/\s/g, '').toUpperCase() : '';
-
-    // Try to extract airline from email sender or content
-    const airlines = [
-      'United', 'Delta', 'American', 'Southwest', 'JetBlue', 'Alaska', 'Spirit', 'Frontier',
-      'British Airways', 'Lufthansa', 'Air France', 'KLM', 'Emirates', 'Qatar Airways',
-      'Singapore Airlines', 'Cathay Pacific', 'ANA', 'JAL', 'Turkish Airlines', 'Qantas',
-      'Virgin Atlantic', 'Air Canada', 'Aeromexico', 'LATAM', 'Iberia', 'Swiss', 'Austrian'
-    ];
-    let detectedAirline = '';
-    for (const airline of airlines) {
-      if (fullText.toLowerCase().includes(airline.toLowerCase()) || 
-          from.toLowerCase().includes(airline.toLowerCase())) {
-        detectedAirline = airline;
-        break;
-      }
-    }
-
-    if (!origin || !destination) return null;
-
-    const flightDate = new Date(dateHeader);
-    const formattedDate = flightDate.toISOString().split('T')[0];
-
-    return {
-      id: message.id,
-      origin: origin.toUpperCase(),
-      destination: destination.toUpperCase(),
-      date: formattedDate,
-      flightNumber: flightNum,
-      airline: detectedAirline,
-      aircraftType: 'Unknown',
-      serviceClass: 'Economy',
-      snippet: message.snippet.substring(0, 80) + "..."
-    };
+  // Delete a suggested flight from the list
+  const handleDeleteSuggestion = (flightId) => {
+    setSuggestedFlights(prev => prev.filter(f => f.id !== flightId));
   };
 
   const handleGmailImport = () => {
+    // Check if tokenClient is available
+    if (!tokenClient) {
+      alert('Google services are still loading. Please wait a moment and try again.');
+      return;
+    }
+    
+    // Detect mobile device
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // Show mobile warning (only once per session)
+    if (isMobile && !sessionStorage.getItem('gmailMobileWarningShown')) {
+      const proceed = window.confirm(
+        'Gmail sync may not work well on mobile browsers due to popup restrictions.\n\n' +
+        'For best results, please use a desktop browser.\n\n' +
+        'Would you like to try anyway?'
+      );
+      sessionStorage.setItem('gmailMobileWarningShown', 'true');
+      if (!proceed) return;
+    }
+    
     setImporting(true);
     tokenClient.callback = async (resp) => {
+      // Clear the timeout since we got a response
+      if (window._gmailAuthTimeout) {
+        clearTimeout(window._gmailAuthTimeout);
+        window._gmailAuthTimeout = null;
+      }
+      
       if (resp.error) {
         setImporting(false);
-        alert("Auth failed.");
+        setImportProgress(p => ({...p, show: false}));
+        console.error('Gmail auth error:', resp.error);
+        alert("Auth failed. " + (resp.error_description || ''));
         return;
       }
-      try {
-        const response = await window.gapi.client.gmail.users.messages.list({
-          'userId': 'me',
-          'q': 'subject:(flight OR confirmation OR ticket) AND ("ticket number" OR "booking reference" OR "eticket")',
-          'maxResults': 15
+
+      // Show date range picker modal after OAuth
+      const showDateRangePicker = () => {
+        return new Promise((resolve) => {
+          const modal = document.createElement('div');
+          modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
+
+          const content = document.createElement('div');
+          content.style.cssText = 'background:#fff;padding:30px;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,0.2);max-width:400px;width:90%;';
+          content.innerHTML = `
+            <h2 style="margin:0 0 20px 0;font-size:20px;font-weight:600;">Select Date Range</h2>
+            <div style="margin-bottom:15px;">
+              <label style="display:block;margin-bottom:5px;font-size:13px;font-weight:600;">From:</label>
+              <input type="date" id="dateFrom" value="${gmailDateFrom}" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"/>
+            </div>
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:5px;font-size:13px;font-weight:600;">To:</label>
+              <input type="date" id="dateTo" value="${gmailDateTo}" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px;"/>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button id="cancelBtn" style="padding:10px 20px;border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Cancel</button>
+              <button id="searchBtn" style="padding:10px 20px;border:none;background:#4285F4;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Search</button>
+            </div>
+          `;
+
+          modal.appendChild(content);
+          document.body.appendChild(modal);
+
+          document.getElementById('cancelBtn').onclick = () => {
+            document.body.removeChild(modal);
+            resolve(null);
+          };
+
+          document.getElementById('searchBtn').onclick = () => {
+            const from = document.getElementById('dateFrom').value;
+            const to = document.getElementById('dateTo').value;
+
+            // Validate dates
+            if (!from || !to) {
+              alert('Please select both start and end dates.');
+              return;
+            }
+
+            if (new Date(from) > new Date(to)) {
+              alert('Start date must be before end date.');
+              return;
+            }
+
+            console.log('Date range selected - From:', from, 'To:', to);
+            document.body.removeChild(modal);
+            resolve({ from, to });
+          };
         });
+      };
 
-        const messages = response.result.messages || [];
-        const suggestions = [];
+      const dateRange = await showDateRangePicker();
+      if (!dateRange) {
+        setImporting(false);
+        return;
+      }
 
-        for (let msg of messages) {
-          const details = await window.gapi.client.gmail.users.messages.get({ 
-            'userId': 'me', 'id': msg.id, 'format': 'full' 
-          });
-          const flight = extractFlightInfo(details.result);
-          if (flight && !suggestions.find(s => s.id === flight.id)) {
-            suggestions.push(flight);
+      console.log('User selected date range:', dateRange);
+      
+      // Show progress modal
+      setImportProgress({
+        show: true,
+        phase: 'searching',
+        currentQuery: 0,
+        totalQueries: 9,
+        currentEmail: 0,
+        totalEmails: 0,
+        foundFlights: 0,
+        currentQueryText: 'Initializing...'
+      });
+
+      try {
+        // Build date range query (Gmail format: YYYY/MM/DD)
+        const formatDateForGmail = (dateStr) => dateStr.replace(/-/g, '/');
+        const afterDate = formatDateForGmail(dateRange.from);
+        const beforeDate = formatDateForGmail(dateRange.to);
+
+        console.log('Gmail date range - After:', afterDate, 'Before:', beforeDate);
+
+        // Multi-pronged search strategy
+        const searchQueries = [
+          // 1. Gmail's reservation category (when available)
+          `category:reservations after:${afterDate} before:${beforeDate}`,
+
+          // 2. Strong flight subject keywords
+          `subject:(itinerary OR "flight confirmation" OR "booking confirmation" OR "e-ticket" OR eticket OR "boarding pass" OR "ticket number" OR "booking reference") after:${afterDate} before:${beforeDate}`,
+
+          // 3. Check-in and trip emails
+          `subject:("check-in" OR "your trip" OR "your flight" OR "trip confirmation" OR "travel itinerary" OR "flight receipt") after:${afterDate} before:${beforeDate}`,
+
+          // 4. Body content search — airline names and booking terms (catches emails not covered by domain/subject)
+          `(itinerary OR "e-ticket" OR eticket OR "boarding pass" OR "booking reference" OR "reservation number" OR "flight number" OR "departure date" OR "passenger name") after:${afterDate} before:${beforeDate}`,
+
+          // 5. US airlines (incl. common marketing subdomains)
+          `from:(united.com OR delta.com OR aa.com OR southwest.com OR jetblue.com OR alaskaair.com OR email.aa.com OR email.united.com OR email.delta.com OR info.alaskaair.com) after:${afterDate} before:${beforeDate}`,
+
+          // 6. European airlines
+          `from:(britishairways.com OR lufthansa.com OR airfrance.com OR klm.com OR iberia.com OR vueling.com OR tap.pt OR swiss.com OR austrian.com OR finnair.com OR sas.se OR norwegian.com OR easyjet.com OR ryanair.com OR wizzair.com OR transavia.com OR eurowings.com OR brusselsairlines.com OR lot.com OR aegeanair.com) after:${afterDate} before:${beforeDate}`,
+
+          // 7. Middle East, African, Turkish airlines
+          `from:(emirates.com OR qatarairways.com OR turkishairlines.com OR thy.com OR flypgs.com OR pegasusairlines.com OR sunexpress.com OR saudia.com OR airarabia.com OR flydubai.com OR flynas.com OR egyptair.com OR ethiopianairlines.com OR kenyanairways.com) after:${afterDate} before:${beforeDate}`,
+
+          // 8. Asian & Pacific airlines
+          `from:(singaporeair.com OR cathaypacific.com OR airasia.com OR thaiairways.com OR ana.co.jp OR jal.com OR koreanair.com OR evaair.com OR qantas.com OR airnewzealand.com OR flypeach.com OR lionair.co.id OR airindia.in OR goindigo.in OR vistara.com OR spicejet.com) after:${afterDate} before:${beforeDate}`,
+
+          // 9. Latin American airlines
+          `from:(latam.com OR gol.com OR azul.com.br OR avianca.com OR aeromexico.com OR copaair.com OR tam.com.br OR skyairline.com OR aeroflot.ru) after:${afterDate} before:${beforeDate}`,
+
+          // 10. Travel booking sites & OTAs
+          `from:(expedia.com OR booking.com OR kayak.com OR priceline.com OR orbitz.com OR travelocity.com OR tripadvisor.com OR edreams.com OR opodo.com OR lastminute.com OR volagratis.com OR gotogate.com OR bravofly.com OR cheapflights.com OR skyscanner.com OR momondo.com OR travelport.com OR amadeus.com) after:${afterDate} before:${beforeDate}`,
+        ];
+        
+        // Query labels for display
+        const queryLabels = [
+          'Gmail Reservations',
+          'Flight Confirmations',
+          'Check-in & Trip Emails',
+          'Body Content Search',
+          'US Airlines',
+          'European & LCC Airlines',
+          'Middle East & African Airlines',
+          'Asian & Pacific Airlines',
+          'Latin American Airlines',
+          'Travel Booking Sites & OTAs',
+        ];
+
+        const allMessageIds = new Set();
+        const allMessages = [];
+        
+        // Run searches with progress updates
+        for (let i = 0; i < searchQueries.length; i++) {
+          const query = searchQueries[i];
+          
+          setImportProgress(p => ({
+            ...p,
+            phase: 'searching',
+            currentQuery: i + 1,
+            totalQueries: searchQueries.length,
+            currentQueryText: queryLabels[i]
+          }));
+          
+          try {
+            console.log(`Search ${i + 1}/${searchQueries.length}: ${query.substring(0, 60)}...`);
+            const response = await window.gapi.client.gmail.users.messages.list({
+              'userId': 'me',
+              'q': query,
+              'maxResults': 50
+            });
+            
+            const messages = response.result.messages || [];
+            console.log(`  → Found ${messages.length} emails`);
+            
+            for (const msg of messages) {
+              if (!allMessageIds.has(msg.id)) {
+                allMessageIds.add(msg.id);
+                allMessages.push(msg);
+              }
+            }
+          } catch (e) {
+            console.log(`  → Search failed:`, e.message);
           }
         }
+        
+        console.log(`\nTotal unique emails to process: ${allMessages.length}`);
+        
+        // Update to processing phase
+        setImportProgress(p => ({
+          ...p,
+          phase: 'processing',
+          currentEmail: 0,
+          totalEmails: allMessages.length,
+          currentQueryText: 'Analyzing emails...'
+        }));
+
+        const suggestions = [];
+        const processedRoutes = new Set();
+        let jsonLdCount = 0;
+        let regexCount = 0;
+
+        // Helper function to detect and group round trips
+        const groupRoundTrips = (flights) => {
+          if (!flights || flights.length < 2) return flights;
+          
+          const result = [];
+          const used = new Set();
+          
+          for (let i = 0; i < flights.length; i++) {
+            if (used.has(i)) continue;
+            
+            const outbound = flights[i];
+            let returnFlight = null;
+            let returnIndex = -1;
+            
+            // Look for a return flight (same confirmation, reversed route)
+            for (let j = i + 1; j < flights.length; j++) {
+              if (used.has(j)) continue;
+              
+              const candidate = flights[j];
+              const sameConfirmation = outbound.confirmationNumber && 
+                                       outbound.confirmationNumber === candidate.confirmationNumber;
+              const isReversed = outbound.origin === candidate.destination && 
+                                outbound.destination === candidate.origin;
+              const returnDateAfter = !outbound.date || !candidate.date || 
+                                      new Date(candidate.date) >= new Date(outbound.date);
+              
+              if ((sameConfirmation || isReversed) && isReversed && returnDateAfter) {
+                returnFlight = candidate;
+                returnIndex = j;
+                break;
+              }
+            }
+            
+            if (returnFlight) {
+              // Mark as round trip
+              used.add(i);
+              used.add(returnIndex);
+              
+              result.push({
+                ...outbound,
+                id: `${outbound.id}-rt`,
+                isRoundTrip: true,
+                outboundFlight: outbound,
+                returnFlight: returnFlight,
+                snippet: `${outbound.origin} ⇄ ${outbound.destination} (Round Trip)`,
+                returnDate: returnFlight.date
+              });
+            } else {
+              result.push(outbound);
+            }
+          }
+          
+          return result;
+        };
+
+        for (let i = 0; i < allMessages.length; i++) {
+          const msg = allMessages[i];
+          
+          // Update progress every email
+          setImportProgress(p => ({
+            ...p,
+            currentEmail: i + 1,
+            foundFlights: suggestions.length
+          }));
+          
+          try {
+            if (i % 10 === 0) {
+              console.log(`Processing email ${i + 1}/${allMessages.length}...`);
+            }
+            
+            const details = await window.gapi.client.gmail.users.messages.get({
+              'userId': 'me', 'id': msg.id, 'format': 'full'
+            });
+            
+            let flights = extractFlightInfo(details.result);
+            
+            // Group round trips within the same email
+            if (flights && Array.isArray(flights) && flights.length >= 2) {
+              flights = groupRoundTrips(flights);
+            }
+            
+            if (flights && Array.isArray(flights)) {
+              flights.forEach(flight => {
+                const routeKey = flight.isRoundTrip 
+                  ? `${flight.origin}-${flight.destination}-RT-${flight.date}`
+                  : `${flight.origin}-${flight.destination}-${flight.date}`;
+                if (!processedRoutes.has(routeKey)) {
+                  processedRoutes.add(routeKey);
+                  suggestions.push(flight);
+                  
+                  if (flight.source === 'json-ld') jsonLdCount++;
+                  else regexCount++;
+                  
+                  if (flight.isRoundTrip) {
+                    console.log(`✓ Found Round Trip: ${flight.origin} ⇄ ${flight.destination} | ${flight.date} - ${flight.returnDate} | ${flight.airline || 'Unknown'} | ${flight.source}`);
+                  } else {
+                    console.log(`✓ Found: ${flight.origin} → ${flight.destination} | ${flight.date} | ${flight.airline || 'Unknown'} | ${flight.source}`);
+                  }
+                }
+              });
+            }
+          } catch (e) {
+            // Skip failed messages
+          }
+        }
+        
+        suggestions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        console.log(`\n=== RESULTS ===`);
+        console.log(`Total flights: ${suggestions.length} (${jsonLdCount} from JSON-LD, ${regexCount} from regex)`);
+        
+        setImportProgress(p => ({...p, show: false}));
         setSuggestedFlights(suggestions);
         setShowImport(true);
       } catch (err) {
         console.error("Gmail Import Error:", err);
+        setImportProgress(p => ({...p, show: false}));
         alert("An error occurred while scanning emails.");
       } finally {
         setImporting(false);
       }
     };
-    if (window.gapi.client.getToken() === null) tokenClient.requestAccessToken({prompt: 'consent'});
-    else tokenClient.requestAccessToken({prompt: ''});
+    
+    // Request access token - must be called synchronously from user gesture
+    try {
+      // Set a timeout to reset state if popup doesn't respond
+      const timeoutId = setTimeout(() => {
+        if (importing) {
+          setImporting(false);
+          console.log('Gmail auth timed out');
+        }
+      }, 60000); // 60 second timeout
+      
+      // Store timeout ID so we can clear it when auth succeeds
+      window._gmailAuthTimeout = timeoutId;
+      
+      if (window.gapi && window.gapi.client && window.gapi.client.getToken() === null) {
+        tokenClient.requestAccessToken({prompt: 'consent'});
+      } else if (window.gapi && window.gapi.client) {
+        tokenClient.requestAccessToken({prompt: ''});
+      } else {
+        clearTimeout(timeoutId);
+        setImporting(false);
+        alert('Google API is still loading. Please wait a moment and try again.');
+      }
+    } catch (err) {
+      console.error('Error requesting access token:', err);
+      setImporting(false);
+      alert('Failed to open Google sign-in. If you\'re on mobile, please try using a desktop browser, or check that popups are allowed.');
+    }
   };
 
-  // --- SAVE & IMPORT LOGIC ---
+    // Refresh landmarks for specific flights
+    const handleRefreshLandmarks = async (flightIds) => {
+	setIsReprocessing(true);
+	setReprocessProgress({ current: 0, total: flightIds.length });
+	
+	try {
+	    const updatedFlights = await Promise.all(
+		flights.map(async (flight, index) => {
+		    if (!flightIds.includes(flight.id)) {
+			return flight;
+		    }
+		    
+		    setReprocessProgress(prev => ({ ...prev, current: prev.current + 1 }));
+		    setStatusMsg(`Refreshing landmarks for ${flight.origin} → ${flight.destination}...`);
+		    
+		    // Re-detect landmarks
+		    const from = await fetchAirportData(AIRPORTS_DATABASE,flight.origin);
+		    const to = await fetchAirportData(AIRPORTS_DATABASE,flight.destination);
+        
+		    if (!from || !to) return flight;
+		    
+		    let allFeatures = [];
+		    
+		    if (flight.legs && flight.legs.length > 1) {
+			// Multi-leg flight - refresh each leg
+			for (let i = 0; i < flight.legs.length; i++) {
+			    const leg = flight.legs[i];
+			    const legFrom = await fetchAirportData(AIRPORTS_DATABASE,leg.origin);
+			    const legTo = await fetchAirportData(AIRPORTS_DATABASE,leg.destination);
+			    
+			    if (legFrom && legTo) {
+				const legFeatures = await detectLandmarksHybrid(legFrom, legTo, geocoder, setStatusMsg);
+				allFeatures = [...new Set([...allFeatures, ...legFeatures])];
+				
+				// Update leg features
+				flight.legs[i] = {
+				    ...leg,
+				    featuresCrossed: legFeatures
+				};
+			    }
+			}
+		    } else {
+			// Single flight
+			allFeatures = await detectLandmarksHybrid(from, to, geocoder, setStatusMsg);
+		    }
+		    
+		    return {
+			...flight,
+			featuresCrossed: allFeatures,
+			landmarkVersion: LANDMARK_DETECTION_VERSION
+		    };
+		})
+	    );
+	    
+	    setFlights(updatedFlights);
+	    localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
+	    
+	    if (authUser) {
+		const userDocRef = doc(db, 'users', authUser.uid);
+		await updateDoc(userDocRef, { flights: updatedFlights });
+	    }
+	    
+	    alert(`Successfully refreshed landmarks for ${flightIds.length} flight${flightIds.length > 1 ? 's' : ''}!`);
+	} catch (error) {
+	    console.error('Error refreshing landmarks:', error);
+	    alert('Error refreshing landmarks. Please try again.');
+	} finally {
+	    setIsReprocessing(false);
+	    setReprocessProgress({ current: 0, total: 0 });
+	    setStatusMsg('');
+	}
+    };
+
+  
+    // --- SAVE & IMPORT LOGIC ---
   const handleSaveOrImport = async (flightData, isImport = false) => {
+    // Handle round trips by adding both flights
+    if (flightData.isRoundTrip && isImport) {
+      setIsVerifying(true);
+      setStatusMsg('Adding outbound flight...');
+      
+      try {
+        // Add outbound flight
+	  const outbound = flightData.outboundFlight;
+	  const outboundId = generateId();
+	  await handleSaveOrImportSingle({ ...outbound, id: outboundId }, true, true);
+	  
+	  // Add return flight
+	  const returnFlight = flightData.returnFlight;
+	  const returnId = generateId();
+	  await handleSaveOrImportSingle({ ...returnFlight, id: returnId }, true, true);
+          // Remove from suggestions
+          setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
+          
+          setIsVerifying(false);
+          setStatusMsg('');
+      } catch (e) {
+          console.error('Error adding round trip:', e);
+          setIsVerifying(false);
+          setStatusMsg('');
+          alert('Error adding round trip. Check console for details.');
+      }
+	return;
+    }
+      
+      // Regular single flight
+      await handleSaveOrImportSingle(flightData, isImport, false);
+  };
+
+  const handleSaveOrImportSingle = async (flightData, isImport = false, skipStatusReset = false, skipFormReset = false) => {
     setIsVerifying(true);
     setStatusMsg('Verifying Airports...');
     try {
-        const from = await fetchAirportData(flightData.origin);
-        const to = await fetchAirportData(flightData.destination);
+        const from = await fetchAirportData(AIRPORTS_DATABASE,flightData.origin);
+        const to = await fetchAirportData(AIRPORTS_DATABASE,flightData.destination);
 
         // STRICT VALIDATION: Check if airports exist AND have valid numbers
         if (!from || !to || isNaN(from.lat) || isNaN(from.lon) || isNaN(to.lat) || isNaN(to.lon)) {
@@ -617,286 +1679,763 @@ const FlightTracker = () => {
             return;
         }
 
-        // Check if this is an edit with unchanged route
-        const isEditWithSameRoute = editingFlight && 
-            editingFlight.origin === flightData.origin && 
-            editingFlight.destination === flightData.destination;
-
-        let dist, features;
+        // Build legs array
+        let legs = [];
+        let totalDistance = 0;
+        let allFeatures = [];
         
-        if (isEditWithSameRoute) {
-            // Route unchanged - reuse existing distance and landmarks
-            dist = editingFlight.distance;
-            features = editingFlight.featuresCrossed || [];
-            setStatusMsg('Route unchanged, keeping landmarks...');
-        } else {
-            // New flight or route changed - calculate distance
-            dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+        if (flightData.hasLayover && flightData.viaAirports && flightData.viaAirports.some(v => v.trim())) {
+            // Filter out empty via airports
+            const validVias = flightData.viaAirports.filter(v => v.trim());
             
-            // Only detect landmarks if checkbox is checked
-            if (flightData.checkLandmarks) {
-                features = await detectLandmarksHybrid(from, to);
+            // Verify all via airports
+            const viaData = [];
+            for (let i = 0; i < validVias.length; i++) {
+                setStatusMsg(`Verifying connection ${i + 1}: ${validVias[i]}...`);
+                const viaAirport = await fetchAirportData(AIRPORTS_DATABASE,validVias[i]);
+                if (!viaAirport || isNaN(viaAirport.lat) || isNaN(viaAirport.lon)) {
+                    alert(`Could not verify connection airport: ${validVias[i]}. Please check the code.`);
+                    setIsVerifying(false);
+                    setStatusMsg('');
+                    return;
+                }
+                viaData.push(viaAirport);
+            }
+            
+            // Build legs: origin -> via1 -> via2 -> ... -> destination
+            const allStops = [from, ...viaData, to];
+            const legAirlines = flightData.legAirlines || [];
+            const legAircraftTypes = flightData.legAircraftTypes || [];
+            const legServiceClasses = flightData.legServiceClasses || [];
+            
+            for (let i = 0; i < allStops.length - 1; i++) {
+                const legFrom = allStops[i];
+                const legTo = allStops[i + 1];
+                const legDist = calculateDistance(legFrom.lat, legFrom.lon, legTo.lat, legTo.lon);
+                totalDistance += legDist;
+                
+                // Detect landmarks for this leg if requested
+                let legFeatures = [];
+                if (flightData.checkLandmarks) {
+                    setStatusMsg(`Analyzing leg ${i + 1}: ${legFrom.code} → ${legTo.code}...`);
+                    legFeatures = await detectLandmarksHybrid(legFrom, legTo, geocoder, setStatusMsg);
+                    allFeatures = [...new Set([...allFeatures, ...legFeatures])];
+                }
+                
+                legs.push({
+                    origin: legFrom.code,
+                    destination: legTo.code,
+                    originCity: legFrom.city,
+                    destCity: legTo.city,
+                    originCountry: legFrom.country || '',
+                    destCountry: legTo.country || '',
+                    originContinent: getContinent(legFrom.country),
+                    destContinent: getContinent(legTo.country),
+                    airline: legAirlines[i] || flightData.airline || '',
+                    aircraftType: legAircraftTypes[i] || flightData.aircraftType || '',
+                    serviceClass: legServiceClasses[i] || flightData.serviceClass || 'Economy',
+                    distance: legDist,
+                    featuresCrossed: legFeatures
+                });
+            }
+        } else {
+            // Single leg flight (no layover)
+            // Check if this is an edit with unchanged route
+            const isEditWithSameRoute = editingFlight && 
+                editingFlight.origin === flightData.origin && 
+                editingFlight.destination === flightData.destination &&
+                !editingFlight.legs; // Only if original was also single-leg
+
+            let dist, features;
+            
+            if (isEditWithSameRoute) {
+                dist = editingFlight.distance;
+                features = editingFlight.featuresCrossed || [];
+                setStatusMsg('Route unchanged, keeping landmarks...');
             } else {
-                // Check if there's an existing flight on this route to copy landmarks from
-                const existingRouteFlights = flights.filter(f => 
-                    f.origin === flightData.origin && f.destination === flightData.destination
-                );
-                if (existingRouteFlights.length > 0 && existingRouteFlights[0].featuresCrossed) {
-                    features = existingRouteFlights[0].featuresCrossed;
-                    setStatusMsg('Copied landmarks from existing route...');
+                dist = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+                
+                if (flightData.checkLandmarks) {
+                    features = await detectLandmarksHybrid(from, to, geocoder, setStatusMsg);
                 } else {
-                    features = [];
+                    const existingRouteFlights = flights.filter(f => 
+                        f.origin === flightData.origin && f.destination === flightData.destination
+                    );
+                    if (existingRouteFlights.length > 0 && existingRouteFlights[0].featuresCrossed) {
+                        features = existingRouteFlights[0].featuresCrossed;
+                        setStatusMsg('Copied landmarks from existing route...');
+                    } else {
+                        features = [];
+                    }
                 }
             }
+            
+            totalDistance = dist;
+            allFeatures = features;
+            
+            legs.push({
+                origin: flightData.origin,
+                destination: flightData.destination,
+                originCity: from.city,
+                destCity: to.city,
+                originCountry: from.country || '',
+                destCountry: to.country || '',
+                originContinent: getContinent(from.country),
+                destContinent: getContinent(to.country),
+                airline: flightData.airline || '',
+                aircraftType: flightData.aircraftType || '',
+                serviceClass: flightData.serviceClass || 'Economy',
+                distance: dist,
+                featuresCrossed: features
+            });
         }
         
-        const pax = getPassengerEstimate(flightData.aircraftType);
+        // Calculate total passengers from all legs (each leg may have different aircraft)
+        const pax = legs.reduce((sum, leg) => {
+          return sum + getPassengerEstimate(leg.aircraftType);
+        }, 0);
 
-        // Remove checkLandmarks from the data to be saved (it's just a form flag)
-        const { checkLandmarks, ...flightDataToSave } = flightData;
+        // Remove form-only fields from the data to be saved
+        const { checkLandmarks, hasLayover, viaAirports, legAirlines, legAircraftTypes, legServiceClasses, ...flightDataToSave } = flightData;
 
-        const newRecord = { 
-            ...flightDataToSave, 
-            id: flightData.id || Date.now(),
-            distance: dist, 
-            originCity: from.city, 
-            destCity: to.city,
-            featuresCrossed: features,
-            passengerCount: pax
-        };
+	const newRecord = {
+	    ...flightDataToSave,
+	    id: (editingFlight ? flightData.id : null) || generateId(),
+	    date: flightData.date,
+	    returnDate: flightData.returnDate || '',
+	    isRoundTrip: flightData.isRoundTrip || false,
+	    flightNumber: flightData.flightNumber || '',
+	    distance: totalDistance,
+	    originCity: from.city, 
+	    destCity: to.city,
+	    originCountry: from.country || '',
+	    destCountry: to.country || '',
+	    originContinent: getContinent(from.country),
+	    destContinent: getContinent(to.country),
+	    featuresCrossed: allFeatures,
+	    landmarkVersion: flightData.checkLandmarks ? LANDMARK_DETECTION_VERSION : (flightData.landmarkVersion || 1), // Track landmark version
+	    passengerCount: pax,
+	    legs: legs,
+	    legCount: legs.length,
+	    schemaVersion: CURRENT_SCHEMA_VERSION
+	};
+        
+        
+        // Debug log for round trips
+        if (newRecord.isRoundTrip) {
+            console.log('Saving round trip flight:', newRecord.origin, '⇄', newRecord.destination, 'dates:', newRecord.date, '-', newRecord.returnDate);
+        }
 
+        // Read current flights from localStorage (more reliable for sequential saves like round trips)
+        const currentFlights = JSON.parse(localStorage.getItem('flights-data') || '[]');
         const updated = isImport 
-            ? [newRecord, ...flights] 
-            : (editingFlight ? flights.map(f => f.id === editingFlight.id ? newRecord : f) : [newRecord, ...flights]);
-
+            ? [newRecord, ...currentFlights] 
+            : (editingFlight ? currentFlights.map(f => f.id === editingFlight.id ? newRecord : f) : [newRecord, ...currentFlights]);
+        
+        // Debug log the actual record being saved
+        console.log('Saving flight record to localStorage:', {
+            id: newRecord.id,
+            route: `${newRecord.origin} → ${newRecord.destination}`,
+            isRoundTrip: newRecord.isRoundTrip,
+            returnDate: newRecord.returnDate,
+            date: newRecord.date
+        });
+        
+        // Save to both state and localStorage
         setFlights(updated);
         localStorage.setItem('flights-data', JSON.stringify(updated));
         
-        if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
-        setShowForm(false);
-        setEditingFlight(null);
-        setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
-    } catch (e) {
-        console.error(e);
-        alert("Error saving flight. Check console for details.");
-    } finally {
-        setIsVerifying(false);
-        setStatusMsg('');
-    }
-  };
-
-  const handleSubmit = (e) => {
-      e.preventDefault();
-      handleSaveOrImport({ ...formData, id: editingFlight ? editingFlight.id : null });
-  };
-
-  const fetchAirportData = async (code) => {
-    const cleanCode = code.trim().toUpperCase();
-    const local = AIRPORTS_DATABASE.find(a => a.code === cleanCode);
-    if (local) return local;
-    
-    try {
-      const response = await fetch(`https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat`);
-      const text = await response.text();
-      const rows = text.split('\n');
-      for (let row of rows) {
-        if (row.includes(`"${cleanCode}"`)) {
-          const parts = row.split(',');
-          // Robust check for lat/lon parsing
-          const lat = parseFloat(parts[parts.length - 8]);
-          const lon = parseFloat(parts[parts.length - 7]);
-          
-          if (!isNaN(lat) && !isNaN(lon)) {
-              return {
-                code: cleanCode,
-                city: parts[2].replace(/"/g, ''),
-                lat: lat,
-                lon: lon
-              };
+        // Register flight to shared registry if user opted in and has flight number
+        if (authUser && flightMatchingOptIn && newRecord.flightNumber && newRecord.date) {
+          try {
+            const flightKey = `${newRecord.flightNumber}_${newRecord.date}`.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+            const registryRef = doc(db, 'flightRegistry', flightKey);
+            const registryDoc = await getDoc(registryRef);
+            
+            const userEntry = {
+              uid: authUser.uid,
+              nickname: nickname || authUser.displayName || 'Anonymous',
+              addedAt: new Date().toISOString()
+            };
+            
+            if (registryDoc.exists()) {
+              const existing = registryDoc.data().passengers || [];
+              if (!existing.some(p => p.uid === authUser.uid)) {
+                await updateDoc(registryRef, { passengers: [...existing, userEntry] });
+              }
+            } else {
+              await setDoc(registryRef, {
+                flightNumber: newRecord.flightNumber,
+                date: newRecord.date,
+                passengers: [userEntry]
+              });
+            }
+            // Refresh matches
+            checkFlightMatches();
+          } catch (regError) {
+            console.error('Error registering flight:', regError);
           }
         }
-      }
-    } catch (e) { console.error(e); }
-    return null;
+        
+        if (isImport) setSuggestedFlights(prev => prev.filter(f => f.id !== flightData.id));
+        
+        // Only reset form if not skipping (for round trip handling)
+        if (!skipFormReset) {
+          setShowForm(false);
+          setEditingFlight(null);
+          setFormData({ 
+              origin: '', destination: '', date: '', returnDate: '', flightNumber: '', aircraftType: '', airline: '', 
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+              paymentType: 'money', paymentAmount: ''
+          });
+          setAirportSuggestions([]);
+          setActiveAirportField(null);
+        }
+    } catch (e) {
+        console.error(e);
+        if (skipStatusReset) {
+            throw e; // Rethrow to let parent handle it
+        }
+        alert("Error saving flight. Check console for details.");
+    } finally {
+        if (!skipStatusReset) {
+            setIsVerifying(false);
+            setStatusMsg('');
+        }
+    }
   };
 
-  const getPassengerEstimate = (aircraftType) => {
-    const type = (aircraftType || "").toUpperCase();
-    let capacity = 150;
-    if (type.includes("380")) capacity = 500;
-    else if (type.includes("747")) capacity = 416;
-    else if (type.includes("777") || type.includes("350")) capacity = 350;
-    else if (type.includes("787") || type.includes("330")) capacity = 250;
-    else if (type.includes("767")) capacity = 220;
-    else if (type.includes("CRJ") || type.includes("ERJ") || type.includes("EMB")) capacity = 70;
-    return Math.round(capacity * 0.82);
-  };
-
-  // Estimate personal CO2 emissions in kg based on distance (miles) and service class
-  // Base rate: ~0.14 kg CO2 per passenger-mile for economy (industry standard per-person rate)
-  // Class multipliers account for seat space/fuel share per passenger
-  const getCarbonEstimate = (distance, serviceClass) => {
-    const baseRatePerMile = 0.14; // kg CO2 per passenger-mile for economy
-    const classMultipliers = {
-      'Economy': 1.0,
-      'Premium Economy': 1.5,
-      'Business': 2.5,
-      'First': 4.0
-    };
-    const multiplier = classMultipliers[serviceClass] || 1.0;
-    return Math.round(distance * baseRatePerMile * multiplier);
-  };
-  
-  const totalMiles = flights.reduce((sum, f) => sum + (f.distance || 0), 0);
-  const totalPassengers = flights.reduce((sum, f) => sum + (f.passengerCount || 0), 0);
-  
-  // Calculate total personal carbon footprint
-  const totalCarbonKg = flights.reduce((sum, f) => {
-    return sum + getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
-  }, 0);
-  const totalCarbonTons = (totalCarbonKg / 1000).toFixed(2);
-
-  // Calculate total flight emissions (entire aircraft)
-  // Using average ~0.14 kg CO2 per passenger-mile * estimated passengers
-  const totalFlightCarbonKg = flights.reduce((sum, f) => {
-    const passengerCount = f.passengerCount || getPassengerEstimate(f.aircraftType);
-    const flightEmissions = (f.distance || 0) * 0.14 * passengerCount;
-    return sum + flightEmissions;
-  }, 0);
-  const totalFlightCarbonTons = (totalFlightCarbonKg / 1000).toFixed(1);
-  
-  const featureStats = {};
-  flights.forEach(f => {
-    if (f.featuresCrossed) {
-      f.featuresCrossed.forEach(feat => {
-        featureStats[feat] = (featureStats[feat] || 0) + 1;
-      });
-    }
-  });
-  const topFeatures = Object.entries(featureStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
-
-  // Airline statistics
-  const airlineStats = {};
-  flights.forEach(f => {
-    if (f.airline) {
-      airlineStats[f.airline] = (airlineStats[f.airline] || 0) + 1;
-    }
-  });
-  const topAirlines = Object.entries(airlineStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
-
-  // Aircraft statistics
-  const aircraftStats = {};
-  flights.forEach(f => {
-    if (f.aircraftType && f.aircraftType !== 'Unknown') {
-      aircraftStats[f.aircraftType] = (aircraftStats[f.aircraftType] || 0) + 1;
-    }
-  });
-  const topAircraft = Object.entries(aircraftStats).sort((a,b) => b[1]-a[1]).slice(0, 5);
-
-  // Service class statistics
-  const classStats = {};
-  flights.forEach(f => {
-    if (f.serviceClass) {
-      classStats[f.serviceClass] = (classStats[f.serviceClass] || 0) + 1;
-    }
-  });
-  const classOrder = ['First', 'Business', 'Premium Economy', 'Economy'];
-  const sortedClasses = Object.entries(classStats).sort((a, b) => {
-    return classOrder.indexOf(a[0]) - classOrder.indexOf(b[0]);
-  });
-
-  // Personal carbon footprint by class
-  const carbonByClass = {};
-  flights.forEach(f => {
-    const cls = f.serviceClass || 'Economy';
-    const carbon = getCarbonEstimate(f.distance || 0, cls);
-    carbonByClass[cls] = (carbonByClass[cls] || 0) + carbon;
-  });
-  const sortedCarbonByClass = Object.entries(carbonByClass).sort((a, b) => b[1] - a[1]);
-
-  // Group flights by route for consolidated display
-  const groupedFlights = flights.reduce((acc, flight) => {
-    const routeKey = `${flight.origin}-${flight.destination}`;
-    if (!acc[routeKey]) {
-      acc[routeKey] = {
-        origin: flight.origin,
-        destination: flight.destination,
-        originCity: flight.originCity,
-        destCity: flight.destCity,
-        featuresCrossed: flight.featuresCrossed,
-        distance: flight.distance,
-        flights: []
+  const handleSubmit = async (e) => {
+      e.preventDefault();
+      
+      // Debug log for round trip submission
+      console.log('Form submission - isRoundTrip:', formData.isRoundTrip, 'returnDate:', formData.returnDate);
+      
+      // For round trips, we save as a single flight record with isRoundTrip flag
+      // The distance will be for one way, but stats will count it as 2x
+      const dataToSave = {
+        ...formData,
+        id: editingFlight ? editingFlight.id : null,
+        // Keep isRoundTrip flag and returnDate in the saved record
       };
-    }
-    acc[routeKey].flights.push(flight);
-    return acc;
-  }, {});
+      
+      console.log('Data to save:', dataToSave.origin, dataToSave.destination, 'isRoundTrip:', dataToSave.isRoundTrip);
+      
+      handleSaveOrImport(dataToSave);
+  };
 
-  // Sort flights within each group by date (newest first)
-  Object.values(groupedFlights).forEach(group => {
-    group.flights.sort((a, b) => new Date(b.date) - new Date(a.date));
-  });
-
-  // Convert to array and sort by most recent flight date
-  const sortedGroups = Object.values(groupedFlights).sort((a, b) => {
-    const aDate = new Date(a.flights[0].date);
-    const bDate = new Date(b.flights[0].date);
-    return bDate - aDate;
-  });
-
+  
+  // All derived stats (totals, unique counts, groupings) computed via custom hook
+  const {
+    totalFlightLegs, totalMiles, totalPassengers,
+    uniqueCountries, uniqueContinents, uniqueAirports,
+    totalCarbonKg, totalCarbonTons, totalFlightCarbonKg, totalFlightCarbonTons,
+    topFeatures, topAirlines,
+    allAircraft, topAircraft,
+    totalFlightsWithAirlines, sortedAlliances, dominantAlliance,
+    sortedClasses, sortedCarbonByClass,
+    paymentStats, groupedFlights, sortedGroups,
+    groupedByCountry, groupedByContinent,
+  } = useFlightStats(flights);
+  
+  
+  // Save sort mode preference
+  useEffect(() => {
+    localStorage.setItem('flightSortMode', sortMode);
+  }, [sortMode]);
+  
   // Handler to copy/duplicate a flight
   const handleCopyFlight = (flight) => {
     setEditingFlight(null); // Not editing, creating new
-    setFormData({
-      origin: flight.origin,
-      destination: flight.destination,
-      airline: flight.airline || '',
-      aircraftType: flight.aircraftType || '',
-      serviceClass: flight.serviceClass || 'Economy',
-      date: '', // Clear date so user must enter new one
-      checkLandmarks: false
-    });
+    
+    // Check if flight has multiple legs
+    const hasMultipleLegs = flight.legs && flight.legs.length > 1;
+    
+    if (hasMultipleLegs) {
+      // Extract via airports and leg details from legs
+      const viaAirports = flight.legs.slice(1, -1).map(leg => leg.origin);
+      const legAirlines = flight.legs.map(leg => leg.airline || '');
+      const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
+      
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: '',
+        aircraftType: '',
+        serviceClass: 'Economy',
+        date: '', // Clear date so user must enter new one
+        returnDate: '',
+        checkLandmarks: false,
+        hasLayover: true,
+        isRoundTrip: false,
+        viaAirports: viaAirports.length > 0 ? viaAirports : [''],
+        legAirlines: legAirlines,
+        legAircraftTypes: legAircraftTypes,
+        legServiceClasses: legServiceClasses,
+        paymentType: 'money',
+        paymentAmount: ''
+      });
+    } else {
+      const singleLeg = flight.legs && flight.legs[0];
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
+        aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        date: '', // Clear date so user must enter new one
+        returnDate: '',
+        checkLandmarks: false,
+        hasLayover: false,
+        isRoundTrip: false,
+        viaAirports: [''],
+        legAirlines: ['', ''],
+        legAircraftTypes: ['', ''],
+        legServiceClasses: ['Economy', 'Economy'],
+        paymentType: 'money',
+        paymentAmount: ''
+      });
+    }
+    setShowForm(true);
+  };
+
+  // Handler to create a return flight (reverse origin and destination)
+  const handleReverseFlight = (flight) => {
+    setEditingFlight(null); // Not editing, creating new
+    
+    // Check if flight has multiple legs
+    const hasMultipleLegs = flight.legs && flight.legs.length > 1;
+    
+    if (hasMultipleLegs) {
+      // Reverse the entire route: destination becomes origin, via airports are reversed
+      const reversedLegs = [...flight.legs].reverse();
+      const viaAirports = reversedLegs.slice(1, -1).map(leg => leg.destination);
+      const legAirlines = reversedLegs.map(leg => leg.airline || '');
+      const legAircraftTypes = reversedLegs.map(leg => leg.aircraftType || '');
+      const legServiceClasses = reversedLegs.map(leg => leg.serviceClass || 'Economy');
+      
+      setFormData({
+        origin: flight.destination, // Swap
+        destination: flight.origin, // Swap
+        airline: '',
+        aircraftType: '',
+        serviceClass: 'Economy',
+        date: '', // Clear date so user must enter new one
+        returnDate: '',
+        checkLandmarks: false,
+        hasLayover: true,
+        isRoundTrip: false,
+        viaAirports: viaAirports.length > 0 ? viaAirports : [''],
+        legAirlines: legAirlines,
+        legAircraftTypes: legAircraftTypes,
+        legServiceClasses: legServiceClasses,
+        paymentType: 'money',
+        paymentAmount: ''
+      });
+    } else {
+      const singleLeg = flight.legs && flight.legs[0];
+      setFormData({
+        origin: flight.destination, // Swap
+        destination: flight.origin, // Swap
+        airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
+        aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        date: '', // Clear date so user must enter new one
+        returnDate: '',
+        checkLandmarks: false,
+        hasLayover: false,
+        isRoundTrip: false,
+        viaAirports: [''],
+        legAirlines: ['', ''],
+        legAircraftTypes: ['', ''],
+        legServiceClasses: ['Economy', 'Economy'],
+        paymentType: 'money',
+        paymentAmount: ''
+      });
+    }
     setShowForm(true);
   };
 
   // Handler to edit a specific flight within a group
   const handleEditFlight = (flight) => {
     setEditingFlight(flight);
-    setFormData({
-      origin: flight.origin,
-      destination: flight.destination,
-      airline: flight.airline || '',
-      aircraftType: flight.aircraftType || '',
-      serviceClass: flight.serviceClass || 'Economy',
-      date: flight.date || '',
-      checkLandmarks: false
-    });
+    
+    // Check if flight has multiple legs
+    const hasMultipleLegs = flight.legs && flight.legs.length > 1;
+    
+    if (hasMultipleLegs) {
+      // Extract via airports (middle stops) and leg details from legs
+      const viaAirports = [];
+      for (let i = 1; i < flight.legs.length; i++) {
+        viaAirports.push(flight.legs[i].origin);
+      }
+      const legAirlines = flight.legs.map(leg => leg.airline || '');
+      const legAircraftTypes = flight.legs.map(leg => leg.aircraftType || '');
+      const legServiceClasses = flight.legs.map(leg => leg.serviceClass || 'Economy');
+      
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: '',
+        aircraftType: '',
+        flightNumber: flight.flightNumber || '',
+        serviceClass: 'Economy',
+        date: flight.date || '',
+        returnDate: flight.returnDate || '',
+        checkLandmarks: false,
+        hasLayover: true,
+        isRoundTrip: flight.isRoundTrip || false,
+        viaAirports: viaAirports.length > 0 ? viaAirports : [''],
+        legAirlines: legAirlines,
+        legAircraftTypes: legAircraftTypes,
+        legServiceClasses: legServiceClasses,
+        paymentType: flight.paymentType || 'money',
+        paymentAmount: flight.paymentAmount || ''
+      });
+    } else {
+      const singleLeg = flight.legs && flight.legs[0];
+      setFormData({
+        origin: flight.origin,
+        destination: flight.destination,
+        airline: flight.airline || (singleLeg ? singleLeg.airline : '') || '',
+        aircraftType: flight.aircraftType || (singleLeg ? singleLeg.aircraftType : '') || '',
+        flightNumber: flight.flightNumber || '',
+        serviceClass: flight.serviceClass || (singleLeg ? singleLeg.serviceClass : '') || 'Economy',
+        date: flight.date || '',
+        returnDate: flight.returnDate || '',
+        checkLandmarks: false,
+        hasLayover: false,
+        isRoundTrip: flight.isRoundTrip || false,
+        viaAirports: [''],
+        legAirlines: ['', ''],
+        legAircraftTypes: ['', ''],
+        legServiceClasses: ['Economy', 'Economy'],
+        paymentType: flight.paymentType || 'money',
+        paymentAmount: flight.paymentAmount || ''
+      });
+    }
     setShowForm(true);
   };
 
-  // Handler to delete a specific flight
-  const handleDeleteFlight = (flightId) => {
-    const updated = flights.filter(x => x.id !== flightId);
-    setFlights(updated);
-    localStorage.setItem('flights-data', JSON.stringify(updated));
+  // Handler to delete a specific flight by unique ID
+  const handleDeleteFlight = async (flightId) => {
+    if (!flightId) {
+      console.error('Cannot delete flight: no valid ID provided');
+      return;
+    }
+
+    if (!window.confirm('Delete this flight?')) return;
+
+    console.log('Deleting flight with ID:', flightId);
+
+    // Use functional update to avoid stale closure issues
+    let updated;
+    setFlights(prev => {
+      updated = prev.filter(x => x.id !== flightId);
+      console.log('Deleted flights:', prev.length - updated.length, 'of', prev.length);
+      return updated;
+    });
+
+    // Wait a tick so the functional update has settled
+    await new Promise(r => setTimeout(r, 0));
+
+    // Persist to localStorage
+    if (updated) {
+      localStorage.setItem('flights-data', JSON.stringify(updated));
+    }
+
+    // If user is authenticated, immediately update Firestore
+    if (authUser && updated) {
+      try {
+        const userDocRef = doc(db, 'users', authUser.uid);
+        await updateDoc(userDocRef, { flights: updated });
+        console.log('Flight deleted from Firestore');
+      } catch (error) {
+        console.error('Error deleting flight from Firestore:', error);
+      }
+    }
   };
+
+  // Handle landing page dismissal
+  const handleStartAddingFlights = () => {
+    localStorage.setItem('landingDismissed', 'true');
+    setShowLanding(false);
+    if (!authUser) {
+      openAuthModal('signup');
+    }
+  };
+
+  // Show landing page for non-logged-in users who haven't dismissed it
+  if (showLanding && !authUser && !authLoading) {
+    return (
+      <LandingPage
+        handleStartAddingFlights={handleStartAddingFlights}
+        setShowLanding={setShowLanding}
+        openAuthModal={openAuthModal}
+        showAuthModal={showAuthModal}
+        setShowAuthModal={setShowAuthModal}
+        authMode={authMode}
+        setAuthMode={setAuthMode}
+        authEmail={authEmail}
+        setAuthEmail={setAuthEmail}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        authError={authError}
+        showPassword={showPassword}
+        setShowPassword={setShowPassword}
+        handleAuthSubmit={handleAuthSubmit}
+      />
+    );
+  }
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '40px 20px', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
-        <h1 style={{ margin: 0 }}>FlightLog</h1>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button 
-            onClick={handleGmailImport} 
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', flexWrap: 'wrap', gap: '15px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h1 style={{ margin: 0 }}>FlightLog</h1>
+          <span style={{
+            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+            color: '#fff',
+            fontSize: '10px',
+            fontWeight: '700',
+            padding: '3px 8px',
+            borderRadius: '6px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            boxShadow: '0 2px 4px rgba(99, 102, 241, 0.3)'
+          }}>
+            Beta
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Auth UI */}
+          {authLoading ? (
+            <Loader2 className="animate-spin" size={20} style={{ color: '#888' }} />
+          ) : authUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {editingNickname ? (
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  padding: '4px 8px', 
+                  background: '#f0fdf4', 
+                  borderRadius: '20px'
+                }}>
+                  <input
+                    type="text"
+                    value={nicknameInput}
+                    onChange={(e) => setNicknameInput(e.target.value)}
+                    placeholder="Enter nickname"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveNickname();
+                      if (e.key === 'Escape') {
+                        setEditingNickname(false);
+                        setNicknameInput(nickname);
+                      }
+                    }}
+                    style={{
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      fontSize: '13px',
+                      width: '120px',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    onClick={handleSaveNickname}
+                    style={{
+                      background: '#10b981',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingNickname(false);
+                      setNicknameInput(nickname);
+                    }}
+                    style={{
+                      background: '#f3f4f6',
+                      color: '#666',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div 
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    padding: '8px 12px', 
+                    background: '#f0fdf4', 
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    color: '#166534',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setNicknameInput(nickname || '');
+                    setEditingNickname(true);
+                  }}
+                  title="Click to edit nickname"
+                >
+                  <User size={16} />
+                  <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getDisplayName()}
+                  </span>
+                  <Edit2 size={12} style={{ opacity: 0.6 }} />
+                </div>
+              )}
+              {/* Landmark refresh button — always accessible */}
+              <button
+                onClick={() => {
+                  const flightsToProcess = [
+                    ...getFlightsNeedingLandmarkRefresh(flights),
+                    ...getFlightsForLandmarkAddition(flights),
+                  ];
+                  const ids = flightsToProcess.length > 0
+                    ? [...new Set(flightsToProcess.map(f => f.id))]
+                    : flights.map(f => f.id);
+                  handleRefreshLandmarks(ids);
+                }}
+                disabled={isReprocessing || flights.length === 0}
+                title={isReprocessing
+                  ? `Processing… ${reprocessProgress.current}/${reprocessProgress.total}`
+                  : 'Update landmarks for all flights'}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  padding: '7px 9px',
+                  cursor: isReprocessing || flights.length === 0 ? 'default' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#6b7280',
+                  opacity: flights.length === 0 ? 0.4 : 1,
+                }}
+              >
+                {isReprocessing
+                  ? <Loader2 size={16} className="animate-spin" />
+                  : <Mountain size={16} />}
+              </button>
+              {/* Admin button — only for the admin user */}
+              {isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
+                <button
+                  onClick={() => setShowAdminDashboard(true)}
+                  title="Admin Dashboard"
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 8px rgba(245,158,11,0.35)'
+                  }}
+                >
+                  <Shield size={15} />
+                  Admin
+                </button>
+              )}
+              <button
+                onClick={handleLogout}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #ddd',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  color: '#666'
+                }}
+              >
+                <LogOut size={18} /> Sign Out
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={() => openAuthModal('login')}
+                style={{ 
+                  background: 'transparent', 
+                  border: '1px solid #ddd', 
+                  padding: '8px 16px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px'
+                }}
+              >
+                <LogIn size={16} /> Log In
+              </button>
+              <button 
+                onClick={() => openAuthModal('signup')}
+                style={{ 
+                  background: '#10b981', 
+                  color: '#fff',
+                  border: 'none', 
+                  padding: '8px 16px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  fontWeight: '600'
+                }}
+              >
+                <User size={16} /> Sign Up
+              </button>
+            </div>
+          )}
+          
+          <button
+            onClick={handleGmailImport}
             disabled={!gapiInited || importing}
-            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center' }}
+            title="Import flights from your Gmail inbox"
+            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: gapiInited && !importing ? 'pointer' : 'not-allowed', fontWeight: 'bold', display: 'flex', gap: '8px', alignItems:'center', opacity: gapiInited && !importing ? 1 : 0.6 }}
           >
             {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
             {importing ? "Scanning..." : "Sync Gmail"}
           </button>
           <button onClick={() => { 
             setEditingFlight(null); 
-            setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
+            setFormData({ 
+              origin: '', destination: '', date: '', returnDate: '', flightNumber: '', aircraftType: '', airline: '', 
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+              paymentType: 'money', paymentAmount: ''
+            });
+            setAirportSuggestions([]);
+            setActiveAirportField(null);
             setShowForm(true); 
           }} style={{ background: '#000', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
             + Manual Add
@@ -904,398 +2443,475 @@ const FlightTracker = () => {
         </div>
       </header>
 
-      {/* Import Modal */}
+
+	
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <AuthModal
+          authMode={authMode}
+          setAuthMode={setAuthMode}
+          authEmail={authEmail}
+          setAuthEmail={setAuthEmail}
+          authPassword={authPassword}
+          setAuthPassword={setAuthPassword}
+          authError={authError}
+          showPassword={showPassword}
+          setShowPassword={setShowPassword}
+          handleLogin={handleLogin}
+          handleSignup={handleSignup}
+          handleGoogleSignIn={handleGoogleSignIn}
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
+
+      {/* Info banner for non-authenticated users */}
+      {!authLoading && !authUser && (
+        <div style={{ 
+          background: '#fef3c7', 
+          border: '1px solid #f59e0b', 
+          borderRadius: '12px', 
+          padding: '16px', 
+          marginBottom: '30px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}>
+          <AlertCircle size={20} color="#d97706" />
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <strong style={{ color: '#92400e' }}>Your data is stored locally.</strong>
+            <span style={{ color: '#a16207', marginLeft: '8px' }}>Sign up to sync your flights across devices and never lose your data.</span>
+          </div>
+          <button 
+            onClick={() => openAuthModal('signup')}
+            style={{ 
+              background: '#f59e0b', 
+              color: '#fff', 
+              border: 'none', 
+              padding: '8px 16px', 
+              borderRadius: '6px', 
+              cursor: 'pointer',
+              fontWeight: '600',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Sign Up Free
+          </button>
+        </div>
+      )}
+
+      {/* Gmail Import Progress Modal */}
+      {importProgress.show && (
+        <GmailImportProgressModal importProgress={importProgress} />
+      )}
+
       {showImport && (
-        <div style={modalOverlay}>
-          <div style={{...modalContent, maxWidth: '600px'}}>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-              <h2>Flights Found ({suggestedFlights.length})</h2>
-              <X style={{cursor:'pointer'}} onClick={() => setShowImport(false)}/>
-            </div>
-            {suggestedFlights.length === 0 ? (
-              <div style={{textAlign:'center', padding:'20px', color:'#666'}}>
-                <AlertCircle size={30} style={{marginBottom:'10px'}}/>
-                <p>No new flight emails found.</p>
-              </div>
-            ) : (
-              <div style={{maxHeight: '400px', overflowY: 'auto'}}>
-                {suggestedFlights.map(f => (
-                  <div key={f.id} style={{padding:'15px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div style={{flex: 1, marginRight:'15px'}}>
-                      <div style={{fontWeight:'bold'}}>{f.origin} → {f.destination}</div>
-                      <div style={{fontSize:'12px', color:'#666'}}>
-                        {formatDate(f.date)}
-                        {f.airline && <span style={{marginLeft:'8px'}}>• {f.airline}</span>}
-                      </div>
-                    </div>
-                    <button onClick={() => handleSaveOrImport(f, true)} style={{background: '#00C851', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'4px'}}>
-                      <Check size={14} /> Add
-                    </button>
-                  </div>
-                ))}
-              </div>
+        <ImportSuggestionsModal
+          suggestedFlights={suggestedFlights}
+          setSuggestedFlights={setSuggestedFlights}
+          setShowImport={setShowImport}
+          handleDeleteSuggestion={handleDeleteSuggestion}
+          handleSaveOrImport={handleSaveOrImport}
+        />
+      )}
+
+	      {/* Landmark Detection Banner - Shows for refresh OR initial addition */}
+    {flights.length > 0 && !landmarkRefreshDismissed && (() => {
+	const flightsNeedingRefresh = getFlightsNeedingLandmarkRefresh(flights);
+	const flightsNeedingAddition = getFlightsForLandmarkAddition(flights);
+	const totalFlightsToProcess = flightsNeedingRefresh.length + flightsNeedingAddition.length;
+	
+	if (totalFlightsToProcess === 0) return null;
+	
+	const isRefresh = flightsNeedingRefresh.length > 0;
+	const isAddition = flightsNeedingAddition.length > 0;
+	
+	return (
+	    <div style={{
+		     background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+		     border: '1px solid #10b981',
+		     borderRadius: '12px',
+		     padding: '16px 20px',
+		     marginBottom: '24px',
+		     display: 'flex',
+		     alignItems: 'center',
+		     justifyContent: 'space-between',
+		     flexWrap: 'wrap',
+		     gap: '12px'
+		 }}>
+		<div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+		    <div style={{
+			     width: '40px',
+			     height: '40px',
+			     borderRadius: '10px',
+			     background: '#10b981',
+			     display: 'flex',
+			     alignItems: 'center',
+			     justifyContent: 'center'
+			 }}>
+			<Mountain size={20} color="#fff" />
+		    </div>
+		    <div>
+			<div style={{ fontWeight: '600', color: '#065f46', fontSize: '14px' }}>
+			    {isRefresh && isAddition 
+			     ? 'Detect landmarks on your flights!' 
+			     : isRefresh 
+			     ? 'Improved landmark detection available!'
+			     : 'Add landmarks to your flights!'}
+			</div>
+			<div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
+			    {isRefresh && isAddition && (
+				<>{flightsNeedingRefresh.length} can be refreshed, {flightsNeedingAddition.length} can have landmarks added</>
+			    )}
+			    {isRefresh && !isAddition && (
+				<>{flightsNeedingRefresh.length} flight{flightsNeedingRefresh.length > 1 ? 's' : ''} can be refreshed with improved detection</>
+			    )}
+			    {!isRefresh && isAddition && (
+				<>{flightsNeedingAddition.length} flight{flightsNeedingAddition.length > 1 ? 's' : ''} can have landmarks detected</>
+			    )}
+			</div>
+		    </div>
+		</div>
+		<div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+		    <button
+			onClick={() => {
+			    setLandmarkRefreshDismissed(true);
+			    localStorage.setItem('landmarkRefreshDismissed', 'true');
+			}}
+			style={{
+			    background: 'transparent',
+			    color: '#047857',
+			    border: '1px solid #10b981',
+			    padding: '8px 16px',
+			    borderRadius: '8px',
+			    fontWeight: '600',
+			    fontSize: '13px',
+			    cursor: 'pointer'
+			}}
+		    >
+			Dismiss
+		    </button>
+		    <button
+			onClick={() => {
+			    const allIds = [...new Set([
+				...flightsNeedingRefresh.map(f => f.id),
+				...flightsNeedingAddition.map(f => f.id)
+			    ])];
+			    handleRefreshLandmarks(allIds);
+			}}
+			disabled={isReprocessing}
+			style={{
+			    background: isReprocessing ? '#059669' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+			    color: '#fff',
+			    border: 'none',
+			    padding: '10px 20px',
+			    borderRadius: '8px',
+			    fontWeight: '600',
+			    fontSize: '13px',
+			    cursor: isReprocessing ? 'wait' : 'pointer',
+			    display: 'flex',
+			    alignItems: 'center',
+			    gap: '8px',
+			    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+			}}
+		    >
+			{isReprocessing ? (
+			    <>
+				<Loader2 className="animate-spin" size={16} />
+				Processing... {reprocessProgress.current}/{reprocessProgress.total}
+			    </>
+			) : (
+			    <>
+				<Mountain size={16} />
+				{isRefresh && isAddition ? 'Process All' : isRefresh ? 'Refresh Landmarks' : 'Add Landmarks'}
+			    </>
+			)}
+		    </button>
+		</div>
+	    </div>
+	);
+    })()}
+    
+
+	    
+      {/* Contest Opt-In Section - Compact Version */}
+      {authUser && (
+        <div style={{
+          background: contestOptIn ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : '#f8fafc',
+          border: contestOptIn ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+            <Trophy size={20} color={contestOptIn ? '#f59e0b' : '#94a3b8'} />
+            <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+              {contestOptIn ? '🏆 Competing in Global Contest' : 'Global Travel Contest'}
+            </span>
+            {!contestOptIn && (
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                — Compare your stats worldwide
+              </span>
             )}
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: contestLoading ? 'wait' : 'pointer',
+              padding: '6px 12px',
+              background: contestOptIn ? '#fff' : '#f1f5f9',
+              borderRadius: '8px',
+              border: contestOptIn ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+              fontSize: '13px',
+              fontWeight: '600',
+              color: contestOptIn ? '#92400e' : '#475569',
+              opacity: contestLoading ? 0.7 : 1
+            }}>
+              {contestLoading ? (
+                <Loader2 className="animate-spin" size={14} style={{ color: '#f59e0b' }} />
+              ) : (
+                <input
+                  type="checkbox"
+                  checked={contestOptIn}
+                  onChange={(e) => handleContestOptInToggle(e.target.checked)}
+                  style={{
+                    width: '16px',
+                    height: '16px',
+                    cursor: 'pointer',
+                    accentColor: '#f59e0b'
+                  }}
+                />
+              )}
+              {contestLoading ? '...' : (contestOptIn ? 'Opted In' : 'Opt In')}
+            </label>
+            
+            <button
+              onClick={() => setShowLeaderboard(true)}
+              style={{
+                background: '#1e293b',
+                color: '#fff',
+                border: 'none',
+                padding: '6px 14px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Users size={14} />
+              Leaderboard
+            </button>
+
           </div>
         </div>
       )}
 
-      {/* Stats Dashboard */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        <div style={statCard}><Plane size={20}/><div style={statVal}>{flights.length}</div><div style={statLbl}>Total Flights</div></div>
-        <div style={statCard}><Globe size={20}/><div style={statVal}>{totalMiles.toLocaleString()}</div><div style={statLbl}>Total Miles</div></div>
-        <div style={statCard}><Map size={20}/><div style={statVal}>{Object.keys(groupedFlights).length}</div><div style={statLbl}>Unique Routes</div></div>
-        <div style={statCard}><CloudRain size={20} color="#dc2626"/><div style={statVal}>{totalCarbonTons}</div><div style={statLbl}>Your CO₂ (tons)</div></div>
-        <div style={statCard}><Trophy size={20}/><div style={statVal}>{((totalMiles / 238855) * 100).toFixed(2)}%</div><div style={statLbl}>To the Moon</div></div>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        {/* Top Airlines Chart */}
-        {flights.length > 0 && topAirlines.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Airlines</h3>
-            {topAirlines.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#4285F4', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <FlightMatchingSection
+        authUser={authUser}
+        flightMatchingOptIn={flightMatchingOptIn}
+        handleFlightMatchingToggle={handleFlightMatchingToggle}
+        fellowPassengers={fellowPassengers}
+        favoritePassengers={favoritePassengers}
+        showFellowPassengers={showFellowPassengers}
+        setShowFellowPassengers={setShowFellowPassengers}
+        toggleFavoritePassenger={toggleFavoritePassenger}
+        openChat={openChat}
+      />
 
-        {/* Top Aircraft Chart */}
-        {flights.length > 0 && topAircraft.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Aircraft</h3>
-            {topAircraft.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      {/* Leaderboard Modal */}
+      {showLeaderboard && (
+        <LeaderboardModal
+          leaderboardData={leaderboardData}
+          loadingLeaderboard={loadingLeaderboard}
+          leaderboardSortBy={leaderboardSortBy}
+          setLeaderboardSortBy={setLeaderboardSortBy}
+          setShowLeaderboard={setShowLeaderboard}
+          getSortedLeaderboard={getSortedLeaderboard}
+          contestOptIn={contestOptIn}
+          authUser={authUser}
+          contestLoading={contestLoading}
+          handleContestOptInToggle={handleContestOptInToggle}
+          fetchLeaderboard={fetchLeaderboard}
+        />
+      )}
 
-        {/* Class of Service Chart */}
-        {flights.length > 0 && sortedClasses.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Trophy size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Class of Service</h3>
-            {sortedClasses.map(([name, count]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
-                               name === 'Business' ? '#2563eb' : 
-                               '#ca8a04'; /* First - gold */
-              const displayName = name === 'Economy' ? '🐔 Chicken class' : 
-                                  name === 'Premium Economy' ? '💺 Premium Economy' :
-                                  name === 'Business' ? '💼 Business' :
-                                  '👑 First';
-              return (
-                <div key={name} style={{ marginBottom: '15px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
-                    <span>{displayName}</span>
-                    <span>{count} flights</span>
-                  </div>
-                  <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                    <div style={{ height: '100%', background: barColor, borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        
-        {/* Top Landmarks Chart */}
-        {flights.length > 0 && (
-          <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Landmarks</h3>
-            {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks detected yet.</p> : topFeatures.map(([name, count]) => (
-              <div key={name} style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} times</span></div>
-                <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                  <div style={{ height: '100%', background: '#008080', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      {/* Admin Dashboard Modal */}
+      {showAdminDashboard && isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
+        <AdminDashboard
+          authUser={authUser}
+          onClose={() => setShowAdminDashboard(false)}
+        />
+      )}
 
-        {/* Carbon Footprint Breakdown */}
-        {flights.length > 0 && totalCarbonKg > 0 && (
-          <div style={{ background: '#fef2f2', padding: '24px', borderRadius: '16px' }}>
-            <h3 style={{ marginTop: 0, color: '#991b1b' }}><CloudRain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Your Carbon Footprint</h3>
-            
-            {/* Personal vs Total Flight comparison */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{totalCarbonTons}t</div>
-                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Your emissions</div>
+      {/* Database Update Banner - Shows when flights need reprocessing */}
+      {flights.length > 0 && getFlightsNeedingUpdate().length > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+          border: '1px solid #f59e0b',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: '#f59e0b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <AlertCircle size={20} color="#fff" />
+            </div>
+            <div>
+              <div style={{ fontWeight: '600', color: '#92400e', fontSize: '14px' }}>
+                New features available for your flights!
               </div>
-              <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#9ca3af' }}>{totalFlightCarbonTons}t</div>
-                <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Total flights' emissions</div>
+              <div style={{ fontSize: '12px', color: '#a16207', marginTop: '2px' }}>
+                {getFlightsNeedingUpdate().length} flight{getFlightsNeedingUpdate().length > 1 ? 's' : ''} can be updated with country & continent data
               </div>
             </div>
-
-            {/* Driving comparison */}
-            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>🚗 If you drove {totalMiles.toLocaleString()} miles instead:</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#059669' }}>{(totalMiles * 0.21 / 1000).toFixed(2)}t</span>
-                  <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>CO₂ by car</span>
-                </div>
-                <div style={{ 
-                  fontSize: '12px', 
-                  padding: '4px 8px', 
-                  borderRadius: '12px',
-                  background: totalCarbonKg < (totalMiles * 0.21) ? '#dcfce7' : '#fef3c7',
-                  color: totalCarbonKg < (totalMiles * 0.21) ? '#166534' : '#854d0e'
-                }}>
-                  {totalCarbonKg < (totalMiles * 0.21) 
-                    ? `✈️ Flying saved ${((totalMiles * 0.21 - totalCarbonKg) / 1000).toFixed(2)}t`
-                    : `🚗 Driving would save ${((totalCarbonKg - totalMiles * 0.21) / 1000).toFixed(2)}t`
-                  }
-                </div>
-              </div>
-            </div>
-            
-            <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>Your breakdown by class:</div>
-            {sortedCarbonByClass.map(([name, carbonKg]) => {
-              const barColor = name === 'Economy' ? '#d97706' : 
-                               name === 'Premium Economy' ? '#16a34a' : 
-                               name === 'Business' ? '#2563eb' : 
-                               '#ca8a04';
-              const displayName = name === 'Economy' ? '🐔 Chicken' : 
-                                  name === 'Premium Economy' ? '💺 Prem Eco' :
-                                  name === 'Business' ? '💼 Business' :
-                                  '👑 First';
-              return (
-                <div key={name} style={{ marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                    <span>{displayName}</span>
-                    <span>{(carbonKg / 1000).toFixed(2)}t ({Math.round(carbonKg / totalCarbonKg * 100)}%)</span>
-                  </div>
-                  <div style={{ height: '6px', background: '#fecaca', borderRadius: '3px' }}>
-                    <div style={{ height: '100%', background: barColor, borderRadius: '3px', width: `${(carbonKg/totalCarbonKg)*100}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ fontSize: '11px', color: '#888', marginTop: '16px', borderTop: '1px solid #fecaca', paddingTop: '12px' }}>
-              💡 Your share: ~{((totalCarbonKg / totalFlightCarbonKg) * 100).toFixed(1)}% of total aircraft emissions. Premium classes have larger footprints due to increased seat space.<br/>
-              <span style={{ color: '#aaa' }}>Calculated on the base rate of 0.14 kg CO₂ per passenger-mile (flying) and 0.21 kg CO₂ per mile (driving).</span>
-            </div>
           </div>
-        )}
-      </div>
-
-      {/* Flight List - Consolidated by Route */}
-      <div style={{ display: 'grid', gap: '20px' }}>
-        {sortedGroups.map(group => (
-          <div key={`${group.origin}-${group.destination}`} style={{ border: '1px solid #eee', borderRadius: '16px', padding: '24px' }}>
-            {/* Route Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-              <div>
-                <span style={{ fontSize: '20px', fontWeight: 'bold' }}>{group.origin} → {group.destination}</span>
-                <div style={{ color: '#666', fontSize: '14px', marginTop: '4px' }}>
-                  {group.originCity} to {group.destCity}
-                  {group.distance && <span style={{ marginLeft: '10px', color: '#888' }}>• {group.distance.toLocaleString()} mi</span>}
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', color: '#888', background: '#f0f0f0', padding: '4px 8px', borderRadius: '12px' }}>
-                  {group.flights.length} flight{group.flights.length > 1 ? 's' : ''}
-                </span>
-                <Copy 
-                  size={16} 
-                  style={{ cursor: 'pointer', color: '#666' }} 
-                  title="Copy this route"
-                  onClick={() => handleCopyFlight(group.flights[0])} 
-                />
-              </div>
-            </div>
-
-            {/* Landmarks */}
-            {group.featuresCrossed && group.featuresCrossed.length > 0 && (
-              <div style={{marginTop:'12px', marginBottom: '16px', display:'flex', flexWrap:'wrap', gap:'8px'}}>
-                {group.featuresCrossed.map(feat => (
-                  <span key={feat} style={{fontSize:'11px', background:'#e0f2f1', color:'#004d40', padding:'4px 8px', borderRadius:'12px', display:'flex', alignItems:'center', gap:'4px', fontWeight:'600'}}>
-                    <Globe size={10}/> {feat}
-                  </span>
-                ))}
-              </div>
+          <button
+            onClick={handleReprocessDatabase}
+            disabled={isReprocessing}
+            style={{
+              background: isReprocessing ? '#d97706' : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              color: '#fff',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              fontWeight: '600',
+              fontSize: '13px',
+              cursor: isReprocessing ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)'
+            }}
+          >
+            {isReprocessing ? (
+              <>
+                <Loader2 className="animate-spin" size={16} />
+                Updating... {reprocessProgress.current}/{reprocessProgress.total}
+              </>
+            ) : (
+              <>
+                <Check size={16} />
+                Update All Flights
+              </>
             )}
+          </button>
+        </div>
+      )}
 
-            {/* Individual Flights List */}
-            <div style={{ borderTop: '1px solid #eee', paddingTop: '12px', marginTop: '8px' }}>
-              {group.flights.map((f, idx) => {
-                const flightCO2 = getCarbonEstimate(f.distance || 0, f.serviceClass || 'Economy');
-                const drivingCO2 = (f.distance || 0) * 0.21;
-                const co2Diff = drivingCO2 - flightCO2;
-                return (
-                <div 
-                  key={f.id} 
-                  style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: idx < group.flights.length - 1 ? '1px solid #f5f5f5' : 'none'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
-                    <span style={{ fontWeight: '600', fontSize: '14px', minWidth: '90px' }}>
-                      {formatDate(f.date)}
-                    </span>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {f.airline && (
-                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.airline}
-                        </span>
-                      )}
-                      {f.aircraftType && f.aircraftType !== 'Unknown' && (
-                        <span style={{ fontSize: '12px', color: '#555', background: '#f5f5f5', padding: '3px 8px', borderRadius: '6px' }}>
-                          {f.aircraftType}
-                        </span>
-                      )}
-                      {f.serviceClass && (
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: f.serviceClass === 'Economy' ? '#8b6914' : 
-                                 f.serviceClass === 'Premium Economy' ? '#166534' : 
-                                 f.serviceClass === 'Business' ? '#1e40af' : 
-                                 '#854d0e', /* First */
-                          background: f.serviceClass === 'Economy' ? '#fef3c7' : 
-                                      f.serviceClass === 'Premium Economy' ? '#dcfce7' : 
-                                      f.serviceClass === 'Business' ? '#dbeafe' : 
-                                      '#fef9c3', /* First - gold */
-                          padding: '3px 8px', 
-                          borderRadius: '6px',
-                          fontWeight: f.serviceClass === 'First' ? '600' : 'normal'
-                        }}>
-                          {f.serviceClass === 'Economy' ? '🐔 Chicken class' : 
-                           f.serviceClass === 'Premium Economy' ? '💺 Premium Economy' :
-                           f.serviceClass === 'Business' ? '💼 Business' :
-                           '👑 First'}
-                        </span>
-                      )}
-                      {/* CO2 comparison */}
-                      <span 
-                        style={{ 
-                          fontSize: '11px', 
-                          color: '#dc2626', 
-                          background: '#fef2f2', 
-                          padding: '3px 8px', 
-                          borderRadius: '6px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                        title={`Flying: ${flightCO2} kg CO₂ | Driving: ${Math.round(drivingCO2)} kg CO₂`}
-                      >
-                        <CloudRain size={10}/>
-                        {flightCO2} kg
-                        <span style={{ 
-                          fontSize: '10px', 
-                          color: co2Diff > 0 ? '#166534' : '#854d0e',
-                          marginLeft: '2px'
-                        }}>
-                          {co2Diff > 0 ? `(🚗+${Math.round(co2Diff)})` : `(🚗${Math.round(co2Diff)})`}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <Copy 
-                      size={14} 
-                      style={{ cursor: 'pointer', color: '#888' }} 
-                      title="Duplicate this flight"
-                      onClick={() => handleCopyFlight(f)} 
-                    />
-                    <Edit2 
-                      size={14} 
-                      style={{ cursor: 'pointer', color: '#888' }} 
-                      title="Edit this flight"
-                      onClick={() => handleEditFlight(f)} 
-                    />
-                    <Trash2 
-                      size={14} 
-                      color="#e57373" 
-                      style={{ cursor: 'pointer' }} 
-                      title="Delete this flight"
-                      onClick={() => handleDeleteFlight(f.id)} 
-                    />
-                  </div>
-                </div>
-              )})}
-            </div>
-          </div>
-        ))}
-      </div>
+      <StatsSection
+        flights={flights}
+        totalFlightLegs={totalFlightLegs}
+        totalMiles={totalMiles}
+        totalPassengers={totalPassengers}
+        uniqueCountries={uniqueCountries}
+        uniqueContinents={uniqueContinents}
+        uniqueAirports={uniqueAirports}
+        totalCarbonKg={totalCarbonKg}
+        totalCarbonTons={totalCarbonTons}
+        totalFlightCarbonKg={totalFlightCarbonKg}
+        totalFlightCarbonTons={totalFlightCarbonTons}
+        topFeatures={topFeatures}
+        topAirlines={topAirlines}
+        allAircraft={allAircraft}
+        topAircraft={topAircraft}
+        sortedAlliances={sortedAlliances}
+        dominantAlliance={dominantAlliance}
+        totalFlightsWithAirlines={totalFlightsWithAirlines}
+        sortedClasses={sortedClasses}
+        sortedCarbonByClass={sortedCarbonByClass}
+        paymentStats={paymentStats}
+        groupedFlights={groupedFlights}
+      />
 
+
+      <FlightListSection
+        flights={flights}
+        sortMode={sortMode}
+        setSortMode={setSortMode}
+        sortedGroups={sortedGroups}
+        groupedByCountry={groupedByCountry}
+        groupedByContinent={groupedByContinent}
+        handleEditFlight={handleEditFlight}
+        handleDeleteFlight={handleDeleteFlight}
+        handleCopyFlight={handleCopyFlight}
+        handleReverseFlight={handleReverseFlight}
+        flightMatches={flightMatches}
+        flightMatchingOptIn={flightMatchingOptIn}
+        openAllianceDropdown={openAllianceDropdown}
+        setOpenAllianceDropdown={setOpenAllianceDropdown}
+      />
       {/* Modal Form */}
       {showForm && (
-        <div style={modalOverlay}>
-          <div style={modalContent}>
-             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '20px'}}>
-               <h2 style={{margin: 0}}>{editingFlight ? 'Edit Flight' : 'Log Flight'}</h2>
-               <X style={{cursor:'pointer'}} onClick={() => {
-                 setShowForm(false);
-                 setEditingFlight(null);
-                 setFormData({ origin: '', destination: '', date: '', aircraftType: '', airline: '', serviceClass: 'Economy', checkLandmarks: false });
-               }}/>
-             </div>
-             {isVerifying ? (
-                 <div style={{textAlign:'center', padding:'40px'}}>
-                     <Loader2 className="animate-spin" size={40} style={{marginBottom:'20px'}}/>
-                     <div>{formData.checkLandmarks ? 'Analyzing route & landmarks...' : 'Saving flight...'}</div>
-                     <div style={{fontSize:'12px', color:'#666', marginTop:'10px'}}>{statusMsg}</div>
-                 </div>
-             ) : (
-                <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '15px' }}>
-                  <input placeholder="Origin (e.g. LAX)" required value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value.toUpperCase()})} style={inputStyle} />
-                  <input placeholder="Destination (e.g. JFK)" required value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value.toUpperCase()})} style={inputStyle} />
-                  <input placeholder="Airline (e.g. United, Delta)" value={formData.airline} onChange={e => setFormData({...formData, airline: e.target.value})} style={inputStyle} />
-                  <input placeholder="Aircraft (e.g. Boeing 737)" value={formData.aircraftType} onChange={e => setFormData({...formData, aircraftType: e.target.value})} style={inputStyle} />
-                  <select 
-                    value={formData.serviceClass} 
-                    onChange={e => setFormData({...formData, serviceClass: e.target.value})} 
-                    style={inputStyle}
-                  >
-                    {serviceClasses.map(cls => (
-                      <option key={cls} value={cls}>{cls}</option>
-                    ))}
-                  </select>
-                  <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} style={inputStyle} />
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: '#555' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={formData.checkLandmarks} 
-                      onChange={e => setFormData({...formData, checkLandmarks: e.target.checked})}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                    />
-                    <span>Detect landmarks along route</span>
-                  </label>
-                  <button type="submit" style={{ background: '#000', color: '#fff', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>
-                    {editingFlight ? 'Update Flight' : (formData.checkLandmarks ? 'Save & Analyze' : 'Save Flight')}
-                  </button>
-                </form>
-             )}
-          </div>
-        </div>
+        <FlightFormModal
+          formData={formData}
+          setFormData={setFormData}
+          editingFlight={editingFlight}
+          airportSuggestions={airportSuggestions}
+          setAirportSuggestions={setAirportSuggestions}
+          activeAirportField={activeAirportField}
+          setActiveAirportField={setActiveAirportField}
+          isVerifying={isVerifying}
+          statusMsg={statusMsg}
+          onSubmit={handleSubmit}
+          onClose={() => {
+            setShowForm(false);
+            setEditingFlight(null);
+            setFormData({
+              origin: '', destination: '', date: '', returnDate: '', flightNumber: '', aircraftType: '', airline: '',
+              serviceClass: 'Economy', checkLandmarks: false, hasLayover: false, isRoundTrip: false,
+              viaAirports: [''], legAirlines: ['', ''], legAircraftTypes: ['', ''], legServiceClasses: ['Economy', 'Economy'],
+              paymentType: 'money', paymentAmount: ''
+            });
+            setAirportSuggestions([]);
+            setActiveAirportField(null);
+          }}
+        />
+      )}
+
+
+      {/* Chat Modal */}
+      {chatOpen && chatPartner && (
+        <ChatModal
+          chatPartner={chatPartner}
+          chatMessages={chatMessages}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          chatLoading={chatLoading}
+          chatError={chatError}
+          chatMessagesEndRef={chatMessagesEndRef}
+          authUser={authUser}
+          closeChat={closeChat}
+          sendChatMessage={sendChatMessage}
+        />
       )}
     </div>
   );
 };
 
-const statCard = { padding: '24px', border: '1px solid #eee', borderRadius: '16px', textAlign: 'center' };
-const statVal = { fontSize: '28px', fontWeight: 'bold', margin: '10px 0 5px' };
-const statLbl = { fontSize: '12px', color: '#888', textTransform: 'uppercase' };
-const inputStyle = { padding: '12px', borderRadius: '8px', border: '1px solid #ddd' };
-const modalOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
-const modalContent = { background: '#fff', padding: '30px', borderRadius: '20px', width: '400px' };
 
 export default FlightTracker;
