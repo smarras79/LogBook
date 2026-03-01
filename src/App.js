@@ -2421,7 +2421,7 @@ const FlightTracker = () => {
             onClick={handleGmailImport}
             disabled={!gapiInited || importing}
             title="Import flights from your Gmail inbox"
-            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '8px', cursor: gapiInited && !importing ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '13px', display: 'flex', gap: '6px', alignItems:'center', opacity: gapiInited && !importing ? 1 : 0.6 }}
+            style={{ background: '#4285F4', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '8px', cursor: gapiInited && !importing ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '13px', display: 'flex', gap: '6px', alignItems:'center', lineHeight: '18px', opacity: gapiInited && !importing ? 1 : 0.6 }}
           >
             {importing ? <Loader2 className="animate-spin" size={18}/> : <Mail size={18}/>}
             {importing ? "Scanning..." : "Add Flights from Gmail"}
@@ -2437,7 +2437,7 @@ const FlightTracker = () => {
             setAirportSuggestions([]);
             setActiveAirportField(null);
             setShowForm(true);
-          }} style={{ background: '#000', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+          }} style={{ background: '#000', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', display: 'flex', alignItems: 'center', lineHeight: '18px' }}>
             + Manual Add
           </button>
         </div>
@@ -2823,6 +2823,7 @@ const FlightTracker = () => {
         </div>
       )}
 
+      <div style={{ marginTop: '32px' }}>
       <StatsSection
         flights={flights}
         totalFlightLegs={totalFlightLegs}
@@ -2847,6 +2848,7 @@ const FlightTracker = () => {
         paymentStats={paymentStats}
         groupedFlights={groupedFlights}
       />
+      </div>
 
 
       <FlightListSection
