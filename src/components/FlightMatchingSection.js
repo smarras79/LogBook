@@ -48,7 +48,7 @@ const FlightMatchingSection = ({
           >
             <Users size={20} color={flightMatchingOptIn ? '#16a34a' : '#94a3b8'} />
             <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
-              {flightMatchingOptIn ? `👥 Finding Fellow Passengers ${fellowPassengers.length > 0 ? `(${fellowPassengers.length} found)` : ''}` : 'Fellow Passenger Finder'}
+              {flightMatchingOptIn ? `👥 Finding Fellow Passengers ${fellowPassengers.length > 0 ? `(${fellowPassengers.length} shared flights found)` : ''}` : 'Fellow Passenger Finder'}
             </span>
             {!flightMatchingOptIn && (
               <span style={{ fontSize: '12px', color: '#64748b' }}>
