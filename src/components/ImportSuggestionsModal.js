@@ -91,7 +91,7 @@ const ImportSuggestionsModal = ({
                     ) : (
                       formatDate(f.date)
                     )}
-                    {f.flightNumber && !f.isRoundTrip && <span style={{marginLeft:'10px', fontWeight:'500'}}>✈ {f.flightNumber}</span>}
+                    {f.flightNumber && <span style={{marginLeft:'10px', fontWeight:'500'}}>✈ {f.flightNumber}</span>}
                   </div>
                   <div style={{display:'flex', gap:'6px', flexWrap:'wrap', alignItems:'center'}}>
                     {f.airline && (
@@ -103,6 +103,17 @@ const ImportSuggestionsModal = ({
                         borderRadius:'10px'
                       }}>
                         {f.airline}
+                      </span>
+                    )}
+                    {f.aircraftType && f.aircraftType !== 'Unknown' && (
+                      <span style={{
+                        fontSize:'11px',
+                        background:'#f5f5f5',
+                        color:'#555',
+                        padding:'2px 8px',
+                        borderRadius:'10px'
+                      }}>
+                        {f.aircraftType}
                       </span>
                     )}
                     {f.confirmationNumber && (

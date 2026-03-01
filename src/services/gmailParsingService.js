@@ -151,6 +151,89 @@ const isStandaloneCode = (text, matchIndex, code) => {
 const isGoodCode = (code) =>
   isValidAirportCode(code) && !EXCLUDE_CODES.has(code);
 
+// ─── Aircraft detection ───────────────────────────────────────────────────────
+
+// Normalise a raw aircraft string to a clean display name
+const normaliseAircraft = (raw) => {
+  if (!raw) return '';
+  const s = raw.trim();
+  // Airbus: "AIRBUS INDUSTRIE A380-800" → "Airbus A380-800"
+  let m = s.match(/airbus\s+(?:industrie\s+)?a?\s*(3\d{2}[a-z0-9\-]*(?:neo|ceo|xwb|lr|er|f)?)/i);
+  if (m) return 'Airbus A' + m[1].toUpperCase();
+  // Boeing: "BOEING B777-200LR" → "Boeing 777-200LR"
+  m = s.match(/boeing\s+b?\s*(7\d{2}[a-z0-9\-]*)/i);
+  if (m) return 'Boeing ' + m[1].toUpperCase();
+  // Short Airbus codes: "A320", "A380-800", "A321neo"
+  m = s.match(/\b(A3\d{2}[a-z0-9\-]*(?:neo|ceo|xwb)?)\b/i);
+  if (m) return 'Airbus ' + m[1].toUpperCase();
+  // Short Boeing codes: "B737", "B777-300ER"
+  m = s.match(/\b(B7\d{2}[a-z0-9\-]*)\b/i);
+  if (m) return 'Boeing ' + m[1].toUpperCase();
+  // Embraer: "Embraer 190", "E190", "ERJ 145"
+  m = s.match(/embraer\s+e?\s*(1\d{2}[a-z0-9\-]*)/i);
+  if (m) return 'Embraer ' + m[1];
+  m = s.match(/\b(E[12]\d{2}[a-z]?)\b/i);
+  if (m) return 'Embraer ' + m[1].toUpperCase();
+  // Bombardier CRJ / Dash 8 / Q series
+  m = s.match(/\b(CRJ[\s\-]?\d{3}[a-z]*)\b/i);
+  if (m) return m[1].replace(/\s/, '-').toUpperCase();
+  m = s.match(/\b(Q\s*\d{3}|Dash\s*8[\s\-]\d{3})\b/i);
+  if (m) return m[1];
+  // ATR
+  m = s.match(/\b(ATR[\s\-]?\d{2})\b/i);
+  if (m) return m[1].replace(/\s/, '-').toUpperCase();
+  return '';
+};
+
+// Extract all aircraft type mentions from text, in document order (allows duplicates)
+const extractAllAircraftTypes = (text) => {
+  const hits = []; // { pos, type }
+  const addHit = (re, transform) => {
+    re.lastIndex = 0;
+    for (const m of text.matchAll(re)) {
+      const type = transform(m);
+      if (type) hits.push({ pos: m.index, type });
+    }
+  };
+
+  addHit(/\bboeing\s+b?\s*(7\d{2}[a-z0-9\-]*)/gi,     m => 'Boeing '   + m[1].toUpperCase());
+  addHit(/\bairbus\s+(?:industrie\s+)?a?\s*(3\d{2}[a-z0-9\-]*(?:neo|ceo|xwb|lr|er|f)?)/gi,
+                                                         m => 'Airbus A'  + m[1].toUpperCase());
+  addHit(/\bembraer\s+e?\s*(1\d{2}[a-z0-9\-]*)/gi,     m => 'Embraer '  + m[1]);
+  addHit(/\b(CRJ[\s\-]?\d{3}[a-z]*)\b/gi,              m => m[1].replace(/\s/,'-').toUpperCase());
+  addHit(/\b(ATR[\s\-]?\d{2})\b/gi,                    m => m[1].replace(/\s/,'-').toUpperCase());
+
+  // If no full-name matches, try short codes
+  if (hits.length === 0) {
+    addHit(/\b(A3\d{2}[a-z0-9\-]*(?:neo|ceo|xwb)?)\b/gi, m => 'Airbus ' + m[1].toUpperCase());
+    addHit(/\b(B7\d{2}[a-z0-9\-]*)\b/gi,                  m => 'Boeing ' + m[1].toUpperCase());
+    addHit(/\b(E[12]\d{2}[a-z]?)\b/gi,                    m => 'Embraer '+ m[1].toUpperCase());
+  }
+
+  return hits.sort((a, b) => a.pos - b.pos).map(h => h.type);
+};
+
+// Convenience: first aircraft type in text, or ''
+const extractAircraftType = (text) => extractAllAircraftTypes(text)[0] || '';
+
+// ─── Flight number helpers ────────────────────────────────────────────────────
+
+// Extract all IATA flight numbers from text in document order.
+// Handles standard 2-letter codes (EK788) and numeric-prefix codes (6E123).
+// Deduplicates while preserving order.
+const extractAllFlightNumbers = (text) => {
+  const hits = [];
+  const seen = new Set();
+  // Pattern: 1-2 uppercase letters OR a digit + 1 uppercase letter, then 1-4 digits
+  // Covers: AA123, EK788, PC706, B6234, 6E123, U2345, W6678
+  const re = /\b([A-Z]{1,2}|\d[A-Z])\s?(\d{1,4})\b/g;
+  for (const m of text.matchAll(re)) {
+    const fn = m[1].replace(/\s/, '') + m[2];
+    if (!seen.has(fn)) { seen.add(fn); hits.push({ pos: m.index, fn }); }
+  }
+  return hits.sort((a, b) => a.pos - b.pos).map(h => h.fn);
+};
+
 // Extract all (CODE) parenthesised airport codes from text in order
 const extractParenCodes = (text) => {
   const codes = [];
@@ -401,7 +484,26 @@ export const extractFlightInfo = (message) => {
         const origIsStart = i === 0;
         const origIsTransit = transitAirports.has(orig);
         if ((origIsStart || origIsTransit) && !segs.some(s => s.origin === orig && s.destination === dest))
-          segs.push({ date: '', flightNumber: '', origin: orig, destination: dest });
+          segs.push({ date: '', flightNumber: '', aircraftType: '', origin: orig, destination: dest });
+      }
+    }
+
+    // For segments that lack flight numbers (A3 path), try to assign in-order
+    // from all flight numbers found in the text (e.g. EK788, EK404, EK355…)
+    if (segs.length > 0 && segs.every(s => !s.flightNumber)) {
+      const allFns = extractAllFlightNumbers(text);
+      segs.forEach((s, i) => { if (allFns[i]) s.flightNumber = allFns[i]; });
+    }
+
+    // Similarly assign aircraft types in-order when not already set
+    if (segs.length > 0 && segs.every(s => !s.aircraftType)) {
+      const allAircraft = extractAllAircraftTypes(text);
+      if (allAircraft.length === segs.length) {
+        // Perfect match — assign 1:1
+        segs.forEach((s, i) => { s.aircraftType = allAircraft[i]; });
+      } else if (allAircraft.length > 0) {
+        // Use whatever we found; repeat last value if short
+        segs.forEach((s, i) => { s.aircraftType = allAircraft[i] || allAircraft[allAircraft.length - 1]; });
       }
     }
 
@@ -412,6 +514,7 @@ export const extractFlightInfo = (message) => {
   if (segments.length > 0) {
     console.log(`Segments (${segments.length}) in "${subject}"`);
     const emailDate = (() => { try { return new Date(dateHeader).toISOString().split('T')[0]; } catch(_){return '';} })();
+    const emailAircraftTypes = extractAllAircraftTypes(fullText);
     return segments.map((seg, idx) => ({
       id: `${message.id}-seg${idx}`,
       origin: seg.origin,
@@ -419,7 +522,7 @@ export const extractFlightInfo = (message) => {
       date: (seg.date ? parseDate(seg.date.replace(/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s*/i,'')) : '') || findDate(fullText) || emailDate,
       flightNumber: seg.flightNumber || '',
       airline: detectedAirline,
-      aircraftType: 'Unknown',
+      aircraftType: seg.aircraftType || emailAircraftTypes[idx] || emailAircraftTypes[0] || '',
       serviceClass: 'Economy',
       confirmationNumber,
       snippet: `${seg.origin} → ${seg.destination}`,
@@ -497,12 +600,15 @@ export const extractFlightInfo = (message) => {
   // ── Extract flight number ─────────────────────────────────────────────────
   let flightNumber = '';
   if (airlineCode) {
-    const fnM = fullText.match(new RegExp(`\\b${airlineCode}\\s?(\\d{1,4})\\b`, 'i'));
+    // Escape special regex chars in airline code (e.g. "6E" has a digit prefix)
+    const escaped = airlineCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fnM = fullText.match(new RegExp(`\\b${escaped}\\s?(\\d{1,4})\\b`, 'i'));
     if (fnM) flightNumber = airlineCode + fnM[1];
   }
   if (!flightNumber) {
-    const fnM = fullText.match(/\b([A-Z]{2})\s?(\d{3,4})\b/);
-    if (fnM) flightNumber = fnM[1] + fnM[2];
+    // Broader pattern: 1-2 uppercase letters or digit+letter + 1-4 digits
+    const allFns = extractAllFlightNumbers(fullText);
+    if (allFns.length > 0) flightNumber = allFns[0];
   }
 
   // ── Extract service class ─────────────────────────────────────────────────
@@ -527,7 +633,7 @@ export const extractFlightInfo = (message) => {
     date: flightDate,
     flightNumber,
     airline: detectedAirline,
-    aircraftType: 'Unknown',
+    aircraftType: extractAircraftType(fullText),
     serviceClass,
     confirmationNumber,
     snippet: message.snippet?.substring(0, 80) + '...',
