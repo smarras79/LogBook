@@ -2304,6 +2304,38 @@ const FlightTracker = () => {
                   <Edit2 size={12} style={{ opacity: 0.6 }} />
                 </div>
               )}
+              {/* Landmark refresh button — always accessible */}
+              <button
+                onClick={() => {
+                  const flightsToProcess = [
+                    ...getFlightsNeedingLandmarkRefresh(flights),
+                    ...getFlightsForLandmarkAddition(flights),
+                  ];
+                  const ids = flightsToProcess.length > 0
+                    ? [...new Set(flightsToProcess.map(f => f.id))]
+                    : flights.map(f => f.id);
+                  handleRefreshLandmarks(ids);
+                }}
+                disabled={isReprocessing || flights.length === 0}
+                title={isReprocessing
+                  ? `Processing… ${reprocessProgress.current}/${reprocessProgress.total}`
+                  : 'Update landmarks for all flights'}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  padding: '7px 9px',
+                  cursor: isReprocessing || flights.length === 0 ? 'default' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#6b7280',
+                  opacity: flights.length === 0 ? 0.4 : 1,
+                }}
+              >
+                {isReprocessing
+                  ? <Loader2 size={16} className="animate-spin" />
+                  : <Mountain size={16} />}
+              </button>
               {/* Admin button — only for the admin user */}
               {isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
                 <button
