@@ -131,18 +131,22 @@ const useFlightStats = (flights) => {
     const topAirlines = allAirlines.slice(0, 5);
 
     // Aircraft statistics (count per leg for multi-leg trips)
+    const cleanAircraft = (t) => (t || '').replace(/FARE/gi, '').replace(/\s+/g, ' ').trim();
     const aircraftStats = {};
     flights.forEach(f => {
       if (f.legs && f.legs.length > 1) {
         // Multi-leg trip: count each leg's aircraft
         f.legs.forEach(leg => {
-          if (leg.aircraftType && leg.aircraftType !== 'Unknown') {
-            aircraftStats[leg.aircraftType] = (aircraftStats[leg.aircraftType] || 0) + 1;
+          const type = cleanAircraft(leg.aircraftType);
+          if (type && type !== 'Unknown') {
+            aircraftStats[type] = (aircraftStats[type] || 0) + 1;
           }
         });
-      } else if (f.aircraftType && f.aircraftType !== 'Unknown') {
-        // Single leg trip
-        aircraftStats[f.aircraftType] = (aircraftStats[f.aircraftType] || 0) + 1;
+      } else {
+        const type = cleanAircraft(f.aircraftType);
+        if (type && type !== 'Unknown') {
+          aircraftStats[type] = (aircraftStats[type] || 0) + 1;
+        }
       }
     });
     const allAircraft = Object.entries(aircraftStats).sort((a, b) => b[1] - a[1]);

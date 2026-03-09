@@ -157,7 +157,8 @@ const isGoodCode = (code) =>
 const normaliseAircraft = (raw) => {
   if (!raw) return '';
   // Strip fare/booking-class suffixes (e.g. "A340-600FARE" → "A340-600")
-  const s = raw.trim().replace(/\bFARE\b/gi, '').replace(/\s+/g, ' ').trim();
+  // No word-boundary anchors: FARE is never a valid part of any aircraft name
+  const s = raw.trim().replace(/FARE/gi, '').replace(/\s+/g, ' ').trim();
   // Airbus: "AIRBUS INDUSTRIE A380-800" → "Airbus A380-800"
   let m = s.match(/airbus\s+(?:industrie\s+)?a?\s*(3\d{2}[a-z0-9\-]*(?:neo|ceo|xwb|lr|er|f)?)/i);
   if (m) return 'Airbus A' + m[1].toUpperCase();
@@ -211,7 +212,7 @@ const extractAllAircraftTypes = (text) => {
     addHit(/\b(E[12]\d{2}[a-z]?)\b/gi,                    m => 'Embraer '+ m[1].toUpperCase());
   }
 
-  return hits.sort((a, b) => a.pos - b.pos).map(h => h.type.replace(/FARE$/i, '').replace(/-$/, '').trim());
+  return hits.sort((a, b) => a.pos - b.pos).map(h => h.type.replace(/FARE/gi, '').replace(/-$/, '').trim());
 };
 
 // Convenience: first aircraft type in text, or ''
@@ -336,7 +337,7 @@ export const extractFlightInfo = (message) => {
                 date: obj.departureTime ? obj.departureTime.split('T')[0] : '',
                 flightNumber: (obj.airline?.iataCode || '') + (obj.flightNumber || ''),
                 airline: obj.airline?.name || '',
-                aircraftType: (obj.aircraft?.name || obj.aircraft?.model || 'Unknown').replace(/\bFARE\b/gi, '').trim(),
+                aircraftType: (obj.aircraft?.name || obj.aircraft?.model || 'Unknown').replace(/FARE/gi, '').trim(),
                 serviceClass: item.reservedTicket?.ticketedSeat?.seatingType || 'Economy',
                 confirmationNumber: reservationNumber || item.reservationNumber || '',
                 snippet: `${dep.name || dep.iataCode} → ${arr.name || arr.iataCode}`,
