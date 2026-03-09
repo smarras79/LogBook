@@ -2336,8 +2336,8 @@ const FlightTracker = () => {
                   ? <Loader2 size={16} className="animate-spin" />
                   : <Mountain size={16} />}
               </button>
-              {/* Admin button — only for the admin user */}
-              {isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
+              {/* Admin button — visible to all admin users */}
+              {isAdmin && (
                 <button
                   onClick={() => setShowAdminDashboard(true)}
                   title="Admin Dashboard"
@@ -2748,7 +2748,7 @@ const FlightTracker = () => {
       )}
 
       {/* Admin Dashboard Modal */}
-      {showAdminDashboard && isAdmin && authUser?.email === INITIAL_ADMIN_EMAIL && (
+      {showAdminDashboard && isAdmin && (
         <AdminDashboard
           authUser={authUser}
           onClose={() => setShowAdminDashboard(false)}
