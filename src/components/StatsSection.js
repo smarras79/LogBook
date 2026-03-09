@@ -30,7 +30,8 @@ const getManufacturer = (name) => {
 const groupAircraftByFamily = (list) => {
   const groups = {};
   list.forEach(([name, count]) => {
-    const root = getAircraftRoot(name);
+    // Normalize root through shortName so "Boeing 747" and "B747" merge into the same group
+    const root = shortName(getAircraftRoot(name));
     if (!groups[root]) groups[root] = { total: 0, variants: [] };
     groups[root].total += count;
     groups[root].variants.push([name, count]);
