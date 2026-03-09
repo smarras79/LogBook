@@ -214,6 +214,8 @@ const FlightTracker = () => {
 	    const sourceFlights = data.flights || [];
 	    const { fixed, changed } = ensureUniqueIds(sourceFlights);
 	    setFlights(fixed);
+            // Sync localStorage so the save function always has the correct base list
+            try { localStorage.setItem('flights-data', JSON.stringify(fixed)); } catch (e) {}
             setContestOptIn(data.contestOptIn || false);
             setFlightMatchingOptIn(data.flightMatchingOptIn || false);
             setNickname(data.nickname || '');
@@ -1821,8 +1823,10 @@ const FlightTracker = () => {
             console.log('Saving round trip flight:', newRecord.origin, '⇄', newRecord.destination, 'dates:', newRecord.date, '-', newRecord.returnDate);
         }
 
-        // Read current flights from localStorage (more reliable for sequential saves like round trips)
-        const currentFlights = JSON.parse(localStorage.getItem('flights-data') || '[]');
+        // Read current flights from localStorage (kept in sync with Firestore on login).
+        // Fall back to the React state to prevent data loss if localStorage is empty.
+        const lsFlights = JSON.parse(localStorage.getItem('flights-data') || 'null');
+        const currentFlights = (lsFlights && lsFlights.length > 0) ? lsFlights : flights;
         const updated = isImport 
             ? [newRecord, ...currentFlights] 
             : (editingFlight ? currentFlights.map(f => f.id === editingFlight.id ? newRecord : f) : [newRecord, ...currentFlights]);
