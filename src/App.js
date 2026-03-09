@@ -267,14 +267,9 @@ const FlightTracker = () => {
           setChatOpen(false);
           setChatPartner(null);
           setChatMessages([]);
-          // Fall back to localStorage for non-authenticated users
-          const localFlights = localStorage.getItem('flights-data');
-          const parsed = localFlights ? JSON.parse(localFlights) : [];
-	  const { fixed, changed } = ensureUniqueIds(parsed);
-	  setFlights(fixed);
-	  if (changed) {
-	      localStorage.setItem('flights-data', JSON.stringify(fixed));
-	  }
+          // User logged out — clear flights and stale localStorage cache
+          setFlights([]);
+          try { localStorage.removeItem('flights-data'); } catch (e) {}
       }
 	setAuthLoading(false);
     });
