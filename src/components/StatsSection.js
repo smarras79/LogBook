@@ -8,6 +8,17 @@ import { isAirlineMatch } from '../utils/airlines';
 const getAircraftRoot = (name) =>
   name.replace(/\s*(neo|ceo|xwb|lr|er)$/i, '').replace(/-[^-]*$/, '').trim();
 
+// Identify manufacturer from a family root name (handles both normalised and raw codes)
+const getManufacturer = (name) => {
+  if (/^(Boeing|B7\d{2})/i.test(name))   return 'Boeing';
+  if (/^(Airbus|A3\d{2})/i.test(name))   return 'Airbus';
+  if (/^(Embraer|E[12]\d{2})/i.test(name)) return 'Embraer';
+  if (/^CRJ/i.test(name))                return 'Bombardier';
+  if (/^ATR/i.test(name))                return 'ATR';
+  if (/^Q\d{3}/i.test(name))             return 'De Havilland';
+  return 'Other';
+};
+
 // Group a sorted [name, count][] list into family groups
 const groupAircraftByFamily = (list) => {
   const groups = {};
@@ -24,6 +35,20 @@ const groupAircraftByFamily = (list) => {
       total,
       variants: variants.sort((a, b) => b[1] - a[1]),
     }));
+};
+
+// Group already-computed families by manufacturer, sorted by total desc
+const groupFamiliesByManufacturer = (families) => {
+  const mfrMap = {};
+  families.forEach(family => {
+    const mfr = getManufacturer(family.root);
+    if (!mfrMap[mfr]) mfrMap[mfr] = { total: 0, families: [] };
+    mfrMap[mfr].total += family.total;
+    mfrMap[mfr].families.push(family);
+  });
+  return Object.entries(mfrMap)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([mfr, { total, families }]) => ({ manufacturer: mfr, total, families }));
 };
 
 function StatsSection({
@@ -72,6 +97,9 @@ function StatsSection({
   }, [openAllianceDropdown]);
 
   const groupedAircraft = groupAircraftByFamily(allAircraft || []);
+  const aircraftByMfr = groupFamiliesByManufacturer(
+    showAllAircraft ? groupedAircraft : groupedAircraft.slice(0, 5)
+  );
 
   return (
     <>
@@ -373,45 +401,62 @@ function StatsSection({
                       </button>
                     )}
                   </div>
-                  {(showAllAircraft ? groupedAircraft : groupedAircraft.slice(0, 5)).map(({ root, total, variants }) => {
-                    const isGrouped = variants.length > 1;
-                    if (!isGrouped) {
-                      const [name, count] = variants[0];
-                      return (
-                        <div key={root} style={{ marginBottom: '15px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
-                            <span>{name}</span><span>{count} flight{count !== 1 ? 's' : ''}</span>
-                          </div>
-                          <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                            <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
-                          </div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={root} style={{ marginBottom: '18px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '5px' }}>
-                          <span>{root}</span><span>{total} flight{total !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div style={{ height: '8px', background: '#eee', borderRadius: '4px', marginBottom: '10px' }}>
-                          <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(total/flights.length)*100}%` }} />
-                        </div>
-                        {variants.map(([vName, vCount]) => (
-                          <div key={vName} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px', paddingLeft: '12px' }}>
-                            <span style={{ color: '#ccc', fontSize: '11px', flexShrink: 0 }}>└</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginBottom: '3px' }}>
-                                <span>{vName}</span><span>{vCount} flight{vCount !== 1 ? 's' : ''}</span>
+
+                  {aircraftByMfr.map(({ manufacturer, total: mfrTotal, families }) => (
+                    <div key={manufacturer} style={{ marginBottom: '20px' }}>
+                      {/* Manufacturer header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: '700', color: '#1f2937', marginBottom: '5px' }}>
+                        <span>{manufacturer}</span>
+                        <span style={{ fontWeight: '600' }}>{mfrTotal} flight{mfrTotal !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div style={{ height: '8px', background: '#eee', borderRadius: '4px', marginBottom: '12px' }}>
+                        <div style={{ height: '100%', background: '#ea580c', borderRadius: '4px', width: `${(mfrTotal/flights.length)*100}%` }} />
+                      </div>
+
+                      {/* Families within manufacturer */}
+                      {families.map(({ root, total: fTotal, variants }) => {
+                        const isGrouped = variants.length > 1;
+                        if (!isGrouped) {
+                          const [name, count] = variants[0];
+                          return (
+                            <div key={root} style={{ paddingLeft: '14px', marginBottom: '10px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                                <span>{name}</span><span>{count} flight{count !== 1 ? 's' : ''}</span>
                               </div>
-                              <div style={{ height: '5px', background: '#eee', borderRadius: '3px' }}>
-                                <div style={{ height: '100%', background: '#fdba74', borderRadius: '3px', width: `${(vCount/flights.length)*100}%` }} />
+                              <div style={{ height: '6px', background: '#eee', borderRadius: '3px' }}>
+                                <div style={{ height: '100%', background: '#f97316', borderRadius: '3px', width: `${(count/flights.length)*100}%` }} />
                               </div>
                             </div>
+                          );
+                        }
+                        return (
+                          <div key={root} style={{ paddingLeft: '14px', marginBottom: '12px' }}>
+                            {/* Family root header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '4px' }}>
+                              <span>{root}</span><span>{fTotal} flight{fTotal !== 1 ? 's' : ''}</span>
+                            </div>
+                            <div style={{ height: '6px', background: '#eee', borderRadius: '3px', marginBottom: '8px' }}>
+                              <div style={{ height: '100%', background: '#f97316', borderRadius: '3px', width: `${(fTotal/flights.length)*100}%` }} />
+                            </div>
+                            {/* Variants */}
+                            {variants.map(([vName, vCount]) => (
+                              <div key={vName} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', paddingLeft: '12px' }}>
+                                <span style={{ color: '#ccc', fontSize: '11px', flexShrink: 0 }}>└</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#555', marginBottom: '3px' }}>
+                                    <span>{vName}</span><span>{vCount} flight{vCount !== 1 ? 's' : ''}</span>
+                                  </div>
+                                  <div style={{ height: '4px', background: '#eee', borderRadius: '2px' }}>
+                                    <div style={{ height: '100%', background: '#fdba74', borderRadius: '2px', width: `${(vCount/flights.length)*100}%` }} />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
 
