@@ -2836,7 +2836,9 @@ const FlightTracker = () => {
         totalCarbonTons={totalCarbonTons}
         totalFlightCarbonKg={totalFlightCarbonKg}
         totalFlightCarbonTons={totalFlightCarbonTons}
+        allFeatures={allFeatures}
         topFeatures={topFeatures}
+        allAirlines={allAirlines}
         topAirlines={topAirlines}
         allAircraft={allAircraft}
         topAircraft={topAircraft}

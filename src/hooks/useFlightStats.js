@@ -109,7 +109,8 @@ const useFlightStats = (flights) => {
         });
       }
     });
-    const topFeatures = Object.entries(featureStats).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const allFeatures = Object.entries(featureStats).sort((a, b) => b[1] - a[1]);
+    const topFeatures = allFeatures.slice(0, 5);
 
     // Airline statistics (count per leg for multi-leg trips)
     const airlineStats = {};
@@ -126,7 +127,8 @@ const useFlightStats = (flights) => {
         airlineStats[f.airline] = (airlineStats[f.airline] || 0) + 1;
       }
     });
-    const topAirlines = Object.entries(airlineStats).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const allAirlines = Object.entries(airlineStats).sort((a, b) => b[1] - a[1]);
+    const topAirlines = allAirlines.slice(0, 5);
 
     // Aircraft statistics (count per leg for multi-leg trips)
     const aircraftStats = {};
@@ -312,8 +314,10 @@ const useFlightStats = (flights) => {
       totalFlightCarbonKg,
       totalFlightCarbonTons,
       featureStats,
+      allFeatures,
       topFeatures,
       airlineStats,
+      allAirlines,
       topAirlines,
       aircraftStats,
       allAircraft,

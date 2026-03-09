@@ -8,7 +8,7 @@ function StatsSection({
   flights, totalFlightLegs, totalMiles, totalPassengers,
   uniqueCountries, uniqueContinents, uniqueAirports,
   totalCarbonKg, totalCarbonTons, totalFlightCarbonKg, totalFlightCarbonTons,
-  topFeatures, topAirlines, allAircraft, topAircraft,
+  allFeatures, topFeatures, allAirlines, topAirlines, allAircraft, topAircraft,
   sortedAlliances, dominantAlliance, totalFlightsWithAirlines,
   sortedClasses, sortedCarbonByClass, paymentStats, groupedFlights
 }) {
@@ -32,6 +32,8 @@ function StatsSection({
   });
   const [showStatsSettings, setShowStatsSettings] = useState(false);
   const [showAllAircraft, setShowAllAircraft] = useState(false);
+  const [showAllAirlines, setShowAllAirlines] = useState(false);
+  const [showAllLandmarks, setShowAllLandmarks] = useState(false);
   const [openAllianceDropdown, setOpenAllianceDropdown] = useState(null);
 
   useEffect(() => { localStorage.setItem('statsExpanded', JSON.stringify(statsExpanded)); }, [statsExpanded]);
@@ -293,8 +295,27 @@ function StatsSection({
               {/* Top Airlines Chart */}
               {topAirlines.length > 0 && (
                 <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-                  <h3 style={{ marginTop: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Airlines</h3>
-                  {topAirlines.map(([name, count]) => (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0 }}><Plane size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> {showAllAirlines ? 'All Airlines' : 'Top Airlines'}</h3>
+                    {allAirlines && allAirlines.length > 5 && (
+                      <button
+                        onClick={() => setShowAllAirlines(!showAllAirlines)}
+                        style={{
+                          background: showAllAirlines ? '#4285F4' : '#fff',
+                          color: showAllAirlines ? '#fff' : '#4285F4',
+                          border: '1px solid #4285F4',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {showAllAirlines ? `Show Top 5` : `Show All (${allAirlines.length})`}
+                      </button>
+                    )}
+                  </div>
+                  {(showAllAirlines ? allAirlines : topAirlines).map(([name, count]) => (
                     <div key={name} style={{ marginBottom: '15px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flight{count > 1 ? 's' : ''}</span></div>
                       <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
@@ -535,8 +556,27 @@ function StatsSection({
 
               {/* Top Landmarks Chart */}
               <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
-                <h3 style={{ marginTop: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> Top Landmarks</h3>
-                {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks detected yet.</p> : topFeatures.map(([name, count]) => (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0 }}><Mountain size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> {showAllLandmarks ? 'All Landmarks' : 'Top Landmarks'}</h3>
+                  {allFeatures && allFeatures.length > 5 && (
+                    <button
+                      onClick={() => setShowAllLandmarks(!showAllLandmarks)}
+                      style={{
+                        background: showAllLandmarks ? '#008080' : '#fff',
+                        color: showAllLandmarks ? '#fff' : '#008080',
+                        border: '1px solid #008080',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {showAllLandmarks ? `Show Top 5` : `Show All (${allFeatures.length})`}
+                    </button>
+                  )}
+                </div>
+                {topFeatures.length === 0 ? <p style={{color:'#666', fontSize:'13px'}}>No landmarks detected yet.</p> : (showAllLandmarks ? allFeatures : topFeatures).map(([name, count]) => (
                   <div key={name} style={{ marginBottom: '15px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} times</span></div>
                     <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
