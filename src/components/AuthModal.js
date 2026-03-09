@@ -52,7 +52,7 @@ const AuthModal = ({
               required
               value={authPassword}
               onChange={e => setAuthPassword(e.target.value)}
-              style={{...inputStyle, paddingRight: '45px'}}
+              style={{...inputStyle, paddingRight: '45px', width: '100%', boxSizing: 'border-box'}}
             />
             <button
               type="button"
