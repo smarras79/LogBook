@@ -279,36 +279,49 @@ const FlightTracker = () => {
     return () => unsubscribe();
   }, []);
 
-  // Save flights to Firestore when they change (for authenticated users)
-  // CRITICAL: Use a ref to track if we're in the middle of loading to prevent race conditions
+  // Save flights to Firestore when they change (for authenticated users).
+  // isSavingRef prevents concurrent writes; pendingSaveRef queues any update
+  // that arrives while a write is already in flight, so it is never dropped.
   const isSavingRef = useRef(false);
-  
+  const pendingSaveRef = useRef(null); // latest flights waiting to be persisted
+
   useEffect(() => {
-    // Don't save if we're still loading or if we're already saving
-    if (authLoading || isSavingRef.current) {
-      console.log('⏸️ Skipping save - authLoading:', authLoading, 'isSaving:', isSavingRef.current);
-      return;
-    }
-    
+    if (authLoading) return;
+
     if (authUser) {
-      isSavingRef.current = true;
-      const userDocRef = doc(db, 'users', authUser.uid);
-      console.log('💾 Saving flights to Firestore:', flights.length, 'flights');
-      
-      updateDoc(userDocRef, { flights: flights })
-        .then(() => {
-          console.log('✓ Flights saved successfully to Firestore');
-          isSavingRef.current = false;
-        })
-        .catch((error) => {
-          console.error('❌ Error saving flights to Firestore:', error);
-          console.error('Error code:', error.code);
-          console.error('Error message:', error.message);
-          isSavingRef.current = false;
-        });
-    } else if (!authUser) {
+      if (isSavingRef.current) {
+        // A write is already in flight — remember the latest state so we can
+        // flush it once that write completes (see the .then/.catch below).
+        pendingSaveRef.current = flights;
+        return;
+      }
+
+      const saveToFirestore = (flightsToSave) => {
+        isSavingRef.current = true;
+        pendingSaveRef.current = null;
+        const userDocRef = doc(db, 'users', authUser.uid);
+        console.log('💾 Saving flights to Firestore:', flightsToSave.length, 'flights');
+        updateDoc(userDocRef, { flights: flightsToSave })
+          .then(() => {
+            console.log('✓ Flights saved to Firestore');
+            isSavingRef.current = false;
+            // Flush any update that arrived while this write was in flight
+            if (pendingSaveRef.current !== null) {
+              saveToFirestore(pendingSaveRef.current);
+            }
+          })
+          .catch((error) => {
+            console.error('❌ Error saving flights to Firestore:', error.code, error.message);
+            isSavingRef.current = false;
+            if (pendingSaveRef.current !== null) {
+              saveToFirestore(pendingSaveRef.current);
+            }
+          });
+      };
+
+      saveToFirestore(flights);
+    } else {
       // Save to localStorage for non-authenticated users
-      console.log('💾 Saving flights to localStorage:', flights.length, 'flights');
       localStorage.setItem('flights-data', JSON.stringify(flights));
     }
   }, [flights, authUser, authLoading]);
@@ -1157,14 +1170,15 @@ const FlightTracker = () => {
         return flight;
       });
 
-      setFlights(updatedFlights);
-      localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
-
-      // Also update Firestore if logged in
+      // Persist to Firestore first (authenticated); only then update local state
+      // so a Firestore failure doesn't leave React state out of sync with the DB.
       if (authUser) {
         const userDocRef = doc(db, 'users', authUser.uid);
         await updateDoc(userDocRef, { flights: updatedFlights });
       }
+
+      setFlights(updatedFlights);
+      localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
 
       alert(`Successfully updated ${flightsToUpdate.length} flight${flightsToUpdate.length > 1 ? 's' : ''} with new data!`);
     } catch (error) {
@@ -1574,23 +1588,20 @@ const FlightTracker = () => {
 		    if (!from || !to) return flight;
 		    
 		    let allFeatures = [];
-		    
+		    // Build updated legs immutably so we never mutate state objects directly
+		    let updatedLegs = flight.legs ? [...flight.legs] : [];
+
 		    if (flight.legs && flight.legs.length > 1) {
 			// Multi-leg flight - refresh each leg
 			for (let i = 0; i < flight.legs.length; i++) {
 			    const leg = flight.legs[i];
 			    const legFrom = await fetchAirportData(AIRPORTS_DATABASE,leg.origin);
 			    const legTo = await fetchAirportData(AIRPORTS_DATABASE,leg.destination);
-			    
+
 			    if (legFrom && legTo) {
 				const legFeatures = await detectLandmarksHybrid(legFrom, legTo, geocoder, setStatusMsg);
 				allFeatures = [...new Set([...allFeatures, ...legFeatures])];
-				
-				// Update leg features
-				flight.legs[i] = {
-				    ...leg,
-				    featuresCrossed: legFeatures
-				};
+				updatedLegs[i] = { ...leg, featuresCrossed: legFeatures };
 			    }
 			}
 		    } else {
@@ -1600,20 +1611,22 @@ const FlightTracker = () => {
 		    
 		    return {
 			...flight,
+			legs: updatedLegs,
 			featuresCrossed: allFeatures,
 			landmarkVersion: LANDMARK_DETECTION_VERSION
 		    };
 		})
 	    );
 	    
-	    setFlights(updatedFlights);
-	    localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
-	    
+	    // Persist to Firestore first so a write failure doesn't desync local state
 	    if (authUser) {
 		const userDocRef = doc(db, 'users', authUser.uid);
 		await updateDoc(userDocRef, { flights: updatedFlights });
 	    }
-	    
+
+	    setFlights(updatedFlights);
+	    localStorage.setItem('flights-data', JSON.stringify(updatedFlights));
+
 	    alert(`Successfully refreshed landmarks for ${flightIds.length} flight${flightIds.length > 1 ? 's' : ''}!`);
 	} catch (error) {
 	    console.error('Error refreshing landmarks:', error);
