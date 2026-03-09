@@ -97,9 +97,7 @@ function StatsSection({
   }, [openAllianceDropdown]);
 
   const groupedAircraft = groupAircraftByFamily(allAircraft || []);
-  const aircraftByMfr = groupFamiliesByManufacturer(
-    showAllAircraft ? groupedAircraft : groupedAircraft.slice(0, 5)
-  );
+  const aircraftByMfr = groupFamiliesByManufacturer(groupedAircraft);
 
   return (
     <>
@@ -402,7 +400,20 @@ function StatsSection({
                     )}
                   </div>
 
-                  {aircraftByMfr.map(({ manufacturer, total: mfrTotal, families }) => (
+                  {/* Default: flat top-5 family list */}
+                  {!showAllAircraft && groupedAircraft.slice(0, 5).map(({ root, total }) => (
+                    <div key={root} style={{ marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                        <span>{root}</span><span>{total} flight{total !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                        <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(total/flights.length)*100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Show All: full manufacturer → family → variant hierarchy */}
+                  {showAllAircraft && aircraftByMfr.map(({ manufacturer, total: mfrTotal, families }) => (
                     <div key={manufacturer} style={{ marginBottom: '20px' }}>
                       {/* Manufacturer header */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: '700', color: '#1f2937', marginBottom: '5px' }}>
