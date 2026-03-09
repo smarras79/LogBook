@@ -4,6 +4,28 @@ import { statCard, statVal, statLbl } from '../styles/constants';
 import { ALLIANCE_STYLES, ALLIANCE_MEMBERS_DISPLAY } from '../data/airlines';
 import { isAirlineMatch } from '../utils/airlines';
 
+// Strip variant suffix to get the root family name, e.g. "Boeing 777-300ER" → "Boeing 777"
+const getAircraftRoot = (name) =>
+  name.replace(/\s*(neo|ceo|xwb|lr|er)$/i, '').replace(/-[^-]*$/, '').trim();
+
+// Group a sorted [name, count][] list into family groups
+const groupAircraftByFamily = (list) => {
+  const groups = {};
+  list.forEach(([name, count]) => {
+    const root = getAircraftRoot(name);
+    if (!groups[root]) groups[root] = { total: 0, variants: [] };
+    groups[root].total += count;
+    groups[root].variants.push([name, count]);
+  });
+  return Object.entries(groups)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([root, { total, variants }]) => ({
+      root,
+      total,
+      variants: variants.sort((a, b) => b[1] - a[1]),
+    }));
+};
+
 function StatsSection({
   flights, totalFlightLegs, totalMiles, totalPassengers,
   uniqueCountries, uniqueContinents, uniqueAirports,
@@ -48,6 +70,8 @@ function StatsSection({
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [openAllianceDropdown]);
+
+  const groupedAircraft = groupAircraftByFamily(allAircraft || []);
 
   return (
     <>
@@ -327,11 +351,11 @@ function StatsSection({
               )}
 
               {/* Top Aircraft Chart */}
-              {topAircraft.length > 0 && (
+              {groupedAircraft.length > 0 && (
                 <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                     <h3 style={{ margin: 0 }}><BarChart3 size={18} style={{verticalAlign:'middle', marginRight:'8px'}}/> {showAllAircraft ? 'All Aircraft' : 'Top Aircraft'}</h3>
-                    {allAircraft.length > 5 && (
+                    {groupedAircraft.length > 5 && (
                       <button
                         onClick={() => setShowAllAircraft(!showAllAircraft)}
                         style={{
@@ -345,18 +369,49 @@ function StatsSection({
                           cursor: 'pointer'
                         }}
                       >
-                        {showAllAircraft ? `Show Top 5` : `Show All (${allAircraft.length})`}
+                        {showAllAircraft ? `Show Top 5` : `Show All (${groupedAircraft.length})`}
                       </button>
                     )}
                   </div>
-                  {(showAllAircraft ? allAircraft : topAircraft).map(([name, count]) => (
-                    <div key={name} style={{ marginBottom: '15px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}><span>{name}</span><span>{count} flights</span></div>
-                      <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
-                        <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                  {(showAllAircraft ? groupedAircraft : groupedAircraft.slice(0, 5)).map(({ root, total, variants }) => {
+                    const isGrouped = variants.length > 1;
+                    if (!isGrouped) {
+                      const [name, count] = variants[0];
+                      return (
+                        <div key={root} style={{ marginBottom: '15px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                            <span>{name}</span><span>{count} flight{count !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
+                            <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(count/flights.length)*100}%` }} />
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={root} style={{ marginBottom: '18px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '5px' }}>
+                          <span>{root}</span><span>{total} flight{total !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div style={{ height: '8px', background: '#eee', borderRadius: '4px', marginBottom: '10px' }}>
+                          <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(total/flights.length)*100}%` }} />
+                        </div>
+                        {variants.map(([vName, vCount]) => (
+                          <div key={vName} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px', paddingLeft: '12px' }}>
+                            <span style={{ color: '#ccc', fontSize: '11px', flexShrink: 0 }}>└</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666', marginBottom: '3px' }}>
+                                <span>{vName}</span><span>{vCount} flight{vCount !== 1 ? 's' : ''}</span>
+                              </div>
+                              <div style={{ height: '5px', background: '#eee', borderRadius: '3px' }}>
+                                <div style={{ height: '100%', background: '#fdba74', borderRadius: '3px', width: `${(vCount/flights.length)*100}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
