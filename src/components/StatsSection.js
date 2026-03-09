@@ -8,6 +8,13 @@ import { isAirlineMatch } from '../utils/airlines';
 const getAircraftRoot = (name) =>
   name.replace(/\s*(neo|ceo|xwb|lr|er)$/i, '').replace(/-[^-]*$/, '').trim();
 
+// Convert full name to short code: "Boeing 777-300ER" → "B777-300ER", "Airbus A320neo" → "A320neo"
+const shortName = (name) => {
+  if (name.startsWith('Boeing ')) return 'B' + name.slice(7);
+  if (name.startsWith('Airbus ')) return name.slice(7);
+  return name;
+};
+
 // Identify manufacturer from a family root name (handles both normalised and raw codes)
 const getManufacturer = (name) => {
   if (/^(Boeing|B7\d{2})/i.test(name))   return 'Boeing';
@@ -404,7 +411,7 @@ function StatsSection({
                   {!showAllAircraft && groupedAircraft.slice(0, 5).map(({ root, total }) => (
                     <div key={root} style={{ marginBottom: '12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                        <span>{root}</span><span>{total} flight{total !== 1 ? 's' : ''}</span>
+                        <span>{shortName(root)}</span><span>{total} flight{total !== 1 ? 's' : ''}</span>
                       </div>
                       <div style={{ height: '8px', background: '#eee', borderRadius: '4px' }}>
                         <div style={{ height: '100%', background: '#f97316', borderRadius: '4px', width: `${(total/flights.length)*100}%` }} />
@@ -432,7 +439,7 @@ function StatsSection({
                           return (
                             <div key={root} style={{ paddingLeft: '14px', marginBottom: '10px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                                <span>{name}</span><span>{count} flight{count !== 1 ? 's' : ''}</span>
+                                <span>{shortName(name)}</span><span>{count} flight{count !== 1 ? 's' : ''}</span>
                               </div>
                               <div style={{ height: '6px', background: '#eee', borderRadius: '3px' }}>
                                 <div style={{ height: '100%', background: '#f97316', borderRadius: '3px', width: `${(count/flights.length)*100}%` }} />
@@ -444,7 +451,7 @@ function StatsSection({
                           <div key={root} style={{ paddingLeft: '14px', marginBottom: '12px' }}>
                             {/* Family root header */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '4px' }}>
-                              <span>{root}</span><span>{fTotal} flight{fTotal !== 1 ? 's' : ''}</span>
+                              <span>{shortName(root)}</span><span>{fTotal} flight{fTotal !== 1 ? 's' : ''}</span>
                             </div>
                             <div style={{ height: '6px', background: '#eee', borderRadius: '3px', marginBottom: '8px' }}>
                               <div style={{ height: '100%', background: '#f97316', borderRadius: '3px', width: `${(fTotal/flights.length)*100}%` }} />
@@ -455,7 +462,7 @@ function StatsSection({
                                 <span style={{ color: '#ccc', fontSize: '11px', flexShrink: 0 }}>└</span>
                                 <div style={{ flex: 1 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#555', marginBottom: '3px' }}>
-                                    <span>{vName}</span><span>{vCount} flight{vCount !== 1 ? 's' : ''}</span>
+                                    <span>{shortName(vName)}</span><span>{vCount} flight{vCount !== 1 ? 's' : ''}</span>
                                   </div>
                                   <div style={{ height: '4px', background: '#eee', borderRadius: '2px' }}>
                                     <div style={{ height: '100%', background: '#fdba74', borderRadius: '2px', width: `${(vCount/flights.length)*100}%` }} />
