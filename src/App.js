@@ -1931,7 +1931,7 @@ const FlightTracker = () => {
     totalFlightLegs, totalMiles, totalPassengers,
     uniqueCountries, uniqueContinents, uniqueAirports,
     totalCarbonKg, totalCarbonTons, totalFlightCarbonKg, totalFlightCarbonTons,
-    topFeatures, topAirlines,
+    allFeatures, topFeatures, allAirlines, topAirlines,
     allAircraft, topAircraft,
     totalFlightsWithAirlines, sortedAlliances, dominantAlliance,
     sortedClasses, sortedCarbonByClass,
