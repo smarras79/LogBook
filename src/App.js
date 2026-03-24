@@ -1945,6 +1945,26 @@ const FlightTracker = () => {
   }, [sortMode]);
   
   // Handler to copy/duplicate a flight
+  const handleUpdateFlightNotes = async (flightId, notes) => {
+    let updated;
+    setFlights(prev => {
+      updated = prev.map(f => f.id === flightId ? { ...f, notes } : f);
+      return updated;
+    });
+    await new Promise(r => setTimeout(r, 0));
+    if (updated) {
+      localStorage.setItem('flights-data', JSON.stringify(updated));
+    }
+    if (authUser && updated) {
+      try {
+        const userDocRef = doc(db, 'users', authUser.uid);
+        await updateDoc(userDocRef, { flights: updated });
+      } catch (error) {
+        console.error('Error saving flight notes to Firestore:', error);
+      }
+    }
+  };
+
   const handleCopyFlight = (flight) => {
     setEditingFlight(null); // Not editing, creating new
     
@@ -2863,6 +2883,7 @@ const FlightTracker = () => {
         handleDeleteFlight={handleDeleteFlight}
         handleCopyFlight={handleCopyFlight}
         handleReverseFlight={handleReverseFlight}
+        handleUpdateFlightNotes={handleUpdateFlightNotes}
         flightMatches={flightMatches}
         flightMatchingOptIn={flightMatchingOptIn}
         openAllianceDropdown={openAllianceDropdown}

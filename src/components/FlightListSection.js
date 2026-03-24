@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Trash2, Edit2, Copy, ArrowLeftRight, Globe, Flag,
-  Users, CloudRain, Search
+  Users, CloudRain, Search, FileText, X
 } from 'lucide-react';
 import { formatDate } from '../utils/formatters';
 import { getFlightRadar24Url, getCarbonEstimate } from '../utils/flights';
 import { getAirlineAlliance, getAirlineWebsite, isAirlineMatch } from '../utils/airlines';
 import { ALLIANCE_STYLES, ALLIANCE_MEMBERS_DISPLAY } from '../data/airlines';
+
+const MAX_NOTES_LENGTH = 1000;
 
 const getGoogleFlightsUrl = (origin, destination) =>
   `https://www.google.com/travel/flights?q=flights+from+${encodeURIComponent(origin)}+to+${encodeURIComponent(destination)}`;
@@ -15,8 +17,34 @@ const FlightListSection = ({
   flights, sortMode, setSortMode, sortedGroups,
   groupedByCountry, groupedByContinent,
   handleEditFlight, handleDeleteFlight, handleCopyFlight, handleReverseFlight,
+  handleUpdateFlightNotes,
   flightMatches, flightMatchingOptIn, openAllianceDropdown, setOpenAllianceDropdown,
 }) => {
+  const [notesFlightId, setNotesFlightId] = useState(null);
+  const [notesDraft, setNotesDraft] = useState('');
+
+  const openNotes = (f) => {
+    setNotesFlightId(f.id);
+    setNotesDraft(f.notes || '');
+  };
+
+  const closeNotes = () => {
+    setNotesFlightId(null);
+    setNotesDraft('');
+  };
+
+  const saveNotes = () => {
+    if (notesFlightId) {
+      handleUpdateFlightNotes(notesFlightId, notesDraft);
+    }
+    closeNotes();
+  };
+
+  // Find the flight that has notes open (to show route info in modal title)
+  const notesFlight = notesFlightId
+    ? flights.find(f => f.id === notesFlightId)
+    : null;
+
   return (
     <>
       {/* Flight List Header with Sort Options */}
@@ -609,6 +637,12 @@ const FlightListSection = ({
                     
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <FileText
+                        size={14}
+                        style={{ cursor: 'pointer', color: f.notes ? '#6366f1' : '#bbb' }}
+                        title={f.notes ? 'View/edit notes' : 'Add notes'}
+                        onClick={() => openNotes(f)}
+                      />
                       <ArrowLeftRight
                         size={14}
                         style={{ cursor: 'pointer', color: '#888' }}
@@ -1075,6 +1109,7 @@ const FlightListSection = ({
                                 )}
                               </div>
                               <div style={{ display: 'flex', gap: '8px' }}>
+                                <FileText size={14} style={{ cursor: 'pointer', color: f.notes ? '#6366f1' : '#bbb' }} title={f.notes ? 'View/edit notes' : 'Add notes'} onClick={() => openNotes(f)} />
                                 <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
                                 <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
                               </div>
@@ -1262,6 +1297,7 @@ const FlightListSection = ({
                                 )}
                               </div>
                               <div style={{ display: 'flex', gap: '8px' }}>
+                                <FileText size={14} style={{ cursor: 'pointer', color: f.notes ? '#6366f1' : '#bbb' }} title={f.notes ? 'View/edit notes' : 'Add notes'} onClick={() => openNotes(f)} />
                                 <Edit2 size={14} style={{ cursor: 'pointer', color: '#888' }} onClick={() => handleEditFlight(f)} />
                                 <Trash2 size={14} style={{ cursor: 'pointer', color: '#ef4444' }} onClick={() => handleDeleteFlight(f.id)} />
                               </div>
@@ -1278,6 +1314,73 @@ const FlightListSection = ({
         </div>
       )}
 
+      {/* Notes Modal */}
+      {notesFlightId && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100
+        }}>
+          <div style={{
+            background: '#fff', padding: '28px', borderRadius: '20px',
+            width: '480px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#1e293b' }}>
+                  Flight Notes
+                </h3>
+                {notesFlight && (
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+                    {notesFlight.origin} → {notesFlight.destination} · {formatDate(notesFlight.date)}
+                  </p>
+                )}
+              </div>
+              <X size={20} style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={closeNotes} />
+            </div>
+            <textarea
+              value={notesDraft}
+              onChange={e => setNotesDraft(e.target.value.slice(0, MAX_NOTES_LENGTH))}
+              placeholder="Add personal notes about this flight…"
+              style={{
+                width: '100%', height: '180px', resize: 'vertical',
+                border: '1px solid #e2e8f0', borderRadius: '10px',
+                padding: '12px', fontSize: '14px', lineHeight: '1.5',
+                fontFamily: 'inherit', color: '#1e293b', outline: 'none',
+                boxSizing: 'border-box'
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+              <span style={{ fontSize: '12px', color: notesDraft.length >= MAX_NOTES_LENGTH ? '#dc2626' : '#94a3b8' }}>
+                {notesDraft.length} / {MAX_NOTES_LENGTH}
+              </span>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={closeNotes}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px',
+                    border: '1px solid #e2e8f0', background: '#f8fafc',
+                    color: '#64748b', fontSize: '13px', cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveNotes}
+                  style={{
+                    padding: '8px 20px', borderRadius: '8px',
+                    border: 'none', background: '#6366f1',
+                    color: '#fff', fontSize: '13px', fontWeight: '600', cursor: 'pointer'
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

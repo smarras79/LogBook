@@ -132,24 +132,27 @@ const useFlightStats = (flights) => {
 
     // Aircraft statistics (count per leg for multi-leg trips)
     const cleanAircraft = (t) => (t || '').replace(/FARE/gi, '').replace(/\s+/g, ' ').trim();
+    // Use case-insensitive keys so "B737" and "b737" aggregate together;
+    // store the first-seen display name for each normalized key.
     const aircraftStats = {};
+    const aircraftDisplayName = {};
+    const trackAircraft = (rawType) => {
+      const display = cleanAircraft(rawType);
+      if (!display || display.toLowerCase() === 'unknown') return;
+      const key = display.toLowerCase();
+      if (!aircraftDisplayName[key]) aircraftDisplayName[key] = display;
+      aircraftStats[key] = (aircraftStats[key] || 0) + 1;
+    };
     flights.forEach(f => {
       if (f.legs && f.legs.length > 1) {
-        // Multi-leg trip: count each leg's aircraft
-        f.legs.forEach(leg => {
-          const type = cleanAircraft(leg.aircraftType);
-          if (type && type !== 'Unknown') {
-            aircraftStats[type] = (aircraftStats[type] || 0) + 1;
-          }
-        });
+        f.legs.forEach(leg => trackAircraft(leg.aircraftType));
       } else {
-        const type = cleanAircraft(f.aircraftType);
-        if (type && type !== 'Unknown') {
-          aircraftStats[type] = (aircraftStats[type] || 0) + 1;
-        }
+        trackAircraft(f.aircraftType);
       }
     });
-    const allAircraft = Object.entries(aircraftStats).sort((a, b) => b[1] - a[1]);
+    const allAircraft = Object.entries(aircraftStats)
+      .map(([key, count]) => [aircraftDisplayName[key], count])
+      .sort((a, b) => b[1] - a[1]);
     const topAircraft = allAircraft.slice(0, 5);
 
     // Alliance statistics (count per leg for multi-leg trips)

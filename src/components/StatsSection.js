@@ -29,17 +29,23 @@ const getManufacturer = (name) => {
 // Group a sorted [name, count][] list into family groups
 const groupAircraftByFamily = (list) => {
   const groups = {};
+  const displayRoots = {};
   list.forEach(([name, count]) => {
-    // Normalize root through shortName so "Boeing 747" and "B747" merge into the same group
+    // Normalize root through shortName so "Boeing 747" and "B747" merge into the same group.
+    // Use uppercase key so case variants like "B737" and "b737" also merge.
     const root = shortName(getAircraftRoot(name));
-    if (!groups[root]) groups[root] = { total: 0, variants: [] };
-    groups[root].total += count;
-    groups[root].variants.push([name, count]);
+    const key = root.toUpperCase();
+    if (!groups[key]) {
+      groups[key] = { total: 0, variants: [] };
+      displayRoots[key] = root;
+    }
+    groups[key].total += count;
+    groups[key].variants.push([name, count]);
   });
   return Object.entries(groups)
     .sort((a, b) => b[1].total - a[1].total)
-    .map(([root, { total, variants }]) => ({
-      root,
+    .map(([key, { total, variants }]) => ({
+      root: displayRoots[key],
       total,
       variants: variants.sort((a, b) => b[1] - a[1]),
     }));
