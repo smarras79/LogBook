@@ -132,14 +132,18 @@ const useFlightStats = (flights) => {
 
     // Aircraft statistics (count per leg for multi-leg trips)
     const cleanAircraft = (t) => (t || '').replace(/FARE/gi, '').replace(/\s+/g, ' ').trim();
-    // Use case-insensitive keys so "B737" and "b737" aggregate together;
-    // store the first-seen display name for each normalized key.
+    // Produce a canonical key so naming variants that represent the same aircraft merge:
+    //   "Boeing 737" → "b737",  "B737" → "b737"  (same key)
+    //   "Airbus A320" → "a320", "A320" → "a320"   (same key)
+    //   "B737-800" → "b737-800" (variant kept distinct)
+    const toAircraftKey = (display) =>
+      display.replace(/^Boeing\s+/i, 'B').replace(/^Airbus\s+/i, '').toLowerCase();
     const aircraftStats = {};
     const aircraftDisplayName = {};
     const trackAircraft = (rawType) => {
       const display = cleanAircraft(rawType);
       if (!display || display.toLowerCase() === 'unknown') return;
-      const key = display.toLowerCase();
+      const key = toAircraftKey(display);
       if (!aircraftDisplayName[key]) aircraftDisplayName[key] = display;
       aircraftStats[key] = (aircraftStats[key] || 0) + 1;
     };
