@@ -46,6 +46,7 @@ import StatsSection from './components/StatsSection';
 import AuthModal from './components/AuthModal';
 import FlightListSection from './components/FlightListSection';
 import FlightMatchingSection from './components/FlightMatchingSection';
+import AirlineProgramsModal from './components/AirlineProgramsModal';
 import AdminDashboard from './components/AdminDashboard';
 
 // The primary admin email — this user is auto-granted admin on first sign-in
@@ -179,6 +180,10 @@ const FlightTracker = () => {
   // Favorites state (UIDs of favorited fellow passengers)
   const [favoritePassengers, setFavoritePassengers] = useState([]);
 
+  // Airline loyalty programs state
+  const [linkedPrograms, setLinkedPrograms] = useState([]);
+  const [showProgramsModal, setShowProgramsModal] = useState(false);
+
   // Chat state
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPartner, setChatPartner] = useState(null); // { uid, nickname }
@@ -220,6 +225,7 @@ const FlightTracker = () => {
             setFlightMatchingOptIn(data.flightMatchingOptIn || false);
             setNickname(data.nickname || '');
             setFavoritePassengers(data.favoritePassengers || []);
+            setLinkedPrograms(data.linkedPrograms || []);
 
             // Auto-grant admin to primary admin if not already set
             const shouldBeAdmin = data.isAdmin || firebaseUser.email === INITIAL_ADMIN_EMAIL;
@@ -266,6 +272,7 @@ const FlightTracker = () => {
           setFlightMatchingOptIn(false);
           setNickname('');
           setFavoritePassengers([]);
+          setLinkedPrograms([]);
           setChatOpen(false);
           setChatPartner(null);
           setChatMessages([]);
@@ -1934,6 +1941,7 @@ const FlightTracker = () => {
     allAircraft, topAircraft,
     totalFlightsWithAirlines, sortedAlliances, dominantAlliance,
     sortedClasses, sortedCarbonByClass,
+    milesByAirline, sortedMilesByAirline,
     paymentStats, groupedFlights, sortedGroups,
     groupedByCountry, groupedByContinent,
   } = useFlightStats(flights);
@@ -2075,6 +2083,19 @@ const FlightTracker = () => {
       });
     }
     setShowForm(true);
+  };
+
+  // Handler to save linked airline loyalty programs
+  const handleSaveLinkedPrograms = async (programs) => {
+    setLinkedPrograms(programs);
+    if (authUser) {
+      try {
+        const userDocRef = doc(db, 'users', authUser.uid);
+        await updateDoc(userDocRef, { linkedPrograms: programs });
+      } catch (e) {
+        console.error('Failed to save linked programs:', e);
+      }
+    }
   };
 
   // Handler to edit a specific flight within a group
@@ -2868,6 +2889,9 @@ const FlightTracker = () => {
         sortedCarbonByClass={sortedCarbonByClass}
         paymentStats={paymentStats}
         groupedFlights={groupedFlights}
+        linkedPrograms={linkedPrograms}
+        milesByAirline={milesByAirline}
+        onManagePrograms={() => setShowProgramsModal(true)}
       />
       </div>
 
@@ -2917,6 +2941,16 @@ const FlightTracker = () => {
         />
       )}
 
+
+      {/* Airline Programs Modal */}
+      {showProgramsModal && (
+        <AirlineProgramsModal
+          linkedPrograms={linkedPrograms}
+          milesByAirline={milesByAirline}
+          onSave={handleSaveLinkedPrograms}
+          onClose={() => setShowProgramsModal(false)}
+        />
+      )}
 
       {/* Chat Modal */}
       {chatOpen && chatPartner && (

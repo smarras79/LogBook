@@ -221,6 +221,24 @@ const useFlightStats = (flights) => {
     });
     const sortedCarbonByClass = Object.entries(carbonByClass).sort((a, b) => b[1] - a[1]);
 
+    // Miles per airline (total distance flown on each airline)
+    const milesByAirline = {};
+    flights.forEach(f => {
+      const rtMultiplier = f.isRoundTrip ? 2 : 1;
+      if (f.legs && f.legs.length > 1) {
+        f.legs.forEach(leg => {
+          if (leg.airline) {
+            const airline = leg.airline.trim();
+            milesByAirline[airline] = (milesByAirline[airline] || 0) + (leg.distance || 0) * rtMultiplier;
+          }
+        });
+      } else if (f.airline) {
+        const airline = f.airline.trim();
+        milesByAirline[airline] = (milesByAirline[airline] || 0) + (f.distance || 0) * rtMultiplier;
+      }
+    });
+    const sortedMilesByAirline = Object.entries(milesByAirline).sort((a, b) => b[1] - a[1]);
+
     // Payment statistics
     const paymentStats = flights.reduce((acc, f) => {
       if (f.paymentAmount && !isNaN(parseFloat(f.paymentAmount))) {
@@ -341,6 +359,8 @@ const useFlightStats = (flights) => {
       sortedClasses,
       carbonByClass,
       sortedCarbonByClass,
+      milesByAirline,
+      sortedMilesByAirline,
       paymentStats,
       groupedFlights,
       sortedGroups,

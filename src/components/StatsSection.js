@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, ChevronDown, ChevronUp, Settings, Plane, Globe, Map, Flag, MapPin, CloudRain, Moon, Users, DollarSign, CreditCard, Trophy, Mountain } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Settings, Plane, Globe, Map, Flag, MapPin, CloudRain, Moon, Users, DollarSign, CreditCard, Trophy, Mountain, Award } from 'lucide-react';
 import { statCard, statVal, statLbl } from '../styles/constants';
-import { ALLIANCE_STYLES, ALLIANCE_MEMBERS_DISPLAY } from '../data/airlines';
+import { ALLIANCE_STYLES, ALLIANCE_MEMBERS_DISPLAY, AIRLINE_LOYALTY_PROGRAMS } from '../data/airlines';
 import { isAirlineMatch } from '../utils/airlines';
 
 // Strip variant suffix to get the root family name, e.g. "Boeing 777-300ER" → "Boeing 777"
@@ -71,7 +71,8 @@ function StatsSection({
   totalCarbonKg, totalCarbonTons, totalFlightCarbonKg, totalFlightCarbonTons,
   allFeatures, topFeatures, allAirlines, topAirlines, allAircraft, topAircraft,
   sortedAlliances, dominantAlliance, totalFlightsWithAirlines,
-  sortedClasses, sortedCarbonByClass, paymentStats, groupedFlights
+  sortedClasses, sortedCarbonByClass, paymentStats, groupedFlights,
+  linkedPrograms, milesByAirline, onManagePrograms
 }) {
   const [statsExpanded, setStatsExpanded] = useState(() => {
     const saved = localStorage.getItem('statsExpanded');
@@ -85,7 +86,8 @@ function StatsSection({
     const defaults = {
       flights: true, miles: true, routes: true, countries: true,
       continents: true, airports: true, co2: true, alliance: true,
-      moon: true, world: true, passengers: true, money: true, milesSpent: true
+      moon: true, world: true, passengers: true, money: true, milesSpent: true,
+      loyaltyPrograms: true
     };
     const saved = localStorage.getItem('visibleStats');
     if (saved) return { ...defaults, ...JSON.parse(saved) };
@@ -190,7 +192,8 @@ function StatsSection({
                 { key: 'world', label: '\uD83C\uDF0D World Laps' },
                 { key: 'passengers', label: '\uD83D\uDC65 Passengers' },
                 { key: 'money', label: '\uD83D\uDCB5 Money' },
-                { key: 'milesSpent', label: '\uD83D\uDCB3 Miles Spent' }
+                { key: 'milesSpent', label: '\uD83D\uDCB3 Miles Spent' },
+                { key: 'loyaltyPrograms', label: '\uD83C\uDFC6 Loyalty Programs' }
               ].map(({ key, label }) => (
                 <label key={key} style={{
                   display: 'flex',
@@ -316,6 +319,30 @@ function StatsSection({
                 <div style={{...statVal, color: '#2563eb'}}>{paymentStats.totalMilesSpent.toLocaleString()}</div>
                 <div style={statLbl}>Miles Redeemed</div>
                 <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>({paymentStats.milesFlightCount} trip{paymentStats.milesFlightCount > 1 ? 's' : ''})</div>
+              </div>
+            )}
+            {visibleStats.loyaltyPrograms && (
+              <div
+                style={{
+                  ...statCard,
+                  background: linkedPrograms && linkedPrograms.length > 0 ? '#fdf4ff' : '#f8fafc',
+                  borderColor: linkedPrograms && linkedPrograms.length > 0 ? '#a855f7' : '#e2e8f0',
+                  cursor: 'pointer'
+                }}
+                onClick={onManagePrograms}
+                title="Manage your airline loyalty programs"
+              >
+                <Award size={20} color={linkedPrograms && linkedPrograms.length > 0 ? '#a855f7' : '#94a3b8'}/>
+                <div style={{...statVal, color: linkedPrograms && linkedPrograms.length > 0 ? '#7c3aed' : '#94a3b8'}}>
+                  {linkedPrograms ? linkedPrograms.length : 0}
+                </div>
+                <div style={statLbl}>Loyalty Programs</div>
+                {linkedPrograms && linkedPrograms.length > 0 && (
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Click to manage</div>
+                )}
+                {(!linkedPrograms || linkedPrograms.length === 0) && (
+                  <div style={{ fontSize: '10px', color: '#a855f7', marginTop: '4px', fontWeight: '500' }}>+ Link programs</div>
+                )}
               </div>
             )}
           </div>
@@ -678,6 +705,97 @@ function StatsSection({
             )}
           </div>
         )}
+
+              {/* Loyalty Programs Miles Chart */}
+              {linkedPrograms && linkedPrograms.length > 0 && (
+                <div style={{ background: '#fdf4ff', padding: '24px', borderRadius: '16px', border: '1px solid #e9d5ff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, color: '#6b21a8' }}>
+                      <Award size={18} style={{ verticalAlign: 'middle', marginRight: '8px' }}/>
+                      Loyalty Program Miles
+                    </h3>
+                    <button
+                      onClick={onManagePrograms}
+                      style={{
+                        background: '#7c3aed', color: '#fff',
+                        border: 'none', padding: '4px 12px',
+                        borderRadius: '6px', fontSize: '11px',
+                        fontWeight: '600', cursor: 'pointer'
+                      }}
+                    >
+                      Manage
+                    </button>
+                  </div>
+                  {(() => {
+                    // Helper to get miles for an airline (matching variants)
+                    const getMiles = (airline) => {
+                      if (!milesByAirline) return 0;
+                      let total = 0;
+                      Object.entries(milesByAirline).forEach(([key, miles]) => {
+                        const k = key.toLowerCase().trim();
+                        const a = airline.toLowerCase().trim();
+                        if (k === a) { total += miles; return; }
+                        const aNoSuffix = a.replace(/\s*(airlines?|airways?|air lines?)\s*$/i, '').trim();
+                        const kNoSuffix = k.replace(/\s*(airlines?|airways?|air lines?)\s*$/i, '').trim();
+                        if (kNoSuffix === aNoSuffix) { total += miles; return; }
+                        if (k.startsWith(aNoSuffix) || a.startsWith(kNoSuffix)) { total += miles; }
+                      });
+                      return Math.round(total);
+                    };
+                    const maxMiles = Math.max(...linkedPrograms.map(p => getMiles(p.airline)), 1);
+                    return linkedPrograms
+                      .map(p => ({ ...p, miles: getMiles(p.airline) }))
+                      .sort((a, b) => b.miles - a.miles)
+                      .map(program => {
+                        const loyaltyName = AIRLINE_LOYALTY_PROGRAMS[program.airline] || program.programName;
+                        return (
+                          <div key={program.airline} style={{ marginBottom: '15px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+                              <span>
+                                {program.airline}
+                                <span style={{ color: '#a78bfa', fontSize: '11px', marginLeft: '6px' }}>
+                                  {loyaltyName}
+                                </span>
+                              </span>
+                              <span style={{ fontWeight: '600', color: '#7c3aed' }}>
+                                {program.miles.toLocaleString()} mi
+                              </span>
+                            </div>
+                            <div style={{ height: '8px', background: '#f3e8ff', borderRadius: '4px' }}>
+                              <div style={{
+                                height: '100%', background: '#a855f7', borderRadius: '4px',
+                                width: `${(program.miles / maxMiles) * 100}%`,
+                                transition: 'width 0.3s ease'
+                              }} />
+                            </div>
+                          </div>
+                        );
+                      });
+                  })()}
+                  <div style={{
+                    marginTop: '12px', padding: '10px 12px',
+                    background: '#f5f3ff', borderRadius: '8px',
+                    fontSize: '12px', color: '#6b21a8', textAlign: 'center'
+                  }}>
+                    Total: <strong>
+                      {linkedPrograms.reduce((sum, p) => {
+                        if (!milesByAirline) return sum;
+                        let total = 0;
+                        Object.entries(milesByAirline).forEach(([key, miles]) => {
+                          const k = key.toLowerCase().trim();
+                          const a = p.airline.toLowerCase().trim();
+                          if (k === a) { total += miles; return; }
+                          const aNoSuffix = a.replace(/\s*(airlines?|airways?|air lines?)\s*$/i, '').trim();
+                          const kNoSuffix = k.replace(/\s*(airlines?|airways?|air lines?)\s*$/i, '').trim();
+                          if (kNoSuffix === aNoSuffix) { total += miles; return; }
+                          if (k.startsWith(aNoSuffix) || a.startsWith(kNoSuffix)) { total += miles; }
+                        });
+                        return sum + Math.round(total);
+                      }, 0).toLocaleString()}
+                    </strong> miles across {linkedPrograms.length} program{linkedPrograms.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              )}
 
               {/* Top Landmarks Chart */}
               <div style={{ background: '#f9f9f9', padding: '24px', borderRadius: '16px' }}>
